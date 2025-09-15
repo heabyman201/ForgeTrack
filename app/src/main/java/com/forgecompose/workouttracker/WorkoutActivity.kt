@@ -51,6 +51,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -172,6 +173,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.inset
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ModifierLocalBeyondBoundsLayout
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
@@ -522,7 +524,8 @@ fun CircularTimerProgressBar(
         val strokeWidth = 20.dp.toPx()
         val p = progress.coerceIn(0f, 1f)
 
-        inset(strokeWidth / 2f) {
+        val safeInset = minOf(strokeWidth / 2f, size.minDimension / 2f - 1f)
+        inset(safeInset) {
             val c = center
             val radius = size.minDimension / 2f
 
@@ -2019,7 +2022,7 @@ fun TimerSelector(
     navController: NavController
 ) {
     var hours by remember { mutableStateOf(0) }
-    var minutes by remember { mutableStateOf(5) }
+    var minutes by remember { mutableStateOf(0) }
     var seconds by remember { mutableStateOf(0) }
 
     fun setGoalTime() {
@@ -2235,18 +2238,32 @@ fun NumberStepper(
         ) {
             IconButton(
                 onClick = {
-                    onValueChange((value - 1).coerceIn(range))
-                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+
                 },
                 modifier = Modifier
+
                     .size(48.dp)
                     .clip(CircleShape)
                     .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
+
+
+
             ) {
                 Icon(
                     imageVector = Icons.Default.Remove,
                     contentDescription = "Decrement $label",
-                    tint = MaterialTheme.colorScheme.primary
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier
+                    .combinedClickable(
+                        onClick = {
+                            onValueChange((value - 1).coerceIn(range))
+                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        },
+                onLongClick = {
+                    onValueChange((value - 999999).coerceIn(range))
+                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                }
+                )
                 )
             }
 
@@ -2796,7 +2813,6 @@ fun GoalCompletionAnimation(
                             Color.Transparent
                         ),
                         center = center,
-                        // FIX: Ensure radius is always > 0 to prevent the crash.
                         radius = shockwaveRadius.coerceAtLeast(0.1f)
                     ),
                     radius = shockwaveRadius,
@@ -2835,7 +2851,7 @@ fun GoalCompletionAnimation(
         val gradient = if (isPr) {
             Brush.linearGradient(listOf(Color(0xFFFFF8E1), Color(0xFFFFD54F), Color(0xFFFFA000)))
         } else {
-            Brush.linearGradient(listOf(Color(0xFF80FFE5), Color(0xFF7DB3FF), Color(0xFFFF7DF3)))
+            Brush.linearGradient(listOf(Color(0xFFFF5454), Color(0xFFFF6F00), Color(0xFFFFB800)))
         }
         val glowColor = (if (isPr) Color(0xFFFFC107) else Color(0xFF7DB3FF)).copy(alpha = 0.8f)
         val textSize = if (isPr) 62.sp else 52.sp
