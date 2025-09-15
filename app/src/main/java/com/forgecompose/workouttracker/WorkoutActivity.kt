@@ -159,9 +159,11 @@ import kotlin.math.pow
 import kotlin.math.sin
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
@@ -650,7 +652,7 @@ private fun lerp(start: Float, stop: Float, fraction: Float): Float {
 @RequiresApi(Build.VERSION_CODES.TIRAMISU)
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,vm: HrPhoneViewModel = viewModel()) {
+fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController, vm: HrPhoneViewModel = viewModel()) {
     val context = LocalContext.current
     val intent = remember(context) { Intent(context, MainActivity::class.java) }
     var hours by interHour
@@ -676,9 +678,7 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
     }
 
     val uiState by viewModel.uiState.collectAsState()
-
     val workouts: List<Workout> = (uiState as? WorkoutListUiState.Success)?.workouts.orEmpty()
-
 
     fun List<Workout>.contentKey(): Int =
         fold(1) { acc, w ->
@@ -690,7 +690,6 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
 
     val contentKey = remember(workouts) { workouts.contentKey() }
 
-
     val (personalRecords, recentWorkouts) = remember(contentKey) {
         if (workouts.isNotEmpty()) {
             val prs = workouts
@@ -698,7 +697,6 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                 .groupBy { it.name }
                 .map { (name, list) -> PersonalRecord(name, list.maxOf { it.weight!! }) }
                 .sortedByDescending { it.maxWeight }
-
             val recent = workouts.take(5)
             prs to recent
         } else {
@@ -706,11 +704,9 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
         }
     }
 
-
     val fitnessContext = "You are a fitness coach. The user provides sets, reps, and either weights , time or distance. Give them encouragement. Max 15 words only."
     val scope = rememberCoroutineScope()
     val (advice, _, generateAdvice) = useGeminiAdviceGenerator(contextPrompt = fitnessContext)
-
 
     fun timeToMillis() {
         val hoursInMillis = hours * 60 * 60 * 1000L
@@ -724,13 +720,11 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
         when (GoalType) {
             "Reps" -> {
                 if (CurrentSets.intValue >= GoalSets.intValue && CurrentReps.intValue >= GoalReps.intValue) {
-
                     showCompletionAnimation = true
                     GoalSets.intValue = 0
                     GoalReps.intValue = 0
                     GoalTime.value = 0
                     scope.launch(Dispatchers.IO) {
-
                         WellnessAI.WellnessLogger.logWorkout(
                             durationMinutes = CurrentTime.value.toInt(),
                             intensity = 10f,
@@ -788,15 +782,12 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
         val sensorManager = context.getSystemService(Context.SENSOR_SERVICE) as? SensorManager ?: return
         val accel = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER) ?: return
         val stepDetector = sensorManager.getDefaultSensor(Sensor.TYPE_STEP_DETECTOR)
-
         val mainHandler = Handler(Looper.getMainLooper())
         val sensorThread = try { HandlerThread("step-detector").apply { start() } } catch (_: Throwable) { return }
         val sensorHandler = Handler(sensorThread.looper)
-
         var isAccelRegistered = false
         var isStepRegistered = false
         var distanceMeters = 0.0
-
         var gx = 0.0; var gy = 0.0; var gz = 0.0
         val tauSec = 0.8
         var mean = 0.0; var meanSq = 0.0
@@ -812,10 +803,8 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
         var lastPushValue = Double.NaN
         var lastPushMs = 0L
         var lastHwStepNs = 0L
-
         val pm = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
         val wakeLock = try { pm?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "wt:step")?.apply { setReferenceCounted(false); acquire() } } catch (_: Throwable) { null }
-
         fun fastRound3(x: Double): Double {
             if (!x.isFinite()) return Double.NaN
             val t = x * 1000.0
@@ -840,7 +829,6 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                 }
             }
         }
-
         val accelListener = object : SensorEventListener {
             override fun onSensorChanged(e: SensorEvent?) {
                 lastEventUptimeMs = SystemClock.uptimeMillis()
@@ -848,42 +836,33 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                     e ?: return
                     val vals = e.values ?: return
                     if (vals.size < 3) return
-
                     val ts = e.timestamp
                     val dtNs = lastTimestampNs?.let { val d = ts - it; if (d > 0L) d else 20_000_000L } ?: 20_000_000L
                     lastTimestampNs = ts
                     val dtSec = (dtNs.toDouble() / 1e9).coerceIn(1e-6, 1.0)
                     val alpha = (tauSec / (tauSec + dtSec)).coerceIn(0.0, 1.0)
-
                     val vx = vals.getOrNull(0)?.toDouble() ?: return
                     val vy = vals.getOrNull(1)?.toDouble() ?: return
                     val vz = vals.getOrNull(2)?.toDouble() ?: return
-
                     gx = alpha * gx + (1.0 - alpha) * vx
                     gy = alpha * gy + (1.0 - alpha) * vy
                     gz = alpha * gz + (1.0 - alpha) * vz
-
                     val lx = vx - gx
                     val ly = vy - gy
                     val lz = vz - gz
-
                     var mag = (lx * lx + ly * ly + lz * lz)
                     if (!mag.isFinite() || mag <= 0.0) return
                     mag = kotlin.math.sqrt(mag)
                     if (!mag.isFinite()) return
-
                     mean = (1 - beta) * mean + beta * mag
                     meanSq = (1 - beta) * meanSq + beta * (mag * mag)
                     sampleCount++
-
                     val variance = (meanSq - mean * mean).let { if (it.isFinite() && it >= 0.0) it else 0.0 }
                     val sigma = kotlin.math.sqrt(variance).let { if (it.isFinite()) it else 0.0 }
                     val dynamicThreshold = max(1.05, (mean + 1.15 * sigma).coerceIn(0.8, 20.0))
-
                     val curr = mag
                     if (curr < prev1) lastValley = min(lastValley, curr)
                     val isPeak = (sampleCount > 25) && prev1 > prev2 && prev1 > curr && prev1 > dynamicThreshold
-
                     if (isPeak) {
                         val dtSinceLast = ts - lastStepTimeNs
                         if (lastStepTimeNs == 0L) {
@@ -909,14 +888,12 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                             lastValley = curr
                         }
                     }
-
                     prev2 = prev1
                     prev1 = curr
                 } catch (_: Throwable) {}
             }
             override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
         }
-
         val stepListener = object : SensorEventListener {
             override fun onSensorChanged(e: SensorEvent?) {
                 lastEventUptimeMs = SystemClock.uptimeMillis()
@@ -935,7 +912,6 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
             }
             override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
         }
-
         fun registerAll() {
             try {
                 isAccelRegistered = sensorManager.registerListener(
@@ -964,7 +940,6 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
             isAccelRegistered = false
             isStepRegistered = false
         }
-
         val watchdog = object : Runnable {
             override fun run() {
                 try {
@@ -981,7 +956,6 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                 }
             }
         }
-
         try {
             registerAll()
             try { sensorHandler.postDelayed(watchdog, 5_000L) } catch (_: Throwable) {}
@@ -999,8 +973,6 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
             try { wakeLock?.release() } catch (_: Throwable) {}
         }
     }
-
-
 
     fun SetsGoalSafetyCheck() {
         when (GoalType) {
@@ -1068,14 +1040,19 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
     val animatedProgress by animateFloatAsState(targetValue = progress, label = "p", animationSpec = tween(900))
     val animatedProgressDistance by animateFloatAsState(targetValue = progressDistance, label = "pd", animationSpec = tween(900))
 
+    val startAt = rememberSaveable { mutableLongStateOf(SystemClock.elapsedRealtime()) }
+    var accMs by rememberSaveable { mutableLongStateOf(0L) }
+    LaunchedEffect(Unit) {
+        accMs = ((hours * 3600L + minutes * 60L + seconds) * 1000L)
+    }
     fun incrementTime() {
         if (!isPaused) {
-            seconds++
-            if (seconds == 60) {
-                seconds = 0; minutes++
-                if (minutes == 60) { minutes = 0; hours++ }
-            }
-
+            val now = SystemClock.elapsedRealtime()
+            val elapsed = (now - startAt.longValue) + accMs
+            val totalSec = (elapsed / 1000L).toInt()
+            seconds = totalSec % 60
+            minutes = (totalSec / 60) % 60
+            hours = totalSec / 3600
         }
     }
 
@@ -1088,6 +1065,7 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
             delay(1000)
         }
     }
+
     DisposableEffect(GoalType) {
         var job: Job? = null
         if (GoalType == "Distance") {
@@ -1101,48 +1079,38 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                 }
             }
         }
-        onDispose {
-            job?.cancel()
-        }
+        onDispose { job?.cancel() }
     }
 
     val basePhase = remember { Animatable(0f) }
     val corePhase = remember { Animatable(0f) }
-
     fun basePeriod(h: Float) = (10000 - (4200 * h)).toInt().coerceAtLeast(1200)
     fun corePeriod(h: Float) = (5000 - (2600 * h)).toInt().coerceAtLeast(600)
 
-    LaunchedEffect(hype) {
-        launch {
-            while (isActive) {
-                basePhase.snapTo(0f)
-                basePhase.animateTo(1f, tween(durationMillis = basePeriod(hype), easing = LinearEasing))
-            }
+    LaunchedEffect(Unit) {
+        while (isActive) {
+            basePhase.snapTo(0f)
+            basePhase.animateTo(1f, tween(durationMillis = basePeriod(hype), easing = LinearEasing))
         }
-        launch {
-            while (isActive) {
-                corePhase.snapTo(0f)
-                corePhase.animateTo(1f, tween(durationMillis = corePeriod(hype), easing = LinearEasing))
-            }
+    }
+    LaunchedEffect(Unit) {
+        while (isActive) {
+            corePhase.snapTo(0f)
+            corePhase.animateTo(1f, tween(durationMillis = corePeriod(hype), easing = LinearEasing))
         }
     }
 
     fun sin01(t: Float) = ((sin(t * 2f * Math.PI).toFloat()) * 0.5f + 0.5f)
-
     val basePulse = remember(hype, basePhase.value) { 0.55f + 0.45f * sin01(basePhase.value) * (0.6f + 0.4f * hype) }
     val corePulse = remember(hype, corePhase.value) { 0.35f + 0.65f * sin01(corePhase.value) * (0.5f + 0.5f * hype) }
-
     val centerX = 0.5f + (0.06f + 0.10f * hype) * sin(basePhase.value * 2f * Math.PI).toFloat()
     val centerY = 0.55f + (0.05f + 0.08f * hype) * cos(basePhase.value * 2f * Math.PI).toFloat()
-
     val baseRadius = 1400f * (1.05f - 0.35f * basePulse)
     val coreRadius = 760f * (1.10f - 0.45f * corePulse)
-
     val deep = Color(0xFF0D0404)
     val ember = Color(0xFF2A0D0D).copy(alpha = 0.65f + 0.25f * hype)
     val flame = Color(0xFFB71C1C).copy(alpha = 0.35f + 0.35f * corePulse)
     val whiteHot = Color(0xFFFF6D6D).copy(alpha = 0.15f + 0.25f * corePulse)
-
     val baseBrush = Brush.radialGradient(
         colors = listOf(ember, deep),
         center = Offset(centerX, centerY),
@@ -1156,9 +1124,8 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
         ),
         radius = coreRadius
     )
-
     val shimmerPhase = remember { Animatable(0f) }
-    LaunchedEffect(hype) {
+    LaunchedEffect(Unit) {
         while (isActive) {
             shimmerPhase.snapTo(0f)
             shimmerPhase.animateTo(1f, tween((5000 - 2400 * hype).toInt().coerceAtLeast(400), 300))
@@ -1213,7 +1180,6 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                             )
                         )
                 )
-
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
@@ -1233,9 +1199,11 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                                 ConnectedWorkout.currentMode.value = WorkoutMode.INACTIVE
                                 context.startActivity(intent)
                                 activity?.finish()
-                                hours = 0;
-                                minutes = 0;
-                                seconds = 0;
+                                hours = 0
+                                minutes = 0
+                                seconds = 0
+                                accMs = 0L
+                                startAt.longValue = SystemClock.elapsedRealtime()
                                 CurrentSets.intValue = 0
                                 CurrentReps.intValue = 0
                                 CurrentTime.value = 0
@@ -1254,7 +1222,7 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                             .fillMaxWidth()
                             .height(250.dp),
                         contentAlignment = Alignment.Center
-                    ){
+                    ) {
                         val timerScale by animateFloatAsState(1f + 0.06f * corePulse, label = "timerScale")
                         Text(
                             text = String.format("%02d:%02d:%02d", hours, minutes, seconds),
@@ -1265,7 +1233,6 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                             modifier = Modifier.graphicsLayer { scaleX = timerScale; scaleY = timerScale }
                         )
                     }
-
 
                     Spacer(modifier = Modifier.height(16.dp))
 
@@ -1336,8 +1303,7 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                                     else if (CurrentTime.value < 0) "current distance walked or ran is ${currentDistance.value}km"
                                     else "current time elapsed is ${CurrentTime.value}"
                                 generateAdvice(
-                                    "so far the user has performed ${CurrentReps.intValue} and their goal is to reach ${GoalReps.intValue} " ,
-
+                                    "so far the user has performed ${CurrentReps.intValue} and their goal is to reach ${GoalReps.intValue} ",
                                     "current sets are ${CurrentSets.intValue} and the goal is ${GoalSets.intValue}" +
                                             "Increase encouragement as they get closer to it",
                                     uVal
@@ -1390,6 +1356,12 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                         Button(
                             onClick = {
                                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                val now = SystemClock.elapsedRealtime()
+                                if (!isPaused) {
+                                    accMs += now - startAt.longValue
+                                } else {
+                                    startAt.longValue = now
+                                }
                                 isPaused = !isPaused
                                 pauseText = if (isPaused) "Resume" else "Pause"
                             },
@@ -1416,6 +1388,8 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                                 hours = 0
                                 minutes = 0
                                 seconds = 0
+                                accMs = 0L
+                                startAt.longValue = SystemClock.elapsedRealtime()
                                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                                 scope.launch(Dispatchers.Main) {
                                     context.startActivity(intent)
@@ -1440,6 +1414,7 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
         }
     }
 }
+
 
 
 
@@ -1595,9 +1570,7 @@ fun GoalScreen(navController: NavController, viewModel: WorkoutListViewModel) {
     }
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
-    val context = LocalContext.current
     val scale by animateFloatAsState(if (isPressed) 0.98f else 1f, label = "buttonScale")
-    val elevation by animateDpAsState(if (isPressed) 4.dp else 12.dp, label = "buttonElevation")
     GoalType = selectedGoalType
     val infiniteTransition = rememberInfiniteTransition(label = "goalBackgroundAnimation")
     val intensePulse by infiniteTransition.animateFloat(
@@ -1627,205 +1600,238 @@ fun GoalScreen(navController: NavController, viewModel: WorkoutListViewModel) {
         ),
         label = "gradientOffset"
     )
-    val totalGoalReps by
-    derivedStateOf { GoalReps.intValue * GoalSets.intValue }
-LaunchedEffect(Unit) {
-   if (ConnectedWorkout.currentMode.value == WorkoutMode.ACTIVE){
-       navController.navigate("WorkoutScreen")
-   } else if (ConnectedWorkout.currentMode.value == WorkoutMode.RESTING){
-       navController.navigate("RestScreen")
-   }
-}
+
+    var repsPerSet by remember { mutableIntStateOf(GoalReps.intValue.takeIf { it > 0 } ?: 10) }
+    val totalGoalReps by derivedStateOf { repsPerSet * GoalSets.intValue }
+
+    LaunchedEffect(Unit) {
+        if (ConnectedWorkout.currentMode.value == WorkoutMode.ACTIVE){
+            navController.navigate("WorkoutScreen")
+        } else if (ConnectedWorkout.currentMode.value == WorkoutMode.RESTING){
+            navController.navigate("RestScreen")
+        }
+    }
 
     WorkoutTrackerTheme {
-        val aggressiveGradientBrush = Brush.radialGradient(
-            colors = listOf(
-                Color(0xFF1A0808),
-                Color(0xFF4A1515).copy(alpha = 0.9f + gradientOffset * 0.1f),
-                Color(0xFF650000).copy(alpha = 0.8f + glowIntensity * 0.2f),
-                Color(0xFF8B0000).copy(alpha = 0.7f + intensePulse * 0.3f),
-                Color(0xFF0D0404)
-            ),
-            radius = 1000f + (gradientOffset * 600f),
-            center = Offset(
-                0.5f + sin(gradientOffset * PI.toFloat() * 2f) * 0.3f,
-                0.4f + cos(gradientOffset * PI.toFloat() * 1.5f) * 0.2f
+        val aggressiveGradientBrush = remember(gradientOffset, glowIntensity, intensePulse) {
+            Brush.radialGradient(
+                colors = listOf(
+                    Color(0xFF1A0808),
+                    Color(0xFF4A1515).copy(alpha = 0.9f + gradientOffset * 0.1f),
+                    Color(0xFF650000).copy(alpha = 0.8f + glowIntensity * 0.2f),
+                    Color(0xFF8B0000).copy(alpha = 0.7f + intensePulse * 0.3f),
+                    Color(0xFF0D0404)
+                ),
+                radius = 1000f + (gradientOffset * 600f),
+                center = Offset(
+                    0.5f + sin(gradientOffset * PI.toFloat() * 2f) * 0.3f,
+                    0.4f + cos(gradientOffset * PI.toFloat() * 1.5f) * 0.2f
+                )
             )
-        )
-        val secondaryGradientBrush = Brush.linearGradient(
-            colors = listOf(
-                Color(0xFF8B0000).copy(alpha = 0.3f + intensePulse * 0.4f),
-                Color.Transparent,
-                Color(0xFF4A1515).copy(alpha = 0.2f + glowIntensity * 0.3f),
-                Color.Transparent
+        }
+        val secondaryGradientBrush = remember(intensePulse, glowIntensity) {
+            Brush.linearGradient(
+                colors = listOf(
+                    Color(0xFF8B0000).copy(alpha = 0.3f + intensePulse * 0.4f),
+                    Color.Transparent,
+                    Color(0xFF4A1515).copy(alpha = 0.2f + glowIntensity * 0.3f),
+                    Color.Transparent
+                )
             )
-        )
-        Scaffold(
-            containerColor = Color(0xFF0D0404).copy(alpha = 0.8f + intensePulse * 0.1f),
+        }
+        val animatedContainerColor = remember(intensePulse) {
+            Color(0xFF0D0404).copy(alpha = 0.8f + intensePulse * 0.1f)
+        }
+
+        Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(aggressiveGradientBrush)
-                .background(secondaryGradientBrush),
-            topBar = {
-                TopAppBar(
-                    title = {
-                        Text(
-                            text = workout.value,
-                            style = MaterialTheme.typography.headlineSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = Color.Transparent,
-                    ),
-                    navigationIcon = {
-                        IconButton(onClick = { context.startActivity(Intent(context, MainActivity::class.java)) }) {
-                            Icon(
-                                Icons.Default.ArrowBack,
-                                contentDescription = "Back",
-                                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
-                            )
-                        }
-                    }
-                )
-            }
-        ) { paddingValues ->
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(paddingValues)
-                    .padding(horizontal = 24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Spacer(modifier = Modifier.height(64.dp))
-                Text(
-                    "Set Your Goal",
-                    style = MaterialTheme.typography.displaySmall.copy(
-                        shadow = Shadow(
-                            color = Color(0xFFFF4444).copy(alpha = glowIntensity * 0.7f),
-                            offset = Offset(0f, 0f),
-                            blurRadius = 18f
-                        )
-                    ),
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Spacer(modifier = Modifier.height(48.dp))
-                GoalSelector(
-                    selectedType = selectedGoalType,
-                    onTypeSelected = { newType ->
-                        selectedGoalType = newType
-                        ConnectedWorkout.workoutGoalTypeMap[workout.value] = newType
-                    },
-                    navController = navController
-                )
-                Spacer(modifier = Modifier.height(40.dp))
-                AnimatedContent(
-                    targetState = selectedGoalType,
-                    label = "GoalTypeAnimation",
-                    transitionSpec = {
-                        fadeIn(animationSpec = tween(400)) +
-                                slideInVertically(animationSpec = tween(400), initialOffsetY = { it / 2 }) togetherWith
-                                fadeOut(animationSpec = tween(400)) +
-                                slideOutVertically(animationSpec = tween(400), targetOffsetY = { -it / 2 })
-                    }
-                ) { targetType ->
-                    if (targetType == "Reps") {
-                        Column(verticalArrangement = Arrangement.spacedBy(32.dp), horizontalAlignment =
-                            Alignment.CenterHorizontally) {
-                            WeightSelector()
-                            HorizontalDivider(color = Color(0xFFFF4444).copy(alpha = 0.2f + glowIntensity * 0.2f))
-                            RepSelector()
-                            HorizontalDivider(color = Color(0xFFFF4444).copy(alpha = 0.2f + glowIntensity * 0.2f))
-                            SetSelector()
-                        }
-                    } else if (targetType == "Distance"){
-                        Column(verticalArrangement = Arrangement.spacedBy(24.dp)) {
-                            HorizontalDivider(color = Color(0xFFFF4444).copy(alpha = 0.2f + glowIntensity * 0.2f))
-                            DistanceSelector(
-                                label = "Distance",
-                                value = GoalDistance.value,
-                                onValueChange = { GoalDistance.value = it }
-                            )
-                        }
-                    } else {
-                        Column(verticalArrangement = Arrangement.spacedBy(24.dp)) {
-                            WeightSelector()
-                            HorizontalDivider(color = Color(0xFFFF4444).copy(alpha = 0.2f + glowIntensity * 0.2f))
-                            TimerSelector(navController)
-                        }
-                    }
+                .drawBehind {
+                    drawRect(brush = aggressiveGradientBrush)
+                    drawRect(brush = secondaryGradientBrush)
+                    drawRect(color = animatedContainerColor)
                 }
-                Spacer(modifier = Modifier.weight(1f))
-                Button(
-                    onClick = {
-
-                        when (selectedGoalType) {
-                            "Reps" -> if (GoalReps.intValue != 0 && GoalSets.intValue != 0) {
-                                if (ConnectedWorkout.currentMode.value != WorkoutMode.ACTIVE) {
-                                    GoalReps.intValue = totalGoalReps
-                                }
-                                navController.navigate("WorkoutScreen")
-                                ConnectedWorkout.currentMode.value = WorkoutMode.ACTIVE
-                            }
-                            "Time" -> if (GoalTime.value != 0L) {
-                                navController.navigate("WorkoutScreen")
-                                ConnectedWorkout.currentMode.value = WorkoutMode.ACTIVE
-                            }
-                            "Distance" -> if (GoalDistance.value != 0.0) {
-                                navController.navigate("WorkoutScreen")
-                                ConnectedWorkout.currentMode.value = WorkoutMode.ACTIVE
-                            }
-                        }
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(60.dp)
-                        .graphicsLayer {
-                            scaleX = scale
-                            scaleY = scale
-                        }
-                        .border(
-                            width = 2.dp,
-                            brush = Brush.linearGradient(
-                                colors = listOf(
-                                    Color(0xFF8B0000).copy(alpha = 0.8f + intensePulse * 0.2f),
-                                    Color(0xFFFF8800).copy(alpha = 0.6f + glowIntensity * 0.3f),
-                                    Color(0xFF650000).copy(alpha = 0.7f)
+        ) {
+            Scaffold(
+                containerColor = Color.Transparent,
+                modifier = Modifier.fillMaxSize(),
+                topBar = {
+                    TopAppBar(
+                        title = {
+                            Text(
+                                text = workout.value,
+                                style = MaterialTheme.typography.headlineSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        },
+                        colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
+                        navigationIcon = {
+                            IconButton(onClick = { navController.popBackStack() }) {
+                                Icon(
+                                    Icons.Default.ArrowBack,
+                                    contentDescription = "Back",
+                                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
                                 )
-                            ),
-                            shape = CircleShape
-                        ),
-                    shape = CircleShape,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFF4A1515).copy(alpha = 0.4f + intensePulse * 0.2f),
-                        contentColor = Color.White
-                    ),
-                    elevation = ButtonDefaults.buttonElevation(
-                        defaultElevation = elevation,
-                        pressedElevation = elevation
-                    ),
-                    interactionSource = interactionSource
-                ) {
-                    Text(
-                        if (ConnectedWorkout.currentMode.value == WorkoutMode.INACTIVE) "Start Workout" else "Resume Workout",
-                        style = MaterialTheme.typography.titleLarge.copy(
-                            shadow = Shadow(
-                                color = Color.White.copy(alpha = glowIntensity * 0.5f),
-                                blurRadius = 10f
-                            )
-                        ),
-                        fontWeight = FontWeight.Bold,
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Icon(
-                        Icons.Default.ArrowForward,
-                        contentDescription = null,
-                        tint = Color.White
+                            }
+                        }
                     )
                 }
-                Spacer(modifier = Modifier.height(32.dp))
+            ) { paddingValues ->
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(paddingValues)
+                        .padding(horizontal = 24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Spacer(modifier = Modifier.height(64.dp))
+
+                    Text(
+                        text = "Set Your Goal",
+                        style = MaterialTheme.typography.displaySmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
+
+                    )
+                    Spacer(modifier = Modifier.height(48.dp))
+
+                    GoalSelector(
+                        selectedType = selectedGoalType,
+                        onTypeSelected = { newType ->
+                            selectedGoalType = newType
+                            ConnectedWorkout.workoutGoalTypeMap[workout.value] = newType
+                        },
+                        navController = navController
+                    )
+                    Spacer(modifier = Modifier.height(40.dp))
+
+                    AnimatedContent(
+                        targetState = selectedGoalType,
+                        label = "GoalTypeAnimation",
+                        transitionSpec = {
+                            fadeIn(tween(400)) + slideInVertically(tween(400), initialOffsetY = { it / 2 }) togetherWith
+                                    fadeOut(tween(400)) + slideOutVertically(tween(400), targetOffsetY = { -it / 2 })
+                        }
+                    ) { targetType ->
+                        val animatedDividerModifier = Modifier
+                            .fillMaxWidth()
+                            .height(1.dp)
+                            .drawBehind {
+                                val animatedColor = Color(0xFFFF4444).copy(alpha = 0.2f + glowIntensity * 0.2f)
+                                drawLine(
+                                    color = animatedColor,
+                                    start = Offset(0f, center.y),
+                                    end = Offset(size.width, center.y),
+                                    strokeWidth = size.height
+                                )
+                            }
+                        if (targetType == "Reps") {
+                            Column(
+                                verticalArrangement = Arrangement.spacedBy(32.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                WeightSelector()
+                                Box(modifier = animatedDividerModifier)
+                                RepSelector()
+                                Box(modifier = animatedDividerModifier)
+                                SetSelector()
+                            }
+                        } else if (targetType == "Distance") {
+                            Column(verticalArrangement = Arrangement.spacedBy(24.dp)) {
+                                Box(modifier = animatedDividerModifier)
+                                DistanceSelector(
+                                    label = "Distance",
+                                    value = GoalDistance.value,
+                                    onValueChange = { GoalDistance.value = it }
+                                )
+                            }
+                        } else {
+                            Column(verticalArrangement = Arrangement.spacedBy(24.dp)) {
+                                WeightSelector()
+                                Box(modifier = animatedDividerModifier)
+                                TimerSelector(navController)
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.weight(1f))
+
+                    val animatedButtonContainerColor = remember(intensePulse) {
+                        Color(0xFF4A1515).copy(alpha = 0.4f + intensePulse * 0.2f)
+                    }
+                    val animatedBorderBrush = remember(intensePulse, glowIntensity) {
+                        Brush.linearGradient(
+                            colors = listOf(
+                                Color(0xFF8B0000).copy(alpha = 0.8f + intensePulse * 0.2f),
+                                Color(0xFFFF8800).copy(alpha = 0.6f + glowIntensity * 0.3f),
+                                Color(0xFF650000).copy(alpha = 0.7f)
+                            )
+                        )
+                    }
+
+                    Button(
+                        onClick = {
+                            when (selectedGoalType) {
+                                "Reps" -> if (repsPerSet != 0 && GoalSets.intValue != 0) {
+                                    GoalReps.intValue = totalGoalReps
+                                    navController.navigate("WorkoutScreen")
+                                    ConnectedWorkout.currentMode.value = WorkoutMode.ACTIVE
+                                }
+                                "Time" -> if (GoalTime.value != 0L) {
+                                    navController.navigate("WorkoutScreen")
+                                    ConnectedWorkout.currentMode.value = WorkoutMode.ACTIVE
+                                }
+                                "Distance" -> if (GoalDistance.value != 0.0) {
+                                    navController.navigate("WorkoutScreen")
+                                    ConnectedWorkout.currentMode.value = WorkoutMode.ACTIVE
+                                }
+                            }
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(60.dp)
+                            .graphicsLayer {
+                                scaleX = scale
+                                scaleY = scale
+                            }
+                            .drawBehind {
+                                drawRoundRect(
+                                    color = animatedButtonContainerColor,
+                                    cornerRadius = CornerRadius(size.height / 2f)
+                                )
+                                drawRoundRect(
+                                    brush = animatedBorderBrush,
+                                    cornerRadius = CornerRadius(size.height / 2f),
+                                    style = Stroke(width = 2.dp.toPx())
+                                )
+                            },
+                        shape = CircleShape,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color.Transparent,
+                            contentColor = Color.White
+                        ),
+                        elevation = ButtonDefaults.buttonElevation(
+                            defaultElevation = 0.dp,
+                            pressedElevation = 0.dp
+                        ),
+                        interactionSource = interactionSource
+                    ) {
+                        Text(
+                            text = if (ConnectedWorkout.currentMode.value == WorkoutMode.INACTIVE) "Start Workout" else "Resume Workout",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Icon(
+                            Icons.Default.ArrowForward,
+                            contentDescription = null,
+                            tint = Color.White
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(32.dp))
+                }
             }
         }
     }
@@ -2156,9 +2162,12 @@ private fun RowScope.SegmentedButton(
     val isPressed by interactionSource.collectIsPressedAsState()
 
     val scale by animateFloatAsState(if (isPressed) 0.96f else 1f, label = "segmentScale")
-    val containerColor = if (isSelected) {
+    val containerColor = if (isSelected
+        && ConnectedWorkout.currentMode.value == WorkoutMode.INACTIVE
+    ) {
         MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)
     } else {
+
         Color.Transparent
     }
 
@@ -2180,7 +2189,11 @@ private fun RowScope.SegmentedButton(
             .clickable(
                 interactionSource = interactionSource,
                 indication = null,
-                onClick = { onClick(); haptics.performHapticFeedback(HapticFeedbackType.LongPress) }
+                onClick = {
+                    if (ConnectedWorkout.currentMode.value == WorkoutMode.INACTIVE) {
+                        onClick(); haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                    }
+                }
             )
             .padding(horizontal = 12.dp),
         contentAlignment = Alignment.Center
