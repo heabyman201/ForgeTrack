@@ -1,15 +1,27 @@
 package com.forgecompose.workouttracker
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.KeyboardArrowDown
+import androidx.compose.material.icons.outlined.Warning
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -409,7 +421,7 @@ lacking: $lacking
 @Composable
 fun MuscleStatusSection(
     recentWorkouts: List<WorkoutSummary>,
-    advicePayload: String?,                 // output of your generateAdvice(...)
+    advicePayload: String?,
     nowEpochMillis: Long,
     modifier: Modifier = Modifier
 ) {
@@ -417,24 +429,33 @@ fun MuscleStatusSection(
     var loads by remember { mutableStateOf<List<MuscleLoad>>(emptyList()) }
     val prefsManager = remember { UserPreferencesManager(context) }
     val profile = remember { buildUserProfile(prefsManager) }
-    // Derive once when inputs change (no new VM)
     LaunchedEffect(recentWorkouts, advicePayload, nowEpochMillis) {
         val now = Instant.ofEpochMilli(nowEpochMillis)
-        loads = deriveMuscleLoads(now, recentWorkouts, profile,advicePayload)
+        loads = deriveMuscleLoads(now, recentWorkouts, profile, advicePayload)
     }
 
     Column(
         modifier = modifier.padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-
-        Text(
-            "Muscle Status",
-            style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.onSurface
-        )
-
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                "Muscle Status",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            if (loads.isNotEmpty()) {
+                val trained = loads.count { it.lastTrainedAgo != null }
+                AssistChip(onClick = {}, label = {
+                    Text("$trained/${loads.size} active")
+                })
+            }
+        }
 
         val last = remember(loads) {
             loads.maxByOrNull {
@@ -454,9 +475,17 @@ fun MuscleStatusSection(
             AssistChipRow(last)
         }
 
-        // Bars
-        loads.forEach { item ->
-            MuscleBarRow(item)
+        val sortedLoads = remember(loads) {
+            loads.sortedWith(
+                compareByDescending<MuscleLoad> { it.band == LoadBand.Overtrained }
+                    .thenByDescending { it.band == LoadBand.Balanced }
+                    .thenByDescending { it.score }
+            )
+        }
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            sortedLoads.forEach { item ->
+                MuscleBarRow(item)
+            }
         }
     }
 }
@@ -476,52 +505,122 @@ private fun MuscleBarRow(load: MuscleLoad) {
         LoadBand.Balanced -> Color(0xFF62E766)
         LoadBand.Overtrained -> Color(0xFFFF2A19)
     }
-
-
+    val onBand = when (load.band) {
+        LoadBand.Lacking -> Color(0xFFB3E5FC)
+        LoadBand.Balanced -> Color(0xFFE8F5E9)
+        LoadBand.Overtrained -> Color(0xFFFFCDD2)
+    }
+    val label = when (load.band) {
+        LoadBand.Lacking -> "Not Enough Training"
+        LoadBand.Balanced -> "Balanced"
+        LoadBand.Overtrained -> "Overtrained"
+    }
+    val icon = when (load.band) {
+        LoadBand.Lacking -> Icons.Outlined.KeyboardArrowDown
+        LoadBand.Balanced -> Icons.Outlined.Check
+        LoadBand.Overtrained -> Icons.Outlined.Warning
+    }
     val animatedColor by animateColorAsState(baseColor, label = "bandColor")
-    val intensity = 0.4f + 0.6f * load.score
+    val intensity = (load.score.coerceIn(0f, 1f) * 100f)
+    val fill by animateFloatAsState(load.score.coerceIn(0f, 1f), tween(650, 0, LinearOutSlowInEasing), label = "fill")
+    val capsuleBg = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
 
     Column(
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-        modifier = Modifier.fillMaxWidth()
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.08f))
+            .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.15f), RoundedCornerShape(16.dp))
+            .padding(12.dp)
     ) {
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box(
+                    modifier = Modifier
+                        .size(10.dp)
+                        .clip(CircleShape)
+                        .background(animatedColor)
+                )
+                Text(load.group.name, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+            }
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(capsuleBg)
+                    .padding(horizontal = 10.dp, vertical = 6.dp)
+            ) {
+                Icon(icon, contentDescription = null, tint = animatedColor, modifier = Modifier.size(16.dp))
+                Text(label, style = MaterialTheme.typography.labelLarge, color = onBand)
+            }
+        }
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(12.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
+        ) {
+            val barBrush = remember(animatedColor) {
+                Brush.horizontalGradient(
+                    listOf(
+                        animatedColor.copy(alpha = 0.55f),
+                        animatedColor
+                    )
+                )
+            }
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(fill)
+                    .fillMaxHeight()
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(barBrush)
+            )
+        }
+
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            val readiness = when (load.band) {
+                LoadBand.Lacking -> "Good time to train"
+                LoadBand.Balanced -> "Maintain or light focus"
+                LoadBand.Overtrained -> "Prioritize recovery"
+            }
+            Text(readiness, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("${"%.0f".format(intensity)}%", style = MaterialTheme.typography.labelLarge, color = animatedColor, fontWeight = FontWeight.SemiBold)
+                if (load.lastTrainedAgo != null) {
+                    Text("Last: ${load.lastTrainedAgo}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+
         Row(
             Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Text(load.group.name, style = MaterialTheme.typography.titleMedium, color = Color.White)
-            Text(
-                when (load.band) {
-                    LoadBand.Lacking -> "Not Enough Training"
-                    LoadBand.Balanced -> "Balanced"
-                    LoadBand.Overtrained -> "Muscle is overtrained"
-                },
-                style = MaterialTheme.typography.labelLarge,
-                color = animatedColor
-            )
-        }
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(10.dp)
-                .clip(RoundedCornerShape(6.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant)
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth(load.score.coerceIn(0f, 1f))
-                    .fillMaxHeight()
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(animatedColor.copy(alpha = intensity))
-            )
-        }
-        if (load.lastTrainedAgo != null) {
-            Text(
-                "Last: ${load.lastTrainedAgo}",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            val zoneColor = animatedColor.copy(alpha = 0.35f)
+            repeat(3) {
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(6.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(zoneColor)
+                )
+                if (it < 2) Spacer(Modifier.width(6.dp))
+            }
         }
     }
 }
+
 

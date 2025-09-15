@@ -1428,141 +1428,158 @@ fun SetProgressDetails(
     currentSet: Int,
     goalSets: Int
 ) {
-    Column(
+    val accent = Color(0xFF8B0000)
+    Surface(
         modifier = Modifier.fillMaxWidth(),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        color = Color.Transparent,
+        shape = RoundedCornerShape(26.dp)
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween
+        Box(
+            modifier = Modifier
+
+                .padding(horizontal = 20.dp, vertical = 20.dp)
         ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
-                Text("Reps", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f))
-                Text(
-                    text = if (goalReps > 0) "$currentReps / $goalReps" else currentReps.toString(),
-                    style = MaterialTheme.typography.headlineLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-            }
-            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
-                Text("Set", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f))
-                Text(
-                    "$currentSet / $goalSets",
-                    style = MaterialTheme.typography.headlineLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(20.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .background(Color(0xFF3D0000).copy(0.15f), RoundedCornerShape(18.dp))
+                            .padding(vertical = 14.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            "Reps",
+                            color = Color.White.copy(alpha = 0.65f),
+                            style = MaterialTheme.typography.labelLarge
+                        )
+                        Text(
+                            if (goalReps > 0) "$currentReps / $goalReps" else currentReps.toString(),
+                            style = MaterialTheme.typography.headlineLarge,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = Color.White
+                        )
+                    }
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .background(Color(0xFF3D0000).copy(0.15f), RoundedCornerShape(18.dp))
+                            .padding(vertical = 14.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            "Set",
+                            color = Color.White.copy(alpha = 0.65f),
+                            style = MaterialTheme.typography.labelLarge
+                        )
+                        Text(
+                            "$currentSet / $goalSets",
+                            style = MaterialTheme.typography.headlineLarge,
+                            fontWeight = FontWeight.ExtraBold,
+                           color = Color.White
+                        )
+                    }
+                }
+                DetailedSetsProgressBar(currentSet = currentSet, goalSets = goalSets)
             }
         }
-        DetailedSetsProgressBar(
-            currentSet = currentSet,
-            goalSets = goalSets
-        )
     }
 }
 
 @Composable
 fun DetailedSetsProgressBar(currentSet: Int, goalSets: Int, modifier: Modifier = Modifier) {
     if (goalSets <= 0) return
-    val progressTarget = when {
+    val target = when {
         goalSets <= 1 -> if (currentSet >= 1) 1f else 0f
         else -> ((currentSet - 1).toFloat() / (goalSets - 1).toFloat()).coerceIn(0f, 1f)
     }
-    val animatedProgress by animateFloatAsState(
-        targetValue = progressTarget,
+    val progress by animateFloatAsState(
+        targetValue = target,
         label = "SetProgressBarProgress",
-        animationSpec = tween(500, easing = FastOutSlowInEasing)
+        animationSpec = tween(600, easing = FastOutSlowInEasing)
     )
-    val shimmerPosition = remember { Animatable(-0.2f) }
-    LaunchedEffect(Unit) {
-        shimmerPosition.animateTo(
-            targetValue = 1.2f,
-            animationSpec = tween(
-                durationMillis = 1600,
-                delayMillis = 300,
-                easing = LinearEasing
-            )
-        )
-    }
+    val shimmer = remember { Animatable(-0.2f) }
+    LaunchedEffect(Unit) { shimmer.animateTo(1.2f, tween(1800, 200, LinearEasing)) }
+    val pulseTrans = rememberInfiniteTransition(label = "dotPulse")
+    val pulse by pulseTrans.animateFloat(
+        initialValue = 0.9f,
+        targetValue = 1.2f,
+        animationSpec = infiniteRepeatable(tween(1000, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        label = "pulse"
+    )
+    val accent = Color(0xFF8B0000)
+    val accentBright = Color(0xFFFF6666).copy(alpha = 0.9f)
+
     Canvas(
         modifier = modifier
             .fillMaxWidth()
-            .height(30.dp)
+            .height(44.dp)
     ) {
-        val yCenter = size.height / 2
-        val trackStrokeWidth = 4.dp.toPx()
-        val progressStrokeWidth = 6.dp.toPx()
-        val dotRadius = 6.dp.toPx()
-        val startPadding = dotRadius
-        val endPadding = dotRadius
-        val drawableWidth = size.width - startPadding - endPadding
+        val y = size.height / 2f
+        val base = 6.dp.toPx()
+        val prog = 9.dp.toPx()
+        val dot = 8.dp.toPx()
+        val startPad = dot
+        val endPad = dot
+        val w = size.width - startPad - endPad
+
         drawLine(
-            color = Color.White.copy(alpha = 0.2f),
-            start = Offset(startPadding, yCenter),
-            end = Offset(startPadding + drawableWidth, yCenter),
-            strokeWidth = trackStrokeWidth,
+            color = Color.White.copy(0.1f),
+            start = Offset(startPad, y),
+            end = Offset(startPad + w, y),
+            strokeWidth = base,
             cap = StrokeCap.Round
         )
-        val shimmerProgress = shimmerPosition.value
-        val shimmerWidth = drawableWidth * 0.4f
-        val shimmerStartX = (drawableWidth + shimmerWidth) * shimmerProgress - shimmerWidth + startPadding
-        val shimmerBrush = Brush.linearGradient(
-            colors = listOf(
-                Color.Transparent,
-                Color.White.copy(alpha = 0.2f),
-                Color.Transparent
-            ),
-            start = Offset(shimmerStartX, yCenter),
-            end = Offset(shimmerStartX + shimmerWidth, yCenter)
-        )
-        drawLine(
-            brush = shimmerBrush,
-            start = Offset(startPadding, yCenter),
-            end = Offset(startPadding + drawableWidth, yCenter),
-            strokeWidth = trackStrokeWidth,
-            cap = StrokeCap.Round
-        )
-        if (animatedProgress > 0) {
+        if (progress > 0f) {
+            val endX = startPad + w * progress
             drawLine(
-                color = Color(0xFF8B0000),
-                start = Offset(startPadding, yCenter),
-                end = Offset(startPadding + (drawableWidth * animatedProgress), yCenter),
-                strokeWidth = progressStrokeWidth,
+                brush = Brush.horizontalGradient(listOf(accent, accentBright)),
+                start = Offset(startPad, y),
+                end = Offset(endX, y),
+                strokeWidth = prog,
                 cap = StrokeCap.Round
             )
         }
+        val shProg = shimmer.value
+        val shWidth = w * 0.4f
+        val shStart = (w + shWidth) * shProg - shWidth + startPad
+        drawLine(
+            brush = Brush.linearGradient(
+                listOf(Color.Transparent, Color.White.copy(0.18f), Color.Transparent),
+                start = Offset(shStart, y),
+                end = Offset(shStart + shWidth, y)
+            ),
+            start = Offset(startPad, y),
+            end = Offset(startPad + w, y),
+            strokeWidth = base,
+            cap = StrokeCap.Round
+        )
         (1..goalSets).forEach { i ->
-            val dotX = if (goalSets > 1) {
-                startPadding + (drawableWidth * ((i - 1).toFloat() / (goalSets - 1)))
+            val x = if (goalSets > 1) startPad + (w * ((i - 1).toFloat() / (goalSets - 1))) else size.width / 2f
+            val completed = i < currentSet
+            val current = i == currentSet
+            if (completed) {
+                drawCircle(color = accent, radius = dot, center = Offset(x, y))
+            } else if (current) {
+                val r = dot * pulse
+                drawCircle(color = Color.White, radius = r, center = Offset(x, y))
+                drawCircle(color = accent.copy(0.6f), radius = r * 1.5f, center = Offset(x, y))
             } else {
-                size.width / 2
-            }
-            val isCompleted = i < currentSet
-            val isCurrent = i == currentSet
-            val dotColor = when {
-                isCompleted -> Color(0xFF8B0000)
-                isCurrent -> Color.White
-                else -> Color.White.copy(alpha = 0.4f)
-            }
-            drawCircle(
-                color = dotColor,
-                radius = dotRadius,
-                center = Offset(dotX, yCenter)
-            )
-            if (isCurrent) {
-                drawCircle(
-                    color = Color(0xFF8B0000),
-                    radius = dotRadius,
-                    center = Offset(dotX, yCenter),
-                    style = Stroke(width = 1.dp.toPx())
-                )
+                drawCircle(color = Color.White.copy(0.4f), radius = dot, center = Offset(x, y))
             }
         }
     }
-
 }
+
+
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -1645,7 +1662,7 @@ fun GoalScreen(navController: NavController, viewModel: WorkoutListViewModel) {
         val animatedContainerColor = remember(intensePulse) {
             Color(0xFF0D0404).copy(alpha = 0.8f + intensePulse * 0.1f)
         }
-
+val context = LocalContext.current
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -1670,7 +1687,9 @@ fun GoalScreen(navController: NavController, viewModel: WorkoutListViewModel) {
                         },
                         colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
                         navigationIcon = {
-                            IconButton(onClick = { navController.popBackStack() }) {
+                            IconButton(onClick = {
+                                if (ConnectedWorkout.currentMode.value == WorkoutMode.INACTIVE){
+                                context.startActivity(Intent(context, MainActivity::class.java))} }) {
                                 Icon(
                                     Icons.Default.ArrowBack,
                                     contentDescription = "Back",
@@ -1691,7 +1710,9 @@ fun GoalScreen(navController: NavController, viewModel: WorkoutListViewModel) {
                     Spacer(modifier = Modifier.height(64.dp))
 
                     Text(
-                        text = "Set Your Goal",
+                        text = if (
+                            ConnectedWorkout.currentMode.value == WorkoutMode.INACTIVE
+                        )"Set Your Goal" else workout.value,
                         style = MaterialTheme.typography.displaySmall,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface,
@@ -1777,7 +1798,9 @@ fun GoalScreen(navController: NavController, viewModel: WorkoutListViewModel) {
                         onClick = {
                             when (selectedGoalType) {
                                 "Reps" -> if (repsPerSet != 0 && GoalSets.intValue != 0) {
-                                    GoalReps.intValue = totalGoalReps
+                                    if (ConnectedWorkout.currentMode.value == WorkoutMode.INACTIVE) {
+                                        GoalReps.intValue = totalGoalReps
+                                    }
                                     navController.navigate("WorkoutScreen")
                                     ConnectedWorkout.currentMode.value = WorkoutMode.ACTIVE
                                 }
@@ -2061,27 +2084,28 @@ fun TimerSelector(
             color = MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.padding(8.dp)
         )
-
-        DraggableTimeComponent(
-            modifier = fieldModifier,
-            value = hours,
-            range = 0..99,
-            onValueChange = { hours = it }
-        )
-        separator()
-        DraggableTimeComponent(
-            modifier = fieldModifier,
-            value = minutes,
-            range = 0..59,
-            onValueChange = { minutes = it }
-        )
-        separator()
-        DraggableTimeComponent(
-            modifier = fieldModifier,
-            value = seconds,
-            range = 0..59,
-            onValueChange = { seconds = it }
-        )
+        if (ConnectedWorkout.currentMode.value == WorkoutMode.INACTIVE) {
+            DraggableTimeComponent(
+                modifier = fieldModifier,
+                value = hours,
+                range = 0..99,
+                onValueChange = { hours = it }
+            )
+            separator()
+            DraggableTimeComponent(
+                modifier = fieldModifier,
+                value = minutes,
+                range = 0..59,
+                onValueChange = { minutes = it }
+            )
+            separator()
+            DraggableTimeComponent(
+                modifier = fieldModifier,
+                value = seconds,
+                range = 0..59,
+                onValueChange = { seconds = it }
+            )
+        }
     }
 }
 
@@ -2122,19 +2146,21 @@ fun GoalSelector(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.Center
         ) {
-            SegmentedButton(
-                text = "Time",
-                isSelected = selectedType == "Time",
-                shape = RoundedCornerShape(topStart = 12.dp, bottomStart = 12.dp),
-                onClick = { onTypeSelected("Time") }
-            )
+            if (ConnectedWorkout.currentMode.value == WorkoutMode.INACTIVE) {
+                SegmentedButton(
+                    text = "Time",
+                    isSelected = selectedType == "Time",
+                    shape = RoundedCornerShape(topStart = 12.dp, bottomStart = 12.dp),
+                    onClick = { onTypeSelected("Time") }
+                )
+            }
             Spacer(
                 modifier = Modifier
                     .width(1.dp)
                     .height(30.dp)
                     .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f))
             )
-            if (!canShowDistance) {
+            if (!canShowDistance && ConnectedWorkout.currentMode.value == WorkoutMode.INACTIVE) {
                 SegmentedButton(
                     text = "Sets",
                     isSelected = selectedType == "Reps",
@@ -2180,7 +2206,7 @@ private fun RowScope.SegmentedButton(
             Color.White.copy(alpha = if (isSelected) 0.1f else 0.05f)
         )
     )
-
+if (ConnectedWorkout.currentMode.value == WorkoutMode.INACTIVE) {
     Box(
         modifier = Modifier
             .weight(1f)
@@ -2208,6 +2234,7 @@ private fun RowScope.SegmentedButton(
         )
     }
 }
+}
 
 @Composable
 fun NumberStepper(
@@ -2217,7 +2244,7 @@ fun NumberStepper(
     range: IntRange = 0..999
 ) {
     val haptics = LocalHapticFeedback.current
-
+if (ConnectedWorkout.currentMode.value == WorkoutMode.INACTIVE) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -2247,23 +2274,22 @@ fun NumberStepper(
                     .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
 
 
-
             ) {
                 Icon(
                     imageVector = Icons.Default.Remove,
                     contentDescription = "Decrement $label",
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier
-                    .combinedClickable(
-                        onClick = {
-                            onValueChange((value - 1).coerceIn(range))
-                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                        },
-                onLongClick = {
-                    onValueChange((value - 999999).coerceIn(range))
-                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                }
-                )
+                        .combinedClickable(
+                            onClick = {
+                                onValueChange((value - 1).coerceIn(range))
+                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                            },
+                            onLongClick = {
+                                onValueChange((value - 999999).coerceIn(range))
+                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                            }
+                        )
                 )
             }
 
@@ -2295,6 +2321,7 @@ fun NumberStepper(
         }
     }
 }
+}
 
 
 @Composable
@@ -2305,7 +2332,7 @@ fun NumberStepperWeights(
     step: Double = 1.0
 ) {
     val haptics = LocalHapticFeedback.current
-
+if (ConnectedWorkout.currentMode.value == WorkoutMode.INACTIVE) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -2387,6 +2414,7 @@ fun NumberStepperWeights(
             }
         }
     }
+}
 }
 
 

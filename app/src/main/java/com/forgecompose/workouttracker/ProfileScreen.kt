@@ -125,7 +125,7 @@ fun UserProfileScreen(
         )
     }
     var showIntro by remember { mutableStateOf(true) }
-    val introProgress by animateFloatAsState(targetValue = if (showIntro) 0f else 1f, animationSpec = tween(1000, easing = LinearEasing), label = "introFade")
+    val introProgress by animateFloatAsState(targetValue = if (showIntro) 0f else 1f, animationSpec = tween(650, easing = LinearEasing), label = "introFade")
     LaunchedEffect(Unit) { showIntro = false }
 
     val staticGradientBrush = remember {

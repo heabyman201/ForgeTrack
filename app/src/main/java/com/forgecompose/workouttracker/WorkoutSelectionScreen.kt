@@ -50,6 +50,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -223,15 +224,21 @@ fun WorkoutSelector(
         val workoutCategories = listOf("All", "Bodyweight", "Dumbbell/Kettlebell", "Barbell", "Cardio", "Machines/Cables")
 
         val filteredWorkoutsBase by remember(searchText, selectedCategory) {
-            mutableStateOf(
-                run {
-                    val base = if (selectedCategory == "All") workoutPresets else workoutPresets.filter { it.category == selectedCategory }
-                    if (searchText.isBlank()) base else base.filter { it.name.contains(searchText, ignoreCase = true) }
-                }
-            )
+            derivedStateOf {
+                val base = if (selectedCategory == "All") workoutPresets
+                else workoutPresets.filter { it.category == selectedCategory }
+                if (searchText.isBlank()) base
+                else base.filter { it.name.contains(searchText, ignoreCase = true) }
+            }
         }
+
         val filteredWorkouts by remember(filteredWorkoutsBase, usageMap) {
-            mutableStateOf(filteredWorkoutsBase.sortedWith(compareByDescending<WorkoutPreset> { usageMap[it.name] ?: 0 }.thenBy { it.name.lowercase() }))
+            derivedStateOf {
+                filteredWorkoutsBase.sortedWith(
+                    compareByDescending<WorkoutPreset> { usageMap[it.name] ?: 0 }
+                        .thenBy { it.name.lowercase() }
+                )
+            }
         }
 
         val cardShape16 = remember { RoundedCornerShape(16.dp) }

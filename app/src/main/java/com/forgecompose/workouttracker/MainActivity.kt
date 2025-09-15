@@ -1,6 +1,7 @@
 package com.forgecompose.workouttracker
 
 
+
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Paint
@@ -189,6 +190,25 @@ import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.random.Random
+private fun lastAndPrevSameName(workouts: List<Workout>): Pair<Workout?, Workout?> {
+    val last = workouts.maxByOrNull { it.date } ?: return null to null
+    val prevSame = workouts
+        .asSequence()
+        .filter { it.name == last.name && it.date < last.date }
+        .maxByOrNull { it.date }
+    return last to prevSame
+}
+
+
+
+
+// use the MAX of this exercise for the bar scale (looks nicer than “max of whole dataset”)
+fun maxWeightForName(workouts: List<Workout>, exerciseName: String): Double {
+    return workouts.asSequence()
+        .filter { it.name == exerciseName }
+        .map { it.weight ?: 0.0 }
+        .maxOrNull() ?: 0.0
+}
 
 @Composable
 private fun UnderlineGlow(
@@ -779,7 +799,7 @@ fun AdviceSectionUser(
         var showIntro by remember { mutableStateOf(true) }
         val introProgress by animateFloatAsState(
             targetValue = if (showIntro) 0f else 1f,
-            animationSpec = tween(1250, easing = LinearEasing),
+            animationSpec = tween(700, easing = LinearEasing),
             label = "introProgress"
         )
         val hour = remember { LocalTime.now().hour }
@@ -1413,12 +1433,12 @@ fun WorkoutHistory(
     val introBrush = remember(introColors) {
         Brush.linearGradient(
             colors = introColors,
-            start = Offset.Zero,
-            end = Offset(0f, Float.POSITIVE_INFINITY)
+            start = Offset(Float.POSITIVE_INFINITY, 0f),
+            end = Offset.Zero
         )
     }
     var showIntro by remember { mutableStateOf(true) }
-    val introProgress by animateFloatAsState(targetValue = if (showIntro) 0f else 1f, animationSpec = tween(1000, easing = LinearEasing), label = "introFade")
+    val introProgress by animateFloatAsState(targetValue = if (showIntro) 0f else 1f, animationSpec = tween(650, easing = LinearEasing), label = "introFade")
     LaunchedEffect(Unit) { showIntro = false }
 
     val staticGradientBrush = remember {
@@ -2506,68 +2526,120 @@ fun ProfileMuscleStatusRoute(
         return streak
     }
 
-    @Composable
-    fun WeightHistoryGraph(
-        workouts: List<Workout>
+@Composable
+fun WeightHistoryGraph(
+    workouts: List<Workout>
+) {
+    // Keep only entries with weight > 0
+    val weighted = remember(workouts) { workouts.filter { (it.weight ?: 0.0) > 0.0 } }
+
+    // Group by exercise name and sort each group by time ASC (stable “timeline”)
+    val byNameSortedAsc = remember(weighted) {
+        weighted.groupBy { it.name }.mapValues { (_, list) -> list.sortedBy { it.date } }
+    }
+
+    // For each workout id, remember the immediately previous workout (same name)
+    val prevById: Map<Long, Workout?> = remember(byNameSortedAsc) {
+        buildMap<Long, Workout?> {
+            for ((_, list) in byNameSortedAsc) {
+                var last: Workout? = null
+                for (w in list) {
+                    put(w.id.toLong(), last)   // previous same-name (may be null)
+                    last = w
+                }
+            }
+        }
+    }
+
+    // Max historical weight per exercise (for meaningful bar scaling)
+    val maxByName: Map<String, Double> = remember(byNameSortedAsc) {
+        byNameSortedAsc.mapValues { (_, list) ->
+            list.maxOfOrNull { it.weight ?: 0.0 }?.takeIf { it > 0.0 } ?: 1.0
+        }
+    }
+
+    // Pick last 3 sessions overall (any exercise), newest first
+    val last3 = remember(weighted) { weighted.sortedByDescending { it.date }.take(3) }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = Color.Transparent
+        )
     ) {
-        val workoutsWithWeight = remember(workouts) {
-            workouts.filter { (it.weight ?: 0.0) > 0.0 }
-        }
-        val maxWeight = remember(workoutsWithWeight) {
-            workoutsWithWeight.maxOfOrNull { it.weight!! } ?: 1.0
-        }
-
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(20.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.1f)
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                "Recent Weights",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface
             )
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
+            Spacer(Modifier.height(16.dp))
+
+            if (last3.isEmpty()) {
                 Text(
-                    "Weight Progression",
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface
+                    "No workouts with tracked weight found.",
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
                 )
-                Spacer(modifier = Modifier.height(16.dp))
+                return@Column
+            }
 
-                if (workoutsWithWeight.isEmpty()) {
-                    Text(
-                        "No workouts with tracked weight found.",
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+            // Short list: avoid nested scrolling weirdness
+            LazyColumn(
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                userScrollEnabled = false
+            ) {
+                items(items = last3, key = { it.id }) { w ->
+                    val prevSame = prevById[w.id.toLong()]
+                    val maxForThis = maxByName[w.name] ?: 1.0
+                    GraphBar(
+                        workout = w,
+                        maxWeight = maxForThis,
+                        prevSameNameWeight = prevById[w.id.toLong()]?.weight,   // primary comparison
+                        baselineWeight = null                           // or fallback: personal record / rolling avg
                     )
-                } else {
-
-                    LazyColumn {
-                        itemsIndexed(workouts) { index, w ->
-                            val prev = (index - 1 downTo 0)
-                                .asSequence()
-                                .map { workouts[it] }
-                                .firstOrNull { it.name == w.name }
-                                ?.weight
-
-                            GraphBar(workout = w, maxWeight = maxWeight, prevSameNameWeight = prev)
-                        }
-                    }
 
                 }
             }
         }
     }
+}
+
+
+
+
 enum class Trend { UP, DOWN, FLAT, NONE }
+@Composable
+fun LatestOnlyBar(allWorkouts: List<Workout>) {
+    val (last, prevSame) = remember(allWorkouts) { lastAndPrevSameName(allWorkouts) }
+    if (last != null) {
+        val maxForThisExercise = remember(allWorkouts, last.name) {
+            maxWeightForName(allWorkouts, last.name).coerceAtLeast(last.weight ?: 0.0)
+        }
+        GraphBar(
+            workout = last,
+            maxWeight = maxForThisExercise,
+            prevSameNameWeight = prevSame?.weight
+        )
+    }
+}
 
 @Composable
 private fun GraphBar(
     workout: Workout,
     maxWeight: Double,
-    prevSameNameWeight: Double?
+    prevSameNameWeight: Double?,
+    // NEW: optional fallback when prevSameNameWeight is null
+    baselineWeight: Double? = null,
+    // NEW: treat differences below this as "flat"
+    epsilonKg: Double = 0.1
 ) {
     // ----- Numbers -----
     val current = (workout.weight ?: 0.0)
-    val target = remember(workout.id, current, maxWeight) {
-        (current / maxWeight).toFloat().coerceIn(0f, 1f)
+    val safeMax = if (maxWeight > 0) maxWeight else 1.0
+    val target = remember(workout.id, current, safeMax) {
+        (current / safeMax).toFloat().coerceIn(0f, 1f)
     }
     var start by remember { mutableStateOf(0f) }
     val fill by animateFloatAsState(
@@ -2577,15 +2649,21 @@ private fun GraphBar(
     )
     LaunchedEffect(target) { start = target }
 
-    // ----- Trend -----
-    val delta = prevSameNameWeight?.let { current - it }
+    // ----- Trend (prefer previous same-name; fall back to baseline) -----
+    // Snap both to 0.1 kg steps so 0.05 jitter doesn't kill the arrow.
+    fun snap01(x: Double) = kotlin.math.round(x * 10.0) / 10.0
+
+    val basis: Double? = prevSameNameWeight ?: baselineWeight
+    val deltaRaw: Double? = basis?.let { current - it }
+    val deltaSnapped: Double? = deltaRaw?.let { snap01(it) }
 
     val trend = when {
-        delta == null -> Trend.NONE
-        delta > 1e-6  -> Trend.UP
-        delta < -1e-6 -> Trend.DOWN
-        else          -> Trend.FLAT
+        deltaSnapped == null -> Trend.NONE
+        kotlin.math.abs(deltaSnapped) < epsilonKg -> Trend.FLAT
+        deltaSnapped > 0                          -> Trend.UP
+        else                                      -> Trend.DOWN
     }
+
     val good = Color(0xFF2ECC71)
     val bad  = Color(0xFFE74C3C)
     val neutral = MaterialTheme.colorScheme.outline
@@ -2595,15 +2673,19 @@ private fun GraphBar(
         Trend.FLAT -> neutral
         Trend.NONE -> neutral
     }
+    // Render a neutral glyph even for NONE so the user understands “no baseline”
     val trendIcon = when (trend) {
         Trend.UP   -> Icons.Outlined.ArrowUpward
         Trend.DOWN -> Icons.Outlined.ArrowDownward
         Trend.FLAT -> Icons.Outlined.HorizontalRule
-        Trend.NONE -> null
+        Trend.NONE -> Icons.Outlined.HorizontalRule // <- changed from null
     }
-    val deltaText = delta?.let { (if (it > 0) "+" else "") + "%.1f kg".format(it) }
+    val deltaText = deltaSnapped?.let {
+        val sign = if (it > 0) "+" else if (it < 0) "−" else ""
+        "$sign${"%.1f".format(kotlin.math.abs(it))} kg"
+    } ?: "—" // <- make it explicit when there’s no basis
 
-    // ----- Visuals (tuned for airy look) -----
+    // ----- Visuals -----
     val glow = Color(0xFFA43434)
     val barBrush = remember { Brush.horizontalGradient(listOf(Color(0xFF5A1E1E), glow)) }
     val trackBrush = remember { Brush.verticalGradient(listOf(Color(0xFF160C0C), Color(0xFF1E0E0E))) }
@@ -2624,17 +2706,17 @@ private fun GraphBar(
         label = "sweepX"
     )
 
-    // ===== Layout: more padding + clearer text hierarchy =====
+    // ===== Layout =====
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 6.dp, horizontal = 4.dp) // breathing room around each bar
+            .padding(vertical = 6.dp, horizontal = 4.dp)
     ) {
-        // Top row: name on the left, value + trend on the right
+        // TOP ROW ONLY: name • current • (arrow + delta)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(bottom = 6.dp), // space between text and bar
+                .padding(bottom = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
@@ -2646,44 +2728,40 @@ private fun GraphBar(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f)
             )
-            Spacer(Modifier.width(8.dp))
+
             Row(verticalAlignment = Alignment.CenterVertically) {
-                // Current weight – slightly emphasized, but compact
                 Text(
                     text = "%.1f kg".format(current),
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                if (trendIcon != null || deltaText != null) {
-                    Spacer(Modifier.width(8.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        trendIcon?.let {
-                            Icon(
-                                imageVector = it,
-                                contentDescription = null,
-                                tint = trendColor,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-                        if (!deltaText.isNullOrBlank()) {
-                            Spacer(Modifier.width(4.dp))
-                            Text(
-                                text = deltaText,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = trendColor,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                        }
-                    }
-                }
+
+                Spacer(Modifier.width(8.dp))
+                // Always show some glyph; color stays neutral if no basis/flat
+                Icon(
+                    imageVector = trendIcon,
+                    contentDescription = null,
+                    tint = trendColor,
+                    modifier = Modifier.size(18.dp)
+                )
+
+                Spacer(Modifier.width(4.dp))
+                Text(
+                    text = deltaText,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = trendColor,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
         }
 
-        // Track (taller + rounded; subtle inner highlight; extra top/bottom padding)
+        // BAR (no trend UI down here)
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(22.dp) // was 18.dp; taller = less cramped
+                .height(22.dp)
                 .clip(CircleShape)
                 .background(trackBrush)
                 .drawWithCache {
@@ -2692,9 +2770,8 @@ private fun GraphBar(
                         drawRoundRect(brush = innerHighlight, cornerRadius = corner, alpha = 1f)
                     }
                 }
-                .padding(horizontal = 2.dp) // tiny inset so glow doesn't kiss the edges
+                .padding(horizontal = 2.dp)
         ) {
-            // Fill (keep glow but lighten the footprint)
             Box(
                 modifier = Modifier
                     .fillMaxWidth(fill)
@@ -2702,7 +2779,7 @@ private fun GraphBar(
                     .graphicsLayer {
                         shape = CircleShape
                         clip = true
-                        shadowElevation = 10.dp.toPx() // slightly lower to reduce harshness
+                        shadowElevation = 10.dp.toPx()
                         spotShadowColor = glow.copy(alpha = 0.45f)
                         ambientShadowColor = glow.copy(alpha = 0.30f)
                     }
@@ -2712,7 +2789,7 @@ private fun GraphBar(
                         onDrawWithContent {
                             drawContent()
 
-                            // Softer sheen pass
+                            // sheen sweep
                             val w = size.width
                             val h = size.height
                             val startX = (w * (sweepX - 0.10f)).coerceIn(-w, w * 1.2f)
@@ -2733,14 +2810,14 @@ private fun GraphBar(
                                 cornerRadius = corner
                             )
 
-                            // Tip glow (tighter radius so it doesn’t flood)
+                            // tip glow
                             if (fill > 0f) {
                                 val tipX = size.width
                                 drawRect(
                                     brush = Brush.radialGradient(
                                         listOf(glow.copy(alpha = 0.75f), Color.Transparent),
                                         center = Offset(tipX, size.height / 2f),
-                                        radius = 22f // was 30f; tighter = cleaner
+                                        radius = 22f
                                     )
                                 )
                             }
@@ -2750,6 +2827,8 @@ private fun GraphBar(
         }
     }
 }
+
+
 
 
 
