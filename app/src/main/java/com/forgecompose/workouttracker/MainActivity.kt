@@ -154,6 +154,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import androidx.core.content.ContextCompat
 import androidx.core.content.ContextCompat.startActivity
 import androidx.core.view.WindowCompat
@@ -1016,39 +1017,166 @@ fun AdviceSectionUser(
                                 }
                                 is WorkoutListUiState.Success -> {
                                     if (currentState.workouts.isEmpty()) {
-                                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                                Text("No workouts yet.", fontSize = 18.sp, color = Color.White.copy(alpha = 0.9f))
-                                                Spacer(Modifier.height(24.dp))
-                                                Button(
-                                                    onClick = {
-                                                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                        navController.navigate("WorkoutSelector")
-                                                    },
-                                                    colors = ButtonDefaults.buttonColors(
-                                                        containerColor = Color(0xFF3A1515).copy(alpha = 0.8f + clampedGlow * 0.2f)
+                                        Box(modifier = Modifier.fillMaxSize()) {
+                                            Column(
+                                                modifier = Modifier
+                                                    .fillMaxSize()
+                                                    .padding(bottom = 96.dp), // reserve space for taskbar
+                                                verticalArrangement = Arrangement.Top
+                                            ) {
+                                                Spacer(Modifier.height(32.dp))
+                                                val interactionSource = remember { MutableInteractionSource() }
+                                                val isPressed by interactionSource.collectIsPressedAsState()
+                                                val scale by animateFloatAsState(targetValue = if (isPressed) 0.985f else 1f, label = "cardScale_empty")
+                                                val cardShape20 = remember { RoundedCornerShape(20.dp) }
+                                                val borderBrushMain by remember(clampedPulse, clampedGlow) {
+                                                    mutableStateOf(
+                                                        Brush.linearGradient(
+                                                            colors = listOf(
+                                                                Color(0xFF622121).copy(alpha = 0.86f + clampedPulse * 0.12f + clampedGlow * 0.12f),
+                                                                Color.White.copy(alpha = 0.08f + clampedPulse * 0.06f + clampedGlow * 0.06f)
+                                                            )
+                                                        )
+                                                    )
+                                                }
+
+                                                Card(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .haze(state = haze)
+                                                        .height(140.dp)
+                                                        .graphicsLayer { scaleX = scale; scaleY = scale }
+                                                        .border(1.dp, borderBrushMain, cardShape20)
+                                                        .clickable(interactionSource = interactionSource, indication = null) {
+                                                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                        },
+                                                    shape = cardShape20,
+                                                    colors = CardDefaults.cardColors(
+                                                        containerColor = surface.copy(alpha = 0.28f + clampedPulse * 0.08f + clampedGlow * 0.08f)
                                                     )
                                                 ) {
-                                                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
-                                                    Text("Start a new Workout",
-                                                        fontSize = 18.sp, color = Color.White.copy(alpha = 0.9f),
-                                                        fontWeight = FontWeight.Bold)
-                                                    Box(
-                                                        modifier = Modifier.fillMaxSize(),
-                                                        contentAlignment = Alignment.BottomCenter
-                                                    ) {
-                                                        FloatingTaskbar(
-                                                            modifier = Modifier.align(Alignment.BottomCenter),
-                                                            navController = navController,
-                                                            cornerRadius = cornerRadius,
-                                                            iconAlpha = iconAlpha,
-                                                            uiState = uiState
+                                                    Column(verticalArrangement = Arrangement.Center) {
+                                                        AdviceSectionUser(
+                                                            advice = advice,
+                                                            modifier = Modifier.fillMaxSize(),
+                                                            lastWorkoutName = "No workouts yet.",
+                                                            extraLines = listOf(
+                                                                "Get started: Quick Start below",
+                                                                "Or choose a preset from the list"
+                                                            ),
                                                         )
                                                     }
                                                 }
+
+                                                Spacer(Modifier.height(16.dp))
+
+                                                QuickStartWorkout(navController = navController)
+
+                                                val dividerBrush = remember {
+                                                    Brush.horizontalGradient(
+                                                        colors = listOf(
+                                                            Color(0xFF9B111E),
+                                                            Color.White.copy(alpha = 0.4f)
+                                                        )
+                                                    )
+                                                }
+
+                                                Box(
+                                                    modifier = Modifier
+                                                        .padding(vertical = 8.dp)
+                                                        .fillMaxWidth()
+                                                        .height(1.dp)
+                                                        .background(brush = dividerBrush)
+                                                )
+
+                                                val cardShape16 = remember { RoundedCornerShape(16.dp) }
+                                                val suggested = remember(workoutPremadeRandom) { workoutPremadeRandom.take(3) }
+
+                                                Column(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                                                ) {
+                                                    suggested.forEach { workoutName ->
+                                                        val itemInteraction = remember { MutableInteractionSource() }
+                                                        val itemPressed by itemInteraction.collectIsPressedAsState()
+                                                        val itemScale by animateFloatAsState(
+                                                            targetValue = if (itemPressed) 0.985f else 1f,
+                                                            label = "cardScaleItem_empty"
+                                                        )
+                                                        val borderBrushItem by remember(clampedPulse, clampedGlow) {
+                                                            mutableStateOf(
+                                                                Brush.linearGradient(
+                                                                    colors = listOf(
+                                                                        Color(0xFF622121).copy(alpha = 0.86f + clampedPulse * 0.12f + clampedGlow * 0.12f),
+                                                                        Color.White.copy(alpha = 0.08f + clampedPulse * 0.06f + clampedGlow * 0.06f)
+                                                                    )
+                                                                )
+                                                            )
+                                                        }
+
+                                                        Card(
+                                                            modifier = Modifier
+                                                                .fillMaxWidth()
+                                                                .height(65.dp)
+                                                                .graphicsLayer { scaleX = itemScale; scaleY = itemScale }
+                                                                .border(1.dp, borderBrushItem, cardShape16)
+                                                                .clickable(interactionSource = itemInteraction, indication = null) {
+                                                                    if (ConnectedWorkout.currentMode.value == WorkoutMode.INACTIVE) {
+                                                                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                                        workout.value = workoutName
+                                                                        val intent = Intent(context, WorkoutActivity::class.java).apply {
+                                                                            putExtra("WORKOUT_NAME", workoutName)
+                                                                        }
+                                                                        startActivity(context, intent, null)
+                                                                    }
+                                                                },
+                                                            shape = cardShape16,
+                                                            colors = CardDefaults.cardColors(
+                                                                containerColor = if (ConnectedWorkout.currentMode.value == WorkoutMode.INACTIVE)
+                                                                    surface.copy(alpha = 0.14f + clampedPulse * 0.05f + clampedGlow * 0.05f)
+                                                                else Color.DarkGray
+                                                            )
+                                                        ) {
+                                                            Box(
+                                                                modifier = Modifier
+                                                                    .fillMaxSize()
+                                                                    .padding(horizontal = 20.dp),
+                                                                contentAlignment = Alignment.CenterStart
+                                                            ) {
+                                                                Row(
+                                                                    modifier = Modifier.fillMaxWidth(),
+                                                                    verticalAlignment = Alignment.CenterVertically,
+                                                                    horizontalArrangement = Arrangement.SpaceBetween
+                                                                ) {
+                                                                    Text(text = workoutName, fontSize = 18.sp, color = onSurface)
+                                                                    Text(
+                                                                        text = "Suggested",
+                                                                        style = MaterialTheme.typography.labelMedium,
+                                                                        color = onSurface.copy(alpha = 0.8f),
+                                                                        modifier = Modifier
+                                                                            .clip(RoundedCornerShape(10.dp))
+                                                                            .background(onSurface.copy(alpha = 0.08f))
+                                                                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                                                                    )
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
                                             }
+
+                                            FloatingTaskbar(
+                                                modifier = Modifier
+                                                    .align(Alignment.BottomCenter),
+                                                navController = navController,
+                                                cornerRadius = cornerRadius,
+                                                iconAlpha = iconAlpha,
+                                                uiState = uiState
+                                            )
                                         }
-                                    } else {
+                                    }
+
+                                    else {
                                         Spacer(Modifier.height(32.dp))
                                         val interactionSource = remember { MutableInteractionSource() }
                                         val isPressed by interactionSource.collectIsPressedAsState()
@@ -1244,7 +1372,7 @@ Spacer(
                             }
                         }
 
-                        if (uiState is WorkoutListUiState.Success && (uiState as WorkoutListUiState.Success).workouts.isNotEmpty()) {
+                        if (uiState is WorkoutListUiState.Success ) {
                             if (stages.after100ms) {
                                 FloatingTaskbar(
                                     modifier = Modifier.align(Alignment.BottomCenter),

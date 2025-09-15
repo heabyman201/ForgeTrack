@@ -22,7 +22,6 @@ import kotlinx.coroutines.launch
 import kotlin.time.Duration.Companion.seconds
 import androidx.core.content.edit
 
-
 data class GeminiGeneratorState(
     val advice: String,
     val isLoading: Boolean,
@@ -35,6 +34,8 @@ class CooldownManager(context: Context) {
     companion object {
         private const val KEY_LAST_PREMIUM_TIME = "last_premium_time"
         private const val KEY_REQUEST_COUNTER = "request_counter"
+        private const val KEY_LAST_SIGNATURE = "last_premium_signature"
+        private const val KEY_LAST_RESPONSE = "last_premium_response"
     }
 
     fun saveLastPremiumTime(time: Long) {
@@ -52,8 +53,23 @@ class CooldownManager(context: Context) {
     fun getRequestCounter(): Int {
         return prefs.getInt(KEY_REQUEST_COUNTER, 0)
     }
-}
 
+    fun saveLastSignature(sig: String) {
+        prefs.edit { putString(KEY_LAST_SIGNATURE, sig) }
+    }
+
+    fun getLastSignature(): String? {
+        return prefs.getString(KEY_LAST_SIGNATURE, null)
+    }
+
+    fun saveLastResponse(resp: String) {
+        prefs.edit { putString(KEY_LAST_RESPONSE, resp) }
+    }
+
+    fun getLastResponse(): String? {
+        return prefs.getString(KEY_LAST_RESPONSE, null)
+    }
+}
 
 class GeminiUtilityViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -133,6 +149,32 @@ class GeminiUtilityViewModel(application: Application) : AndroidViewModel(applic
         return Triple(c, k, l)
     }
 
+    private fun signature(contextPrompt: String, v1: String, v2: String, v3: String): String {
+        val (c, k, l) = takeThreeNumbers(v1, v2, v3)
+        val persona = dynamicModel.personaMode.value.lowercase()
+        val normCtx = contextPrompt.trim().lowercase().take(200)
+        val ctxHash = normCtx.hashCode()
+        return listOf(ctxHash.toString(), persona, c.toString(), k.toString(), l.toString()).joinToString("|")
+    }
+
+    private fun isMajorChange(prev: String?, now: String): Boolean {
+        if (prev == null) return true
+        val p = prev.split("|")
+        val n = now.split("|")
+        if (p.size < 5 || n.size < 5) return true
+        if (p[0] != n[0]) return true
+        if (p[1] != n[1]) return true
+        val pc = p[2].toIntOrNull() ?: 0
+        val pk = p[3].toIntOrNull() ?: 0
+        val pl = p[4].toIntOrNull() ?: 0
+        val nc = n[2].toIntOrNull() ?: 0
+        val nk = n[3].toIntOrNull() ?: 0
+        val nl = n[4].toIntOrNull() ?: 0
+        val absBig = (kotlin.math.abs(pc - nc) >= 3) || (kotlin.math.abs(pk - nk) >= 3) || (kotlin.math.abs(pl - nl) >= 3)
+        val sumBig = (kotlin.math.abs(pc - nc) + kotlin.math.abs(pk - nk) + kotlin.math.abs(pl - nl)) >= 5
+        return absBig || sumBig
+    }
+
     fun setDynamicModel(value1: String?, value2: String?, value3: String?) {
         val (complexity, contextPressure, latencyTolerance) = takeThreeNumbers(value1, value2, value3)
         val heavyScore = (2 * complexity) + (2 * contextPressure) - latencyTolerance
@@ -185,6 +227,16 @@ class GeminiUtilityViewModel(application: Application) : AndroidViewModel(applic
             }
         }
 
+        if (usePremiumModel) {
+            val sig = signature(contextPrompt, value1, value2, value3)
+            val prevSig = cooldownManager.getLastSignature()
+            val cached = cooldownManager.getLastResponse()
+            if (!isMajorChange(prevSig, sig) && !cached.isNullOrBlank()) {
+                advice = cached
+                return
+            }
+        }
+
         isLoading = true
         viewModelScope.launch(Dispatchers.IO) {
             try {
@@ -196,7 +248,6 @@ class GeminiUtilityViewModel(application: Application) : AndroidViewModel(applic
                     modelName = selectedModel,
                     apiKey = key,
                     requestOptions = RequestOptions(timeout = 30.seconds),
-
                 )
 
                 if (BuildConfig.DEBUG) Log.d("GeminiTest", "Sending prompt to API with model $selectedModel…")
@@ -210,6 +261,9 @@ class GeminiUtilityViewModel(application: Application) : AndroidViewModel(applic
                 if (usePremiumModel) {
                     cooldownManager.saveLastPremiumTime(System.currentTimeMillis())
                     cooldownManager.saveRequestCounter(0)
+                    val sigNow = signature(contextPrompt, value1, value2, value3)
+                    cooldownManager.saveLastSignature(sigNow)
+                    cooldownManager.saveLastResponse(cleaned)
                 }
 
                 if (BuildConfig.DEBUG) Log.d("GeminiTest", "SUCCESS! Response received: $cleaned")
@@ -221,7 +275,6 @@ class GeminiUtilityViewModel(application: Application) : AndroidViewModel(applic
             }
         }
     }
-
 
     private fun createGenericPrompt(context: String, v1: String, v2: String, v3: String): String {
         val personaInstruction = when (dynamicModel.personaMode.value.lowercase()) {
