@@ -1,0 +1,198 @@
+Workout Tracker App - Documentation
+
+1. Introduction
+The Workout Tracker app is a personal fitness companion designed to help users log, track, and analyze their workout routines and progress. It provides features for selecting predefined workouts, viewing workout history, tracking personal records, and monitoring body statistics.
+
+2. Core Features
+
+Workout Logging: Users can select from a list of predefined workouts to start a new session.
+
+Workout History: All completed workouts are saved and can be viewed in a dedicated history section.
+
+Personal Records (PRs): The app identifies and displays the user's personal bests for different exercises based on tracked weight.
+
+Body Statistics Tracking: Users can input and view their age, height, and weight, which are saved in user preferences.
+
+Weight Progression Graph: A visual representation of weight lifted over recent workouts helps users track their progress.
+
+Onboarding Process: A guided first-time setup helps new users understand the app and input their initial data.
+
+User Profiles: A dedicated section to view personal statistics and recent activity.
+
+3. Navigation and User Interface
+
+The app utilizes Jetpack Compose for its UI and Jetpack Navigation for screen transitions.
+
+3.1. Main Navigation Flow
+The MainActivity acts as the entry point, determining the initial destination based on whether it's the user's first launch.
+
+Onboarding Screen (onboarding): Displayed on the first launch. Guides the user through app features and collects initial personal data (name, age, height, weight).
+
+Home Screen (HomeScreen): The primary screen displayed after onboarding or on subsequent launches.
+
+3.2. Bottom Navigation Bar (on Home Screen)
+On the HomeScreen, a BottomAppBar provides quick access to key sections:
+
+Workout History (List Icon): Navigates to the WorkoutHistory screen.
+
+Add Workout (Plus Icon - Floating Action Button): Expands and navigates to the WorkoutSelector screen.
+
+User Profile (Person Icon): Navigates to the UserProfile screen.
+
+3.3. Top App Bars
+Most secondary screens (WorkoutHistory, WorkoutSelector, DetailedWorkout, UserProfile) include a TopAppBar with:
+
+Back Button (ArrowBack Icon): Navigates back to the previous screen.
+
+Screen Title: Indicates the current section.
+
+More Options (WorkoutHistory only): A vertical ellipsis icon that provides a "Delete All" option for workout history.
+
+4. Screens and Functionality
+
+4.1. Onboarding Screen
+
+Purpose: Introduces the app and collects essential user data.
+
+Pages:
+
+Feature Highlights: Explains core app functionalities.
+
+User Data Collection: Prompts for Name, Age, Height (cm), and Weight (kg).
+
+Another Feature Highlight.
+
+Navigation: Uses HorizontalPager with a custom FloatingActionButton to move between pages. The button validates input on the "User Data Collection" page before proceeding. Upon completion of the last page, onOnboardingComplete is called, saving user data and navigating to HomeScreen.
+
+4.2. Home Screen (WorkoutListScreen)
+
+Purpose: Displays a summary of the last workout, quick start options, and a weight progression graph.
+
+Content:
+
+"Last Workout" Card: Shows the name of the most recently logged workout. Clicking it navigates to DetailedWorkout.
+
+"Quick Start" Section: Presents three randomly selected predefined workouts. Clicking one initiates a new WorkoutActivity with that workout.
+
+"Weight Progression" Graph: A visual bar graph showing the last few workouts with tracked weight, indicating progress.
+
+States: Handles Loading, Success (with workouts or empty), and Error states.
+
+Empty State: If no workouts are recorded, a "No workouts yet" message and a "Start a new Workout" button (navigating to WorkoutSelector) are displayed.
+
+4.3. Workout Selector Screen (WorkoutSelector)
+
+Purpose: Allows users to browse and select a workout to begin.
+
+Features:
+
+Search Bar: Filters workouts by name.
+
+Filter Chips: Filters workouts by category (e.g., "Bodyweight", "Dumbbell/Kettlebell", "Cardio").
+
+Workout List: Displays a scrollable list of workoutPresets.
+
+Action: Clicking a workout from the list starts the WorkoutActivity (the external activity for active workout tracking).
+
+4.4. Workout History Screen (WorkoutHistory)
+
+Purpose: Shows a chronological list of all recorded workouts.
+
+Features:
+
+List of Workouts: Each item displays workout name, duration, and a delete icon.
+
+Delete Individual Workout: Clicking the delete icon on a workout item removes it.
+
+Delete All Workouts: Accessible via the "More options" menu in the TopAppBar. Requires confirmation.
+
+Navigation: Clicking a workout item on the list navigates to the WorkoutDetailScreen.
+
+States: Handles Loading, Success (with history or empty), and Error states.
+
+Empty State: Displays "Your workout history is empty" message if no workouts are recorded.
+
+4.5. Detailed Workout Screen (WorkoutDetailScreen)
+
+Purpose: Provides a summary of the most recently completed workout.
+
+Content:
+
+Workout Name, Date, and Weight.
+
+Sets and Reps (if available, implies these are currently stored as CurrentReps and CurrentSets variables).
+
+Data Source: Currently pulls data from viewModel2.latestWorkoutName, suggesting it focuses on the last completed workout rather than a specific one from history.
+
+4.6. User Profile Screen (UserProfileScreen)
+
+Purpose: Displays user's personal body statistics, personal records, and recent workout activity.
+
+Content:
+
+User Avatar: A placeholder image.
+
+User Name: Retrieved from UserPreferencesManager.
+
+Personal Records Section: Lists exercises with the highest weight lifted.
+
+Body Stats Section: Shows Age, Height, and Weight retrieved from UserPreferencesManager.
+
+Recent Activity Section: Displays the last 5 completed workouts.
+
+Styling: Features a "frosted glass" card effect for sections.
+
+5. Data Management
+
+OnboardingManager: Manages the first-time launch status of the app.
+
+UserPreferencesManager: Handles saving and retrieving user's name, age, height, and weight using SharedPreferences.
+
+WorkoutRepository: (Inferred) Responsible for handling workout data, likely interacting with a database (e.g., Room) or other data sources.
+
+WorkoutListViewModel & MainScreenViewModel: ViewModels for managing UI-related data and logic, interacting with the WorkoutRepository.
+
+Workout Data Class: (Inferred) Represents a single workout entry, containing properties like id, name, durationMillis, status, date, and weight.
+
+workoutPresets: (Inferred) A predefined list of workout types that users can select from.
+
+6. External Activity
+
+WorkoutActivity: This is an external Android Activity that is launched when a user selects a workout to start. It's not defined within this provided Composable code but is essential for the app's functionality. It is expected to handle the actual timing and tracking of a live workout session.
+
+7. Styling and Theme
+
+The app uses WorkoutTrackerTheme and applies a modern, dark aesthetic with vertical gradients and subtle transparent card backgrounds to achieve a "frosted glass" effect. MaterialTheme.colorScheme is used for consistent theming.
+
+8. Animations
+
+FAB Expansion: The Floating Action Button on the HomeScreen animates its size and cornerRadius when clicked, creating a smooth transition to the WorkoutSelector screen.
+
+Screen Transitions: slideInHorizontally and slideOutHorizontally animations are applied to composable routes for visually appealing screen changes.
+
+9. Dependencies (Inferred)
+
+Jetpack Compose (UI Toolkit)
+
+Jetpack Navigation (Screen Navigation)
+
+ViewModel (Architecture Component)
+
+Lifecycle (for collectAsStateWithLifecycle)
+
+Coroutines (for asynchronous operations, e.g., database calls)
+
+Room (Likely for WorkoutRepository data persistence)
+
+SharedPreferences (for UserPreferencesManager and OnboardingManager)
+
+HapticFeedback (for tactile feedback on button presses)
+
+10. Known Variables/States
+
+startDestination: A global variable determining the initial navigation route ("home" or "onboarding").
+
+workout: A global variable used to pass the selected workout name to WorkoutActivity.
+
+CurrentReps, CurrentSets: Global variables that appear to hold temporary values for the last workout's sets and reps, displayed on the DetailedWorkoutScreen. Their lifecycle and update mechanism are not fully defined in the provided code snippet but are essential for their display.
+

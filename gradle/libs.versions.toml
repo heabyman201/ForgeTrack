@@ -1,0 +1,104 @@
+[versions]
+accompanistNavigationAnimation = "<latest_version>"
+accompanistNavigationAnimationVersion = "<latest>"
+agp = "8.11.0"
+aicore = "0.0.1-exp02"
+connectClient = "1.1.0-rc02"
+connectClientVersion = "1.1.0"
+coreKtxVersion = "1.6.1"
+googlePlayServicesWearable = "19.0.0"
+kotlin = "2.2.0"
+coreKtx = "1.16.0"
+junit = "4.13.2"
+junitVersion = "1.2.1"
+espressoCore = "3.6.1"
+kotlinxSerializationJson = "1.9.0"
+lifecycleRuntimeKtx = "2.9.0"
+activityCompose = "1.10.1"
+composeBom = "2025.08.01"
+playServicesWearableVersion = "19.0.0"
+roomCommonJvm = "2.7.1"
+navigationRuntimeAndroid = "2.9.0"
+roomCompilerVersion = "2.7.1"
+    implementation = "libs.androidx.room.ktx"
+roomKtx = "2.7.1"
+roomRuntime = "2.7.1"
+roomRuntimeAndroid = "2.7.1"
+appcompat = "1.7.0"
+material = "1.13.0"
+activity = "1.10.1"
+generativeai = "0.9.0"
+tasksGenai = "0.10.27"
+datastoreCore = "1.1.7"
+datastoreCoreJvm = "1.1.7"
+uiTextGoogleFonts = "1.9.0"
+playServicesWearable = "19.0.0"
+composeMaterial = "1.5.0"
+composeFoundation = "1.5.0"
+wearToolingPreview = "1.0.0"
+coreSplashscreen = "1.0.1"
+material3 = "1.3.2"
+uiautomator = "2.2.0"
+benchmarkMacroJunit4 = "1.4.1"
+baselineprofile = "1.4.1"
+profileinstaller = "1.4.1"
+[libraries]
+accompanist-navigation-animation = { module = "com.google.accompanist:accompanist-navigation-animation", version.ref = "accompanistNavigationAnimation" }
+accompanist-navigation-animation-vlatest = { module = "com.google.accompanist:accompanist-navigation-animation", version.ref = "accompanistNavigationAnimationVersion" }
+aicore = { module = "com.google.ai.edge.aicore:aicore", version.ref = "aicore" }
+androidx-compose-ui-ui-graphics = { module = "androidx.compose.ui:ui-graphics" }
+androidx-compose-ui-ui-graphics2 = { module = "androidx.compose.ui:ui-graphics" }
+androidx-connect-client = { module = "androidx.health.connect:connect-client", version.ref = "connectClient" }
+androidx-connect-client-v110 = { module = "androidx.health.connect:connect-client", version.ref = "connectClientVersion" }
+androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
+androidx-room-ktx = { module = "androidx.room:room-ktx", version.ref = "roomKtx" }
+androidx-room-runtime = { module = "androidx.room:room-runtime", version.ref = "roomRuntime" }
+core-ktx = { module = "androidx.test:core-ktx", version.ref = "coreKtxVersion" }
+junit = { group = "junit", name = "junit", version.ref = "junit" }
+androidx-junit = { group = "androidx.test.ext", name = "junit", version.ref = "junitVersion" }
+androidx-espresso-core = { group = "androidx.test.espresso", name = "espresso-core", version.ref = "espressoCore" }
+androidx-lifecycle-runtime-ktx = { group = "androidx.lifecycle", name = "lifecycle-runtime-ktx", version.ref = "lifecycleRuntimeKtx" }
+androidx-activity-compose = { group = "androidx.activity", name = "activity-compose", version.ref = "activityCompose" }
+androidx-compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "composeBom" }
+androidx-ui = { group = "androidx.compose.ui", name = "ui" }
+androidx-ui-graphics = { group = "androidx.compose.ui", name = "ui-graphics" }
+androidx-ui-tooling = { group = "androidx.compose.ui", name = "ui-tooling" }
+androidx-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-tooling-preview" }
+androidx-ui-test-manifest = { group = "androidx.compose.ui", name = "ui-test-manifest" }
+androidx-ui-test-junit4 = { group = "androidx.compose.ui", name = "ui-test-junit4" }
+androidx-material3 = { group = "androidx.compose.material3", name = "material3" }
+androidx-room-common-jvm = { group = "androidx.room", name = "room-common-jvm", version.ref = "roomCommonJvm" }
+androidx-navigation-runtime-android = { group = "androidx.navigation", name = "navigation-runtime-android", version.ref = "navigationRuntimeAndroid" }
+androidx-room-runtime-android = { group = "androidx.room", name = "room-runtime-android", version.ref = "roomRuntimeAndroid" }
+kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinxSerializationJson" }
+material3 = { module = "androidx.compose.material3:material3" }
+play-services-wearable-v1820 = { module = "com.google.android.gms:play-services-wearable", version.ref = "playServicesWearableVersion" }
+play-services-wearable-v1900 = { module = "com.google.android.gms:play-services-wearable", version.ref = "googlePlayServicesWearable" }
+ui = { module = "androidx.compose.ui:ui" }
+ui-graphics = { module = "androidx.compose.ui:ui-graphics" }
+xandroidx-room-compiler = { module = "androidx.room:room-compiler", version.ref = "roomCompilerVersion" }
+androidx-appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "appcompat" }
+material = { group = "com.google.android.material", name = "material", version.ref = "material" }
+androidx-activity = { group = "androidx.activity", name = "activity", version.ref = "activity" }
+generativeai = { group = "com.google.ai.client.generativeai", name = "generativeai", version.ref = "generativeai" }
+tasks-genai = { module = "com.google.mediapipe:tasks-genai", version.ref = "tasksGenai" }
+androidx-datastore-core = { group = "androidx.datastore", name = "datastore-core", version.ref = "datastoreCore" }
+androidx-datastore-core-jvm = { group = "androidx.datastore", name = "datastore-core-jvm", version.ref = "datastoreCoreJvm" }
+androidx-ui-text-google-fonts = { group = "androidx.compose.ui", name = "ui-text-google-fonts", version.ref = "uiTextGoogleFonts" }
+play-services-wearable = { group = "com.google.android.gms", name = "play-services-wearable", version.ref = "playServicesWearable" }
+androidx-compose-material = { group = "androidx.wear.compose", name = "compose-material", version.ref = "composeMaterial" }
+androidx-compose-foundation = { group = "androidx.wear.compose", name = "compose-foundation", version.ref = "composeFoundation" }
+androidx-wear-tooling-preview = { group = "androidx.wear", name = "wear-tooling-preview", version.ref = "wearToolingPreview" }
+androidx-core-splashscreen = { group = "androidx.core", name = "core-splashscreen", version.ref = "coreSplashscreen" }
+androidx-compose-material3-material3 = { group = "androidx.compose.material3", name = "material3", version.ref = "material3" }
+androidx-uiautomator = { group = "androidx.test.uiautomator", name = "uiautomator", version.ref = "uiautomator" }
+androidx-benchmark-macro-junit4 = { group = "androidx.benchmark", name = "benchmark-macro-junit4", version.ref = "benchmarkMacroJunit4" }
+androidx-profileinstaller = { group = "androidx.profileinstaller", name = "profileinstaller", version.ref = "profileinstaller" }
+[plugins]
+android-application = { id = "com.android.application", version.ref = "agp" }
+kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
+kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
+kotlinKapt = { id = "org.jetbrains.kotlin.kapt" }
+android-test = { id = "com.android.test", version.ref = "agp" }
+baselineprofile = { id = "androidx.baselineprofile", version.ref = "baselineprofile" }
+
