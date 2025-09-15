@@ -1306,7 +1306,7 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                                     else if (CurrentTime.value < 0) "current distance walked or ran is ${currentDistance.value}km"
                                     else "current time elapsed is ${CurrentTime.value}"
                                 generateAdvice(
-                                    "so far the user has performed ${CurrentReps.intValue} and their goal is to reach ${GoalReps.intValue} ",
+                                    "The user is doing ${workout.value}. So far the user has performed ${CurrentReps.intValue} and their goal is to reach ${GoalReps.intValue} ",
                                     "current sets are ${CurrentSets.intValue} and the goal is ${GoalSets.intValue}" +
                                             "Increase encouragement as they get closer to it",
                                     uVal
