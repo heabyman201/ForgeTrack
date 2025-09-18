@@ -75,6 +75,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.FitnessCenter
 import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.MonitorWeight
 import androidx.compose.material.icons.filled.MoreVert
@@ -112,6 +113,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -389,42 +391,54 @@ class MainActivity : ComponentActivity() {
             WorkoutTrackerTheme {
                 val context = LocalContext.current
 
-
-                val permissionLauncher = rememberLauncherForActivityResult(
+                val notifPermissionLauncher = rememberLauncherForActivityResult(
                     contract = ActivityResultContracts.RequestPermission()
-                ) { granted ->
-                    if (!granted) {
-                        Toast.makeText(
-                            context,
-                            "Permission is required for full functionality.",
-                            Toast.LENGTH_SHORT
-                        ).show()
-                    }
+                ) {
+                    // no-op; we re-check below if you want to act on result
                 }
 
+                var showNotifDialog by remember { mutableStateOf(false) }
 
                 LaunchedEffect(Unit) {
-
-                    if (ContextCompat.checkSelfPermission(
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        val missing = ContextCompat.checkSelfPermission(
                             context,
                             android.Manifest.permission.POST_NOTIFICATIONS
                         ) != PackageManager.PERMISSION_GRANTED
-                    ) {
-                        permissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                        showNotifDialog = missing
+                    } else {
+                        showNotifDialog = false
                     }
                 }
 
+                if (showNotifDialog) {
+                    AlertDialog(
+                        onDismissRequest = { showNotifDialog = false },
+                        title = { Text("Enable Notifications") },
+                        text = { Text("Allow notifications so we can show workout timers and progress.") },
+                        confirmButton = {
+                            TextButton(onClick = {
+                                showNotifDialog = false
+                                notifPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                            }) { Text("Allow") }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { showNotifDialog = false }) { Text("Not now") }
+                        }
+                    )
+                }
 
                 MainScreen(
                     viewModel = workoutListViewModel,
                     viewModel2 = secondViewModel
                 )
             }
+
         }
     }
 }
 
-object Routes {
+    object Routes {
     const val DetailedWorkout = "DetailedWorkout"
     const val ArgId = "workoutId"
     val DetailedWorkoutRoute = "$DetailedWorkout/{$ArgId}"
@@ -1937,7 +1951,7 @@ val cold = rememberColdStartStages()
                                                         InfoChip(
                                                             label = selectedWorkout!!.weight?.let { "${it} kg" }
                                                                 ?: "--",
-                                                            icon = Icons.Default.MonitorWeight
+                                                            icon = Icons.Default.FitnessCenter
                                                         )
                                                     }
                                                 }

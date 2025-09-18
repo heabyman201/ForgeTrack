@@ -349,18 +349,18 @@ fun PersonaSettingsScreen(
                                     localConfig = updated
                                     PersonaPrefs.writeConfig(updated)
                                 }
-//                                Divider(color = Color.White.copy(alpha = 0.06f))
-//                                PersonaOptionRowThemed(
-//                                    title = "Spicy Companion",
-//                                    subtitle = "Flirty, cheeky, still PG-13",
-//                                    value = "companion_plus",
-//                                    selected = localConfig.mode,
-//                                    enabled = listClickable
-//                                ) { select ->
-//                                    val updated = localConfig.copy(mode = select.sanitizePersona())
-//                                    localConfig = updated
-//                                    PersonaPrefs.writeConfig(updated)
-//                                }
+                                Divider(color = Color.White.copy(alpha = 0.06f))
+                                PersonaOptionRowThemed(
+                                    title = "Spicy Companion",
+                                    subtitle = "Flirty, cheeky",
+                                    value = "companion_plus",
+                                    selected = localConfig.mode,
+                                    enabled = listClickable
+                                ) { select ->
+                                    val updated = localConfig.copy(mode = select.sanitizePersona())
+                                    localConfig = updated
+                                    PersonaPrefs.writeConfig(updated)
+                                }
                                 Divider(color = Color.White.copy(alpha = 0.06f))
                                 PersonaOptionRowThemed(
                                     title = "Hype Master",

@@ -299,7 +299,9 @@ fun UserProfileScreen(
                         item {
                             ProfileSectionCard(
                                 title = "Recent Activity",
-                                onClick = { haptic.performHapticFeedback(HapticFeedbackType.LongPress) }
+                                onClick = {
+                                    navController.navigate("WorkoutHistory")
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress) }
                             ) {
                                 recentWorkouts.forEach { workout ->
                                     val date = remember(workout.date) { dateFormatter.format(java.util.Date(workout.date)) }

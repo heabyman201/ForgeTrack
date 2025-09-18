@@ -114,6 +114,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
@@ -159,6 +160,7 @@ import kotlin.math.cos
 import kotlin.math.pow
 import kotlin.math.sin
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
@@ -172,8 +174,10 @@ import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.inset
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ModifierLocalBeyondBoundsLayout
+import androidx.compose.ui.layout.lerp
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
@@ -194,7 +198,6 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlin.random.Random
-
 class WorkoutActivity : ComponentActivity() {
     @RequiresApi(Build.VERSION_CODES.TIRAMISU)
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -668,7 +671,7 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
     val activity = remember(context) { context as? Activity }
     var showCompletionAnimation by remember { mutableStateOf(false) }
     var isStepping by remember { mutableStateOf(false) }
-    var lastStepTimestamp by remember { mutableLongStateOf(0L) }
+    var lastStepTimestamp by remember { mutableStateOf(0L)}
 
     LaunchedEffect(lastStepTimestamp) {
         if (lastStepTimestamp > 0) {
@@ -1136,6 +1139,34 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
     }
     val shimmerAlpha = 0.05f + 0.10f * hype
 
+    val setCompletionProgress by remember {
+        derivedStateOf {
+            if (GoalType == "Reps" && GoalSets.intValue > 0) {
+                (CurrentSets.intValue.toFloat() / GoalSets.intValue.toFloat()).coerceIn(0f, 1f)
+            } else {
+                0f
+            }
+        }
+    }
+    val purpleRise by animateFloatAsState(
+        targetValue = setCompletionProgress,
+        animationSpec = tween(durationMillis = 1500, easing = LinearOutSlowInEasing),
+        label = "purpleRise"
+    )
+
+    var t by remember { mutableStateOf(0f) }
+    LaunchedEffect(Unit) {
+        var last = 0L
+        while (isActive) {
+            withFrameNanos { now ->
+                if (last == 0L) last = now
+                val dt = (now - last) / 1e9f
+                last = now
+                t += dt
+            }
+        }
+    }
+
     WorkoutTrackerTheme {
         Scaffold(
             topBar = {
@@ -1149,7 +1180,7 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                         )
                     },
                     colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = Color(0xFF1A0808).copy(alpha = 0.70f + 0.20f * hype),
+                        containerColor = Color(0xFF1A0808).copy(alpha = 0.5f),
                         titleContentColor = MaterialTheme.colorScheme.onSurface
                     )
                 )
@@ -1183,6 +1214,51 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                             )
                         )
                 )
+                Box(modifier = Modifier.fillMaxSize()) {
+                    Canvas(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer { alpha = (0.08f + 0.22f * hype) * purpleRise }
+                    ) {
+                        val h = size.height
+                        val startY = h * (1f - 0.65f * purpleRise)
+                        val endY = h
+                        drawRect(
+                            brush = Brush.verticalGradient(
+                                0f to Color(0x00000000),
+                                0.25f to Color(0x66A3357A),
+                                0.55f to Color(0x99CC5C33),
+                                0.85f to Color(0xCC9A32FF),
+                                1f to Color(0x00FF6A3D),
+                                startY = startY,
+                                endY = endY
+                            ),
+                            size = size
+                        )
+                    }
+                    Canvas(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer { alpha = (0.10f + 0.30f * hype) * purpleRise }
+                    ) {
+                        val n = 6
+                        val w = size.width
+                        val h = size.height
+                        for (i in 0 until n) {
+                            val s = (i * 37.123f) % 1000f
+                            val speed = 0.25f + (s % 0.35f)
+                            val phase = (t * speed + (s * 0.013f)) % 1f
+                            val y = h * (1f - phase)
+                            val baseX = (s % 1f) * w
+                            val wobble = sin((t * (0.8f + (s % 0.7f))) * 6.28318f + s) * (16f + 28f * (1f - phase))
+                            val x = (baseX + wobble).coerceIn(-40f, w + 40f)
+                            val r = 6f + (s % 1f) * 18f * (0.4f + 0.6f * (1f - phase))
+                            val a = (0.30f + 0.70f * (1f - phase)) * purpleRise
+                            drawCircle(Color(0xFFCC5500).copy(alpha = a.coerceIn(0f, 1f)), r, Offset(x, y))
+                            drawCircle(Color(0x66FF8C42).copy(alpha = (a * 0.6f).coerceIn(0f, 1f)), r * 1.8f, Offset(x, y + r * 0.2f))
+                        }
+                    }
+                }
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
@@ -1199,6 +1275,7 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                                     timeMillis,
                                     CurrentWeight.value
                                 )
+                                WorkoutForegroundService.stop(context)
                                 ConnectedWorkout.currentMode.value = WorkoutMode.INACTIVE
                                 context.startActivity(intent)
                                 activity?.finish()
@@ -1226,16 +1303,24 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                             .height(250.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        val timerScale by animateFloatAsState(1f + 0.06f * corePulse, label = "timerScale")
+
                         Text(
                             text = String.format("%02d:%02d:%02d", hours, minutes, seconds),
                             fontSize = 72.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface,
+                            fontWeight = FontWeight.ExtraBold,
                             textAlign = TextAlign.Center,
-                            modifier = Modifier.graphicsLayer { scaleX = timerScale; scaleY = timerScale }
+                            style = TextStyle(
+                                brush = Brush.linearGradient(
+                                    colors = listOf(
+
+                                        lerp(Color.White, Color(0xFFFF7272), hype),
+                                        Color.White
+                                    )
+                                ),
+                            ),
                         )
                     }
+
 
                     Spacer(modifier = Modifier.height(16.dp))
 
@@ -1283,18 +1368,26 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                         )
                     }
                     val bpm by vm.bpm.collectAsState()
-                    Spacer(modifier = Modifier.weight(1f))
+                    Spacer(modifier = Modifier.weight(1f).height(32.dp))
 
                     if (GoalType == "Reps") {
                         val interactionSource = remember { MutableInteractionSource() }
                         val isPressed by interactionSource.collectIsPressedAsState()
                         val scale by animateFloatAsState(if (isPressed) 0.96f else 1f, label = "buttonScale")
                         val animatedBg by animateColorAsState(
-                            targetValue =
-                                if (isPressed)
-                                    Color(0xFF8B0000).copy(alpha = (0.70f + 0.22f * hype).coerceIn(0f, 1f))
-                                else
-                                    Color(0xFF650000).copy(alpha = (0.45f + 0.30f * hype).coerceIn(0f, 1f)),
+                            targetValue = if (isPressed) {
+                             lerp(
+                                    Color(0xFF8B0000),
+                                    Color(0xFF7A285A),
+                                    purpleRise
+                                ).copy(alpha = (0.70f + 0.22f * hype).coerceIn(0f, 1f))
+                            } else {
+                               lerp(
+                                    Color(0xFF650000),
+                                    Color(0xFF5C1D4D),
+                                    purpleRise
+                                ).copy(alpha = (0.45f + 0.30f * hype).coerceIn(0f, 1f))
+                            },
                             label = "btnBg"
                         )
                         val shadow by animateDpAsState(targetValue = if (isPressed) 8.dp else 4.dp, label = "btnShadow")
@@ -1335,8 +1428,10 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                                     2.dp,
                                     Brush.linearGradient(
                                         listOf(
-                                            Color(0xFFFF7A7A).copy(alpha = (0.65f + 0.30f * hype).coerceIn(0f, 1f)),
-                                            Color(0xFF4A1515).copy(alpha = (0.45f + 0.35f * hype).coerceIn(0f, 1f))
+                                            lerp(Color(0xFFFF7A7A), Color(0xFFD966FF), purpleRise)
+                                                .copy(alpha = (0.65f + 0.30f * hype).coerceIn(0f, 1f)),
+                                            lerp(Color(0xFF4A1515), Color(0xFF9A32FF), purpleRise)
+                                                .copy(alpha = (0.45f + 0.35f * hype).coerceIn(0f, 1f))
                                         )
                                     ),
                                     CircleShape
@@ -1371,7 +1466,7 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                             modifier = Modifier.animateContentSize(tween(300)),
                             shape = RoundedCornerShape(25.dp),
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = Color(0xFF4A2515).copy(alpha = 0.5f + 0.15f * hype),
+                                containerColor = lerp(Color(0xFF4A2515), Color(0xFF4A1F3D), purpleRise).copy(alpha = 0.5f + 0.15f * hype),
                                 contentColor = Color.White
                             )
                         ) { Text(pauseText, fontSize = 18.sp, fontWeight = FontWeight.SemiBold) }
@@ -1386,6 +1481,9 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                                         CurrentTime.value, CurrentWeight.value
                                     )
                                 }
+                                WorkoutForegroundService.stop(context)
+                                CurrentTime.value = 0
+                                CurrentWeight.value = 0.0
                                 CurrentReps.intValue = 0
                                 CurrentSets.intValue = 0
                                 hours = 0
@@ -1403,7 +1501,7 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                             enabled = isPaused,
                             shape = RoundedCornerShape(25.dp),
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = Color(0xFF8B0000).copy(alpha = 0.7f),
+                                containerColor = lerp(Color(0xFF8B0000), Color(0xFF6C1A52), purpleRise).copy(alpha = 0.7f),
                                 contentColor = Color.White,
                                 disabledContainerColor = Color(0xFF2A0D0D).copy(alpha = 0.4f),
                                 disabledContentColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
@@ -1417,6 +1515,8 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
         }
     }
 }
+
+
 
 
 
@@ -2454,9 +2554,8 @@ fun RestScreen(
 ) {
     val haptics = LocalHapticFeedback.current
     val bpm by vm.bpm.collectAsState()
-    val initialTotal = rememberSaveable { 60000L } // Default 1 minute rest
+    val initialTotal = rememberSaveable { 60000L }
 
-    // Use and update the global rest timer
     var remaining by restTimeRemaining
 
     LaunchedEffect(Unit) {
@@ -2515,12 +2614,12 @@ fun RestScreen(
                 .drawWithContent {
                     val bg = Brush.radialGradient(
                         colors = listOf(
-                            Color(0xFF040D1A),
-                            Color(0xFF0D2A3A).copy(alpha = 0.85f + gradientOffset * 0.05f),
-                            Color(0xFF02040A)
+                            Color(0xFF3636A4),
+                            Color(0xFF2E3786).copy(alpha = 0.90f + gradientOffset * 0.02f),
+                            Color(0xFF000000)
                         ),
-                        radius = 1100f + gradientOffset * 500f,
-                        center = Offset(size.width * 0.45f, size.height * 0.78f)
+                        radius = 1600f + gradientOffset * 600f,
+                        center = Offset(size.width * 0.45f, size.height * 0.82f)
                     )
                     drawRect(bg)
                     if (introProgress < 1f) drawRect(
@@ -2661,77 +2760,102 @@ fun RestScreen(
                             color = MaterialTheme.colorScheme.onBackground,
                             fontWeight = FontWeight.Bold
                         )
-                        Spacer(Modifier.height(6.dp))
-                        Text(
-                            "$bpm bpm",
-                            style = MaterialTheme.typography.labelLarge,
-                            color = Color(0xFF9BE7FF).copy(alpha = 0.8f)
-                        )
                     }
                 }
 
                 Spacer(Modifier.height(24.dp))
 
-                OutlinedTextField(
-                    value = CurrentReps.intValue.toString(),
-                    onValueChange = { CurrentReps.intValue = it.toIntOrNull() ?: 0 },
-                    label = { Text("Enter Reps") },
-                    modifier = Modifier.width(180.dp),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = Color(0xFF9BE7FF).copy(alpha = 0.9f),
-                        unfocusedBorderColor = Color.White.copy(alpha = 0.3f),
-                        focusedContainerColor = Color.White.copy(alpha = 0.06f + glow * 0.04f),
-                        unfocusedContainerColor = Color.White.copy(alpha = 0.05f),
-                        focusedLabelColor = Color.White.copy(alpha = 0.85f),
-                        unfocusedLabelColor = Color.White.copy(alpha = 0.55f),
-                        cursorColor = Color.White
-                    ),
-                    textStyle = TextStyle(
-                        fontSize = 28.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        textAlign = TextAlign.Center
-                    ),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    singleLine = true
-                )
+                Box(
+                    modifier = Modifier
+                        .width(220.dp)
+                        .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+                        .clip(RoundedCornerShape(32.dp))
+                ) {
+                    Surface(
+                        modifier = Modifier
+                            .matchParentSize()
+                            .blur(radius = 32.dp),
+                        shape = RoundedCornerShape(32.dp),
+                        color = Color.LightGray.copy(alpha = 0.02f),
+
+                        ) {}
+
+                    OutlinedTextField(
+                        value = CurrentReps.intValue.toString(),
+                        onValueChange = { CurrentReps.intValue = it.toIntOrNull() ?: 0 },
+                        label = { Text("Enter Reps") },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 64.dp)
+                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                        shape = RoundedCornerShape(32.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = Color.Transparent,
+                            unfocusedBorderColor = Color.Transparent,
+                            focusedContainerColor = Color.Transparent,
+                            unfocusedContainerColor = Color.Transparent,
+                            focusedLabelColor = Color.White.copy(alpha = 0.85f),
+                            unfocusedLabelColor = Color.White.copy(alpha = 0.55f),
+                            cursorColor = Color.White
+                        ),
+                        textStyle = TextStyle(
+                            fontSize = 28.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            textAlign = TextAlign.Center
+                        ),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true
+                    )
+                }
 
                 Spacer(Modifier.weight(1f))
-
-
 
                 val interactionSource = remember { MutableInteractionSource() }
                 val pressed by interactionSource.collectIsPressedAsState()
                 val scale by animateFloatAsState(if (pressed) 0.98f else 1f, label = "btnScale")
                 val elevation by animateDpAsState(if (pressed) 2.dp else 8.dp, label = "btnElev")
 
-                Button(
-                    onClick = {
-                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                        ConnectedWorkout.currentMode.value = WorkoutMode.ACTIVE
-                        navController.navigate("WorkoutScreen") {
-                            popUpTo("WorkoutScreen") { inclusive = true }
-                        }
-                    },
+                Box(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .height(60.dp)
-                        .graphicsLayer { scaleX = scale; scaleY = scale }
-                        .border(
-                            1.dp,
-                            Brush.linearGradient(listOf(Color.White.copy(alpha = 0.35f), Color.White.copy(alpha = 0.12f))),
-                            CircleShape
-                        ),
-                    shape = CircleShape,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFF9BE7FF).copy(alpha = 0.12f + glow * 0.08f),
-                        contentColor = MaterialTheme.colorScheme.onSurface
-                    ),
-                    elevation = ButtonDefaults.buttonElevation(defaultElevation = elevation, pressedElevation = elevation),
-                    interactionSource = interactionSource
+                        .padding(horizontal = 32.dp, vertical = 24.dp)
+                        .clip(RoundedCornerShape(32.dp))
+                        .graphicsLayer { scaleX = scale; scaleY = scale },
+                    contentAlignment = Alignment.Center
                 ) {
-                    Text("Skip Rest", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    val buttonShape = RoundedCornerShape(32.dp)
+
+                    Surface(
+                        modifier = Modifier
+                            .matchParentSize()
+                            .blur(radius = 32.dp),
+                        shape = buttonShape,
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.1f),
+                        tonalElevation = elevation,
+                        shadowElevation = elevation
+                    ) {}
+
+                    Button(
+                        onClick = {
+                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                            ConnectedWorkout.currentMode.value = WorkoutMode.ACTIVE
+                            navController.navigate("WorkoutScreen") {
+                                popUpTo("WorkoutScreen") { inclusive = true }
+                            }
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(64.dp),
+                        shape = buttonShape,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color.Transparent,
+                            contentColor = MaterialTheme.colorScheme.onSurface
+                        ),
+                        elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp, pressedElevation = 0.dp),
+                        interactionSource = interactionSource
+                    ) {
+                        Text("Skip Rest", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    }
                 }
 
                 Spacer(Modifier.height(24.dp))
@@ -2739,6 +2863,7 @@ fun RestScreen(
         }
     }
 }
+
 
 
 

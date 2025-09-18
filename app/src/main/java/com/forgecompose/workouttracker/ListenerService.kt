@@ -21,13 +21,13 @@ class HrDataListenerService : WearableListenerService() {
                 val ts  = map.getLong("ts")
                 Log.d("WearHR", "HR from watch: $bpm @ $ts")
 
-                // fan-out to in-app stream (and/or persist)
+
                 HrUpdateBus.emit(bpm, ts)
             }
         }
     }
 }
-// app/src/main/java/com/example/app/wear/HrUpdateBus.kt
+
 
 
 object HrUpdateBus {

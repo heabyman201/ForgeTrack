@@ -32,20 +32,27 @@ import java.time.Duration
 import java.time.Instant
 import java.time.temporal.ChronoUnit
 import java.util.Locale
+import kotlin.math.E
+import kotlin.math.ceil
+import kotlin.math.exp
+import kotlin.math.floor
+import kotlin.math.ln
+import kotlin.math.max
+import kotlin.math.min
+import kotlin.math.pow
+import kotlin.math.sqrt
 
-// -----------------------------
-// Types
-// -----------------------------
+
 data class UserProfile(
     val name: String,
     val weightKg: Int,
     val heightCm: Int,
     val age: Int,
-    val experience: String,        // e.g. "beginner", "intermediate", "advanced"
-    val preferredStyle: String,    // e.g. "strength", "hypertrophy", "endurance"
+    val experience: String,
+    val preferredStyle: String,
     val importantMuscles: List<MuscleGroups>
 )
-// Adapter: safely convert from prefsManager String values → typed profile
+
 fun buildUserProfile(prefs: UserPreferencesManager): UserProfile {
     fun toIntSafe(s: String?, f: Int) = s?.toIntOrNull() ?: f
     fun toListOfMuscles(s: List<String>?): List<MuscleGroups> =
@@ -64,7 +71,6 @@ fun buildUserProfile(prefs: UserPreferencesManager): UserProfile {
     )
 }
 
-
 enum class MuscleGroups {
     Pecs, Delts, Biceps, Triceps, Lats, Traps, Abs, Forearms,
     Quads, Hamstrings, Glutes, Calves, LowerBack, UpperBack
@@ -72,123 +78,24 @@ enum class MuscleGroups {
 
 enum class LoadBand { Lacking, Balanced, Overtrained }
 
-// For the bar UI (0..1 score + last trained text)
 data class MuscleLoad(
     val group: MuscleGroups,
-    val score: Float,                 // 0f..1f normalized signal (history + AI)
+    val score: Float,
     val band: LoadBand,
     val lastTrainedAgo: String? = null
 )
 
-// Deterministic 7-day aggregation (sets/week style)
 data class MuscleWeeklyLoad(
     val group: MuscleGroups,
     val weeklySets: Int,
     val band: LoadBand
 )
 
-// Minimal workout summary you already pass around
 data class WorkoutSummary(
     val date: Instant,
     val name: String,
     val exercises: List<String> = emptyList()
 )
-
-// -----------------------------
-// Helpers & mappings
-// -----------------------------
-private val nameToMuscles: List<Pair<Regex, List<MuscleGroups>>> = listOf(
-    // --- Chest & pressing ---
-    "bench( press)?|flat bench|chest press" to listOf(
-        MuscleGroups.Pecs, MuscleGroups.Triceps, MuscleGroups.Delts
-    ),
-    "incline( bench)?|incline press" to listOf(
-        MuscleGroups.Pecs, MuscleGroups.Delts, MuscleGroups.Triceps
-    ),
-    "decline( bench)?|decline press" to listOf(
-        MuscleGroups.Pecs, MuscleGroups.Triceps, MuscleGroups.Delts
-    ),
-    "push[- ]?up|wide push[- ]?up|diamond push[- ]?up|close grip push[- ]?up" to listOf(
-        MuscleGroups.Pecs, MuscleGroups.Triceps, MuscleGroups.Delts
-    ),
-    "dumbbell press|db press" to listOf(
-        MuscleGroups.Pecs, MuscleGroups.Triceps, MuscleGroups.Delts
-    ),
-    "machine press|pec deck|chest fly|flye" to listOf(
-        MuscleGroups.Pecs, MuscleGroups.Delts
-    ),
-    "overhead press|shoulder press|ohp|military press|arnold press|db shoulder press" to listOf(
-        MuscleGroups.Delts, MuscleGroups.Triceps
-    ),
-    "tricep( extension)?|skullcrusher|close[- ]?grip bench|dip|bench dip|cable pushdown|pushdown" to listOf(
-        MuscleGroups.Triceps
-    ),
-
-    // --- Back & pulling ---
-    "row|barbell row|seated row|cable row|t bar row|one[- ]?arm row|db row|pendlay row" to listOf(
-        MuscleGroups.Lats, MuscleGroups.Biceps, MuscleGroups.UpperBack
-    ),
-    "pull[- ]?up|chin[- ]?up|lat pull|pulldown" to listOf(
-        MuscleGroups.Lats, MuscleGroups.Biceps
-    ),
-    "face pull|rear delt fly|reverse fly" to listOf(
-        MuscleGroups.Delts, MuscleGroups.Traps, MuscleGroups.UpperBack
-    ),
-    "shrug|barbell shrug|db shrug" to listOf(
-        MuscleGroups.Traps
-    ),
-
-    // --- Biceps & arms ---
-    "curl|biceps|bicep curl|barbell curl|ez bar curl|preacher curl|hammer curl|db curl|dumbbell curl|concentration curl|incline curl|cable curl" to listOf(
-        MuscleGroups.Biceps, MuscleGroups.Forearms
-    ),
-    "forearm curl|wrist curl|reverse curl" to listOf(
-        MuscleGroups.Forearms, MuscleGroups.Biceps
-    ),
-
-    // --- Legs & lower body ---
-    "squat|front squat|back squat|hack squat|db squat|goblet squat|zercher squat|smith squat|overhead squat" to listOf(
-        MuscleGroups.Quads, MuscleGroups.Glutes, MuscleGroups.Hamstrings
-    ),
-    "lunge|split squat|bulgarian split squat|walking lunge|reverse lunge" to listOf(
-        MuscleGroups.Quads, MuscleGroups.Glutes, MuscleGroups.Hamstrings
-    ),
-    "step[- ]?up" to listOf(
-        MuscleGroups.Quads, MuscleGroups.Glutes
-    ),
-    "leg press" to listOf(
-        MuscleGroups.Quads, MuscleGroups.Glutes, MuscleGroups.Hamstrings
-    ),
-    "deadlift|rdl|romanian deadlift|stiff leg deadlift|sumo deadlift|trap bar deadlift" to listOf(
-        MuscleGroups.Hamstrings, MuscleGroups.Glutes, MuscleGroups.LowerBack
-    ),
-    "good morning" to listOf(
-        MuscleGroups.Hamstrings, MuscleGroups.LowerBack, MuscleGroups.Glutes
-    ),
-    "hip thrust|glute bridge" to listOf(
-        MuscleGroups.Glutes, MuscleGroups.Hamstrings
-    ),
-    "leg extension" to listOf(
-        MuscleGroups.Quads
-    ),
-    "leg curl|hamstring curl" to listOf(
-        MuscleGroups.Hamstrings
-    ),
-    "calf raise|standing calf|seated calf" to listOf(
-        MuscleGroups.Calves
-    ),
-
-    // --- Core & abs ---
-    "plank|crunch|sit[- ]?up|ab rollout|ab wheel|leg raise|hanging leg raise|bicycle crunch|russian twist" to listOf(
-        MuscleGroups.Abs, MuscleGroups.LowerBack
-    ),
-    "side plank|side bend|oblique" to listOf(
-        MuscleGroups.Abs
-    ),
-    "back extension|hyperextension" to listOf(
-        MuscleGroups.LowerBack, MuscleGroups.Glutes, MuscleGroups.Hamstrings
-    )
-).map { (pat, gs) -> pat.toRegex(RegexOption.IGNORE_CASE) to gs }
 
 private fun friendlyAgo(now: Instant, then: Instant): String {
     val days = ChronoUnit.DAYS.between(then, now)
@@ -199,10 +106,11 @@ private fun friendlyAgo(now: Instant, then: Instant): String {
         else       -> "${days / 7}w ago"
     }
 }
+
 data class Targets(
-    val target: Float,           // personalized target sets/week for this muscle
-    val lackingCutoff: Int,      // sets < this -> Lacking
-    val overtrainedCutoff: Int   // sets > this -> Overtrained
+    val target: Float,
+    val lackingCutoff: Int,
+    val overtrainedCutoff: Int
 )
 
 private fun bmi(weightKg: Int, heightCm: Int): Float {
@@ -211,24 +119,18 @@ private fun bmi(weightKg: Int, heightCm: Int): Float {
 }
 
 private fun computeTargets(profile: UserProfile, muscle: MuscleGroups): Targets {
-
     var tgt = 12f
-
-
     tgt *= when {
-        "beginner" in profile.experience -> 0.90f   // start a bit lower
-        "advanced" in profile.experience -> 1.15f   // can handle more
-        else -> 1.00f                               // intermediate / unknown
+        "beginner" in profile.experience -> 0.90f
+        "advanced" in profile.experience -> 1.15f
+        else -> 1.00f
     }
-
     tgt *= when (profile.preferredStyle) {
-        "strength"    -> 0.90f   // fewer sets, higher intensity
-        "hypertrophy" -> 1.10f   // more weekly volume
-        "endurance"   -> 0.85f   // less local muscular volume
+        "strength"    -> 0.90f
+        "hypertrophy" -> 1.10f
+        "endurance"   -> 0.85f
         else          -> 1.00f
     }
-
-    // Age recovery adjustment (reduce targets & overtrained threshold modestly as age increases)
     val age = profile.age
     val ageVolMult = when {
         age < 20 -> 1.00f
@@ -238,8 +140,6 @@ private fun computeTargets(profile: UserProfile, muscle: MuscleGroups): Targets 
         else     -> 0.85f
     }
     tgt *= ageVolMult
-
-    // BMI adjustment (favor conservative targets at the extremes)
     val b = bmi(profile.weightKg, profile.heightCm)
     val bmiVolMult = when {
         b < 18.5f -> 0.95f
@@ -248,26 +148,75 @@ private fun computeTargets(profile: UserProfile, muscle: MuscleGroups): Targets 
         else      -> 0.92f
     }
     tgt *= bmiVolMult
-
-    // Important muscles: nudge target up (focus) and widen balanced band a bit on the high side
     val isImportant = muscle in profile.importantMuscles
-    if (isImportant) {
-        tgt *= 1.10f
-    }
-
-    // Clamp target to a sane range
+    if (isImportant) tgt *= 1.10f
     tgt = tgt.coerceIn(6f, 18f)
-
-
     val lackingFrac = if (isImportant) 0.60f else 0.50f
     val overFrac    = if (isImportant) 1.35f else 1.30f
-
-    val lacking = kotlin.math.floor(tgt * lackingFrac).toInt().coerceAtLeast(0)
-    val over    = kotlin.math.ceil(tgt * overFrac).toInt()
-
+    val lacking = floor(tgt * lackingFrac).toInt().coerceAtLeast(0)
+    val over    = ceil(tgt * overFrac).toInt()
     return Targets(target = tgt, lackingCutoff = lacking, overtrainedCutoff = over)
 }
 
+/**
+ * Weighted exercise→muscle mapping. Values are relative per-session contribution caps by muscle.
+ * 1.0 = heavy compound focus, 0.6 = strong secondary, 0.4 = accessory, 0.25 = isolation.
+ */
+private val nameToMusclesWeighted: List<Pair<Regex, List<Pair<MuscleGroups, Float>>>> = listOf(
+    // Chest / pressing
+    "bench( press)?|flat bench|barbell bench" to listOf(MuscleGroups.Pecs to 1.0f, MuscleGroups.Triceps to 0.6f, MuscleGroups.Delts to 0.6f),
+    "incline( bench)?|incline press" to listOf(MuscleGroups.Pecs to 0.9f, MuscleGroups.Delts to 0.7f, MuscleGroups.Triceps to 0.5f),
+    "decline( bench)?|decline press" to listOf(MuscleGroups.Pecs to 0.9f, MuscleGroups.Triceps to 0.6f, MuscleGroups.Delts to 0.5f),
+    "close[- ]?grip bench" to listOf(MuscleGroups.Triceps to 0.9f, MuscleGroups.Pecs to 0.6f, MuscleGroups.Delts to 0.5f),
+    "push[- ]?up|diamond push[- ]?up|wide push[- ]?up|deficit push[- ]?up|ring push[- ]?up" to listOf(MuscleGroups.Pecs to 0.8f, MuscleGroups.Triceps to 0.6f, MuscleGroups.Delts to 0.5f),
+    "dumbbell press|db press" to listOf(MuscleGroups.Pecs to 0.9f, MuscleGroups.Triceps to 0.6f, MuscleGroups.Delts to 0.5f),
+    "machine press|smith press|pec deck" to listOf(MuscleGroups.Pecs to 0.8f, MuscleGroups.Delts to 0.5f),
+    "chest fly|flye|cable crossover|low to high fly|high to low fly" to listOf(MuscleGroups.Pecs to 0.5f, MuscleGroups.Delts to 0.25f),
+    "dip|bench dip" to listOf(MuscleGroups.Triceps to 0.8f, MuscleGroups.Pecs to 0.6f, MuscleGroups.Delts to 0.4f),
+    // Shoulders
+    "overhead press|shoulder press|ohp|military press|arnold press|push press|db shoulder press" to listOf(MuscleGroups.Delts to 1.0f, MuscleGroups.Triceps to 0.7f),
+    "lateral raise|side raise|cable lateral" to listOf(MuscleGroups.Delts to 0.4f),
+    "front raise" to listOf(MuscleGroups.Delts to 0.4f),
+    "reverse fly|rear delt fly|face pull" to listOf(MuscleGroups.Delts to 0.5f, MuscleGroups.UpperBack to 0.5f, MuscleGroups.Traps to 0.4f),
+    // Back / pulling
+    "pull[- ]?up|chin[- ]?up|neutral grip pull[- ]?up" to listOf(MuscleGroups.Lats to 1.0f, MuscleGroups.Biceps to 0.6f, MuscleGroups.UpperBack to 0.5f),
+    "lat pull|pulldown|wide grip pulldown|close grip pulldown" to listOf(MuscleGroups.Lats to 0.9f, MuscleGroups.Biceps to 0.6f, MuscleGroups.UpperBack to 0.5f),
+    "row|barbell row|seated row|cable row|t[- ]?bar row|one[- ]?arm row|db row|pendlay row|meadow row" to listOf(MuscleGroups.UpperBack to 0.9f, MuscleGroups.Lats to 0.8f, MuscleGroups.Biceps to 0.6f),
+    "shrug|barbell shrug|db shrug" to listOf(MuscleGroups.Traps to 0.9f),
+    "pullover|lat pullover" to listOf(MuscleGroups.Lats to 0.6f, MuscleGroups.Pecs to 0.3f),
+    // Biceps / forearms
+    "curl|biceps|bicep curl|barbell curl|ez bar curl|preacher curl|hammer curl|incline curl|concentration curl|cable curl|spider curl" to listOf(MuscleGroups.Biceps to 0.5f, MuscleGroups.Forearms to 0.25f),
+    "reverse curl|wrist curl|forearm curl" to listOf(MuscleGroups.Forearms to 0.5f, MuscleGroups.Biceps to 0.25f),
+    // Triceps
+    "tricep( extension)?|skullcrusher|overhead extension|rope pushdown|cable pushdown|v[- ]?bar pushdown" to listOf(MuscleGroups.Triceps to 0.5f),
+    // Legs / hips
+    "back squat|front squat|squat|hack squat|smith squat|goblet squat|zercher squat|overhead squat" to listOf(MuscleGroups.Quads to 1.0f, MuscleGroups.Glutes to 0.8f, MuscleGroups.Hamstrings to 0.6f, MuscleGroups.LowerBack to 0.4f),
+    "lunge|walking lunge|reverse lunge|split squat|bulgarian split squat|cossack squat" to listOf(MuscleGroups.Quads to 0.8f, MuscleGroups.Glutes to 0.8f, MuscleGroups.Hamstrings to 0.5f),
+    "step[- ]?up|box step" to listOf(MuscleGroups.Quads to 0.7f, MuscleGroups.Glutes to 0.6f),
+    "leg press" to listOf(MuscleGroups.Quads to 0.9f, MuscleGroups.Glutes to 0.7f, MuscleGroups.Hamstrings to 0.5f),
+    "deadlift|conventional deadlift|sumo deadlift|trap bar deadlift" to listOf(MuscleGroups.Hamstrings to 1.0f, MuscleGroups.Glutes to 0.9f, MuscleGroups.LowerBack to 0.8f, MuscleGroups.UpperBack to 0.4f),
+    "rdl|romanian deadlift|stiff[- ]?leg deadlift" to listOf(MuscleGroups.Hamstrings to 0.9f, MuscleGroups.Glutes to 0.8f, MuscleGroups.LowerBack to 0.6f),
+    "good morning" to listOf(MuscleGroups.Hamstrings to 0.7f, MuscleGroups.LowerBack to 0.8f, MuscleGroups.Glutes to 0.5f),
+    "hip thrust|glute bridge|barbell hip thrust|single[- ]?leg hip thrust" to listOf(MuscleGroups.Glutes to 0.9f, MuscleGroups.Hamstrings to 0.6f),
+    "leg extension" to listOf(MuscleGroups.Quads to 0.4f),
+    "leg curl|hamstring curl|seated leg curl|lying leg curl" to listOf(MuscleGroups.Hamstrings to 0.4f),
+    "calf raise|standing calf|seated calf|donkey calf" to listOf(MuscleGroups.Calves to 0.5f),
+    "hip abduction|abductor machine" to listOf(MuscleGroups.Glutes to 0.4f),
+    "hip adduction|adductor machine" to listOf(MuscleGroups.Quads to 0.25f, MuscleGroups.Hamstrings to 0.25f),
+    // Core
+    "plank|side plank|hollow hold" to listOf(MuscleGroups.Abs to 0.4f, MuscleGroups.LowerBack to 0.25f),
+    "crunch|sit[- ]?up|cable crunch|machine crunch" to listOf(MuscleGroups.Abs to 0.4f),
+    "leg raise|hanging leg raise|reverse crunch" to listOf(MuscleGroups.Abs to 0.45f),
+    "ab rollout|ab wheel" to listOf(MuscleGroups.Abs to 0.5f, MuscleGroups.LowerBack to 0.3f),
+    "russian twist|woodchop|pallof press" to listOf(MuscleGroups.Abs to 0.4f),
+    "back extension|hyperextension" to listOf(MuscleGroups.LowerBack to 0.6f, MuscleGroups.Glutes to 0.4f, MuscleGroups.Hamstrings to 0.4f),
+).map { (pat, gs) -> pat.toRegex(RegexOption.IGNORE_CASE) to gs }
+
+/**
+ * Plain mapping for quick counting (computeWeeklyLoads) derived from the weighted map.
+ */
+private val nameToMuscles: List<Pair<Regex, List<MuscleGroups>>> =
+    nameToMusclesWeighted.map { (rx, pairs) -> rx to pairs.map { it.first } }
 
 fun computeWeeklyLoads(
     now: Instant,
@@ -283,12 +232,15 @@ fun computeWeeklyLoads(
     for (w in recent) {
         if (w.date.isBefore(start)) continue
         val tokens = if (w.exercises.isNotEmpty()) w.exercises else listOf(w.name)
-        tokens.forEach { token ->
-            val lower = token.lowercase()
-            nameToMuscles.forEach { (rx, groups) ->
-                if (rx.containsMatchIn(lower)) groups.forEach { bump(it, 1) }
+        val hit = buildSet<MuscleGroups> {
+            tokens.forEach { token ->
+                val lower = token.lowercase()
+                nameToMuscles.forEach { (rx, groups) ->
+                    if (rx.containsMatchIn(lower)) addAll(groups)
+                }
             }
         }
+        hit.forEach { bump(it, 1) }
     }
 
     fun bandOf(sets: Int): LoadBand = when {
@@ -310,13 +262,12 @@ fun computeWeeklyLoads(
     }
 }
 
-// -----------------------------
-// Hybrid scorer used by the UI
-// -----------------------------
 /**
- * Build MuscleLoad from (a) history with recency decay and (b) AI hints.
- * - History → rolling score by recency (last 10 days), name→muscle mapping fallback.
- * - AI hints → nudge bands (trained/overtrained) and optional score overrides.
+ * Decayed volume model with slow growth and visible recovery.
+ * - 21d horizon
+ * - exponential half-life = 5d
+ * - per-session per-muscle cap = 1.0
+ * - convert decayed sum to weekly-equivalent using (1 - e^-k) * 7 scaling
  */
 suspend fun deriveMuscleLoads(
     now: Instant,
@@ -324,42 +275,42 @@ suspend fun deriveMuscleLoads(
     profile: UserProfile,
     aiText: String?
 ): List<MuscleLoad> = withContext(Dispatchers.Default) {
-    // 1) Count weekly sets per muscle (7-day window), one hit per muscle per workout
-    val start = now.minus(Duration.ofDays(7))
-    val weeklySets = mutableMapOf<MuscleGroups, Int>()
-    val lastTime  = mutableMapOf<MuscleGroups, Instant>()
+    val horizonDays = 21L
+    val start = now.minus(Duration.ofDays(horizonDays))
+    val halfLifeDays = 5f
+    val k = ln(2.0).toFloat() / halfLifeDays
+    val lastTime = mutableMapOf<MuscleGroups, Instant>()
+    val decayed = mutableMapOf<MuscleGroups, Float>()
 
     recent.forEach { w ->
         if (w.date.isBefore(start)) return@forEach
         val tokens = w.exercises.ifEmpty { listOf(w.name) }
 
-        // collect all groups hit in this workout (de-duped)
-        val groupsHit = buildSet<MuscleGroups> {
-            tokens.forEach { raw ->
-                val token = raw.lowercase(java.util.Locale.US)
-                nameToMuscles.forEach { (rx, groups) ->
-                    if (rx.containsMatchIn(token)) addAll(groups)
+        val sessionWeights = mutableMapOf<MuscleGroups, Float>()
+        tokens.forEach { raw ->
+            val token = raw.lowercase(Locale.US)
+            nameToMusclesWeighted.forEach { (rx, pairs) ->
+                if (rx.containsMatchIn(token)) {
+                    pairs.forEach { (m, wt) ->
+                        sessionWeights[m] = (sessionWeights[m] ?: 0f) + wt
+                    }
                 }
             }
         }
 
-        // bump each hit muscle ONCE
-        groupsHit.forEach { g ->
-            weeklySets[g] = (weeklySets[g] ?: 0) + 1
-            val prev = lastTime[g]
-            if (prev == null || w.date.isAfter(prev)) lastTime[g] = w.date
+        if (sessionWeights.isEmpty()) return@forEach
+
+        sessionWeights.replaceAll { _, v -> v.coerceIn(0f, 1f) }
+        val ageDays = max(0f, ChronoUnit.HOURS.between(w.date, now).toFloat() / 24f)
+        val decay = exp(-k * ageDays)
+
+        sessionWeights.forEach { (m, unit) ->
+            decayed[m] = (decayed[m] ?: 0f) + unit * decay
+            val prev = lastTime[m]
+            if (prev == null || w.date.isAfter(prev)) lastTime[m] = w.date
         }
     }
 
-
-    fun bandOf(sets: Int): LoadBand = when {
-        sets < 4    -> LoadBand.Lacking
-        sets <= 12  -> LoadBand.Balanced
-        else        -> LoadBand.Overtrained
-    }
-
-
-    // 3) Build stable ordered output; score is visual only (normalized by 25 sets)
     val order = listOf(
         MuscleGroups.Pecs, MuscleGroups.Delts, MuscleGroups.Biceps, MuscleGroups.Triceps,
         MuscleGroups.Lats, MuscleGroups.UpperBack, MuscleGroups.Traps, MuscleGroups.Abs,
@@ -368,22 +319,15 @@ suspend fun deriveMuscleLoads(
     )
 
     order.map { g ->
-        val sets = weeklySets[g] ?: 0
-
-        // Personalized targets for THIS user and THIS muscle
-        val t = computeTargets(profile, g)  // <-- you need `profile` in scope (see note below)
-
-        // Band classification using personalized cutoffs
+        val t = computeTargets(profile, g)
+        val effWeekly = (decayed[g] ?: 0f) * (1f - exp(-k)) * 7f
         val band = when {
-            sets < t.lackingCutoff      -> LoadBand.Lacking
-            sets > t.overtrainedCutoff  -> LoadBand.Overtrained
-            else                        -> LoadBand.Balanced
+            effWeekly > t.overtrainedCutoff.toFloat() -> LoadBand.Overtrained
+            effWeekly < t.lackingCutoff.toFloat()     -> LoadBand.Lacking
+            else                                      -> LoadBand.Balanced
         }
-
-        // Score: fill faster early, taper near target (sqrt curve),
-        // and normalize against the personalized target.
-        val score = kotlin.math.sqrt((sets / t.target).coerceIn(0f, 1f))
-
+        val ratio = (effWeekly / t.target).coerceIn(0f, 1f)
+        val score = sqrt(ratio)
         MuscleLoad(
             group = g,
             score = score,
@@ -391,13 +335,9 @@ suspend fun deriveMuscleLoads(
             lastTrainedAgo = lastTime[g]?.let { friendlyAgo(now, it) }
         )
     }
-
 }
 
 
-// -----------------------------
-// Prompt builder (for your AI call)
-// -----------------------------
 fun buildMuscleJsonPrompt(loads: List<MuscleWeeklyLoad>): String {
     val trained = loads.filter { it.band != LoadBand.Lacking }.map { it.group.name }
     val over    = loads.filter { it.band == LoadBand.Overtrained }.map { it.group.name }
@@ -412,11 +352,6 @@ overtrained: $over
 lacking: $lacking
 """.trimIndent()
 }
-
-// -----------------------------
-// UI Section
-// -----------------------------
-
 
 @Composable
 fun MuscleStatusSection(
@@ -511,7 +446,7 @@ private fun MuscleBarRow(load: MuscleLoad) {
         LoadBand.Overtrained -> Color(0xFFFFCDD2)
     }
     val label = when (load.band) {
-        LoadBand.Lacking -> "Not Enough Training"
+        LoadBand.Lacking -> "Lacking"
         LoadBand.Balanced -> "Balanced"
         LoadBand.Overtrained -> "Overtrained"
     }
@@ -623,4 +558,4 @@ private fun MuscleBarRow(load: MuscleLoad) {
     }
 }
 
-
+private fun ln2() = kotlin.math.ln(2.0).toFloat()

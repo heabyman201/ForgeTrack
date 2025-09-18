@@ -105,7 +105,6 @@ fun FloatingTaskbar(
     iconAlpha: Float,
     uiState: WorkoutListUiState
 ) {
-    // FIX: Check the 'currentMode' state instead of the old 'isWorkoutActive' boolean
     val isWorkoutInProgress = ConnectedWorkout.currentMode.value != ConnectedWorkout.WorkoutMode.INACTIVE
     val ctx = LocalContext.current
 
@@ -132,7 +131,7 @@ fun FloatingTaskbar(
                 val containerShape = remember(cornerRadius) { RoundedCornerShape(cornerRadius) }
                 val density = LocalDensity.current
                 val cornerRpx = with(density) { cornerRadius.toPx() }
-val haptics = LocalHapticFeedback.current
+                val haptics = LocalHapticFeedback.current
                 Box(
                     modifier = Modifier
                         .padding(horizontal = 16.dp, vertical = 10.dp)
@@ -142,7 +141,7 @@ val haptics = LocalHapticFeedback.current
                         .height(80.dp)
                         .clip(containerShape)
                         .clickable {
-                           haptics.performHapticFeedback(HapticFeedbackType.Confirm)
+                            haptics.performHapticFeedback(HapticFeedbackType.Confirm)
                             val intent = Intent(ctx, NotificationDispatcherActivity::class.java)
                             ctx.startActivity(intent)
                         }
@@ -260,17 +259,39 @@ val haptics = LocalHapticFeedback.current
                             label = "idleBreath"
                         )
 
+                        val routeOrder = remember { listOf("WorkoutHistory", "HomeScreen", "MuscleGroup", "UserProfile") }
+                        fun routeIndex(r: String?) = routeOrder.indexOf(r).let { if (it >= 0) it else 1 }
+                        var prevRoute by remember { mutableStateOf(currentRoute) }
+
                         LaunchedEffect(currentRoute) {
-                            val nudgeX = if ((currentRoute ?: "").hashCode() % 2 == 0) 10f else -10f
-                            pos.snapTo(Offset(nudgeX, 0f))
-                            skew.snapTo(if (nudgeX > 0) 0.08f else -0.08f)
-                            squish.snapTo(1.05f)
-                            launch { pos.animateTo(Offset.Zero, spring(dampingRatio = 0.65f, stiffness = Spring.StiffnessMediumLow)) }
+                            val from = routeIndex(prevRoute)
+                            val to = routeIndex(currentRoute)
+                            val dir = (to - from).coerceIn(-1, 1)
+                            val kick = 18f * dir
+                            val spin = 0.07f * dir
+                            pos.snapTo(Offset(-kick, 0f))
+                            skew.snapTo(spin)
+                            squish.snapTo(1.06f - 0.02f * kotlin.math.abs(dir))
                             launch {
-                                squish.animateTo(0.95f, spring(dampingRatio = 0.3f, stiffness = Spring.StiffnessMedium))
-                                squish.animateTo(1f,   spring(dampingRatio = 0.75f, stiffness = Spring.StiffnessLow))
+                                pos.animateTo(
+                                    targetValue = Offset.Zero,
+                                    animationSpec = spring(dampingRatio = 0.68f, stiffness = Spring.StiffnessMediumLow),
+                                    initialVelocity = Offset(650f * dir, 0f)
+                                )
                             }
-                            launch { skew.animateTo(0f, spring(dampingRatio = 0.7f, stiffness = Spring.StiffnessLow)) }
+                            launch {
+                                skew.animateTo(
+                                    targetValue = 0f,
+                                    animationSpec = spring(dampingRatio = 0.8f, stiffness = Spring.StiffnessLow)
+                                )
+                            }
+                            launch {
+                                squish.animateTo(
+                                    targetValue = 1f,
+                                    animationSpec = spring(dampingRatio = 0.8f, stiffness = Spring.StiffnessLow)
+                                )
+                            }
+                            prevRoute = currentRoute
                         }
 
                         LaunchedEffect(isPressed) {
@@ -362,7 +383,6 @@ val haptics = LocalHapticFeedback.current
                                         shadowElevation = 0f
                                     }
                             ) {
-
                                 val glassColor = Color.Black.copy(alpha = 0.5f)
                                 AndroidView(
                                     factory = { context ->
@@ -378,7 +398,6 @@ val haptics = LocalHapticFeedback.current
                                         view.setRenderEffect(blurEffect)
                                     }
                                 )
-
 
                                 Box(
                                     Modifier
@@ -484,7 +503,6 @@ val haptics = LocalHapticFeedback.current
                                                         else
                                                             Brush.verticalGradient(0f to Color.Transparent, 1f to Color.Transparent)
                                                     )
-
                                                     .drawWithCache {
                                                         val r = size.minDimension / 2f
                                                         val glowBrush = Brush.radialGradient(
@@ -498,7 +516,6 @@ val haptics = LocalHapticFeedback.current
                                                         )
                                                         onDrawBehind {
                                                             if (glowAlpha > 0f) {
-
                                                                 drawRoundRect(
                                                                     brush = glowBrush,
                                                                     cornerRadius = CornerRadius(r, r)
