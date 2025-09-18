@@ -7,7 +7,9 @@ import android.app.*
 import android.content.*
 import android.graphics.Color
 import android.os.Build
+import android.os.Bundle
 import android.os.IBinder
+import androidx.compose.material.icons.Icons
 import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.*
 import kotlin.math.max
@@ -84,11 +86,9 @@ class WorkoutForegroundService : Service() {
         val openAppPendingIntent = PendingIntent.getActivity(
             this,
             0,
-            Intent(this, NotificationDispatcherActivity::class.java), // Point to the new dispatcher
+            Intent(this, NotificationDispatcherActivity::class.java),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
-
-
 
         val stopIntent = Intent(this, WorkoutForegroundService::class.java).apply { action = ACTION_STOP }
         val stopPI = PendingIntent.getService(this, 1, stopIntent, PendingIntent.FLAG_IMMUTABLE)
@@ -100,64 +100,138 @@ class WorkoutForegroundService : Service() {
             else -> "Workout"
         }
 
-        val (text, sub, progress, progressMax, showProgress) = when (ConnectedWorkout.GoalType) {
+        val tuple = when (ConnectedWorkout.GoalType) {
             "Time" -> {
-                val goal = max(ConnectedWorkout.GoalTime.value, 0L)
-                val curr = max(ConnectedWorkout.CurrentTime.value, 0L)
-                val remaining = max(goal - curr, 0L)
-                val txt = "${formatHMS(remaining)} remaining"
-                val sub = if (goal > 0L) "${formatHMS(curr)}/${formatHMS(goal)} elapsed" else "Counting"
-                val p = min(curr.toInt(), Int.MAX_VALUE)
-                val pm = if (goal > 0L) min(goal.toInt(), Int.MAX_VALUE) else 0
-                Quintuple(txt, sub, p, pm, goal > 0L)
+                val goalMs = max(ConnectedWorkout.GoalTime.value, 0L)
+                val currMs = max(ConnectedWorkout.CurrentTime.value, 0L)
+                val goalSec = (goalMs / 1000L).coerceAtLeast(1L)
+                val currSec = (currMs / 1000L).coerceIn(0L, goalSec)
+
+                val ratio = (currSec.toDouble() / goalSec.toDouble()).coerceIn(0.0, 1.0)
+                val pm = 1000
+                val p = (ratio * pm).toInt()
+
+                val txt = "${formatHMS(goalMs - currMs)} remaining"
+                val sub = if (goalMs > 0L) "${formatHMS(currMs)}/${formatHMS(goalMs)} elapsed" else "Counting"
+
+                Quintuple(txt, sub, p, pm, true)
             }
+
             "Reps" -> {
-                val sets = "${ConnectedWorkout.CurrentSets.intValue}/${max(ConnectedWorkout.GoalSets.intValue, 0)}"
-                val reps = if (ConnectedWorkout.GoalReps.intValue > 0)
-                    "${ConnectedWorkout.CurrentReps.intValue}/${ConnectedWorkout.GoalReps.intValue}"
-                else
-                    "${ConnectedWorkout.CurrentReps.intValue}"
-                Quintuple("Set $sets • Reps $reps", "Weight ${ConnectedWorkout.CurrentWeight.value}", 0, 0, false)
+                val goalSets = max(ConnectedWorkout.GoalSets.intValue, 0)
+                val goalReps = max(ConnectedWorkout.GoalReps.intValue, 0)
+                val currSets = ConnectedWorkout.CurrentSets.intValue
+                val currReps = ConnectedWorkout.CurrentReps.intValue
+
+                val safeSetGoal = goalSets.coerceAtLeast(1)
+                val safeRepGoal = goalReps.coerceAtLeast(1)
+
+                val setRatio = (currSets.toDouble() / safeSetGoal.toDouble()).coerceIn(0.0, 1.0)
+                val repRatio = (currReps.toDouble() / safeRepGoal.toDouble()).coerceIn(0.0, 1.0)
+                val ratio = ((setRatio + repRatio) / 2.0).coerceIn(0.0, 1.0)
+
+                val pm = 1000
+                val p = (ratio * pm).toInt()
+
+                val setsText = "$currSets/${if (goalSets > 0) goalSets else "?"}"
+                val repsText = if (goalReps > 0) "$currReps/$goalReps" else "$currReps"
+                val txt = "Set $setsText • Reps $repsText"
+                val sub = "Weight ${ConnectedWorkout.CurrentWeight.value}"
+
+                Quintuple(txt, sub, p, pm, true)
             }
+
             "Distance" -> {
                 val curr = ConnectedWorkout.currentDistance.value
                 val goal = ConnectedWorkout.GoalDistance.value
+                val safeGoal = if (goal > 0.0) goal else 0.1
+
+                val ratio = (curr / safeGoal).coerceIn(0.0, 1.0)
+                val pm = 1000
+                val p = (ratio * pm).toInt()
+
                 val txt = if (goal > 0.0) {
                     String.format("%.2f / %.2f km", curr, goal)
                 } else {
                     String.format("%.2f km", curr)
                 }
-                val p = if (goal > 0.0) (curr / goal * 1000).toInt().coerceIn(0, 1000) else 0
-                Quintuple(txt, "Tracking steps…", p, if (goal > 0.0) 1000 else 0, goal > 0.0)
+                val sub = "Tracking steps…"
+
+                Quintuple(txt, sub, p, pm, goal > 0.0)
             }
-            else -> Quintuple("In progress", "", 0, 0, false)
+
+            else -> Quintuple("In progress", "", 0, 1000, false)
         }
 
-        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_launcher_foreground) // add a tiny monochrome icon in your res
-            .setContentTitle(title)
-            .setContentText(text)
-            .setStyle(NotificationCompat.BigTextStyle().bigText("$text\n$sub"))
-            .setOngoing(true)
-            .setOnlyAlertOnce(true)
-            .setSilent(true)
-            .setColor("#8B0000".toColorInt())
-            .setContentIntent(openAppPendingIntent)
-            .addAction(
-                0, "Stop", stopPI
-            )
+        val text = tuple.a
+        val sub = tuple.b
+        val progress = tuple.c
+        val progressMax = tuple.d
+        val showProgress = tuple.e
 
-        if (showProgress && progressMax > 0) {
-            builder.setProgress(progressMax, progress.coerceAtMost(progressMax), false)
+        if (Build.VERSION.SDK_INT >= 36 && showProgress && progressMax > 0) {
+            val clamped = progress.coerceIn(0, progressMax)
+            val frac = (clamped.toFloat() / progressMax.toFloat()).coerceIn(0f, 1f)
+
+            val style = Notification.ProgressStyle().apply {
+                setProgress(progressMax)
+                setProgressPoints(
+                    listOf(
+                        Notification.ProgressStyle.Point(frac.toInt()).setColor(android.graphics.Color.RED)
+                    )
+                )
+            }
+
+            val builder = Notification.Builder(this, CHANNEL_ID)
+                .setSmallIcon(R.drawable.ic_launcher_foreground)
+                .setContentTitle(title)
+                .setContentText(text)
+                .setStyle(style)
+                .setOngoing(true)
+                .setOnlyAlertOnce(true)
+                .setColor(Color.parseColor("#8B0000"))
+                .setContentIntent(openAppPendingIntent)
+                .setExtras(Bundle().apply {
+                    putBoolean("android.extra.REQUEST_PROMOTED_ONGOING", true)
+                })
+                .addAction(Notification.Action.Builder(null, "Stop", stopPI).build())
+                .setProgress(progressMax, clamped, false) // also set classic progress for consistency
+
+            return builder.build().apply {
+                flags = flags or Notification.FLAG_ONGOING_EVENT
+            }
+        } else {
+            val builder = NotificationCompat.Builder(this, CHANNEL_ID)
+                .setSmallIcon(R.drawable.ic_launcher_foreground)
+                .setContentTitle(title)
+                .setContentText(text)
+                .setStyle(NotificationCompat.BigTextStyle().bigText("$text\n$sub"))
+                .setOngoing(true)
+                .setOnlyAlertOnce(true)
+                .setSilent(true)
+                .setColor("#8B0000".toColorInt())
+                .setContentIntent(openAppPendingIntent)
+                .setExtras(Bundle().apply {
+                    putBoolean("android.extra.REQUEST_PROMOTED_ONGOING", true)
+                })
+                .addAction(0, "Stop", stopPI)
+
+            if (showProgress && progressMax > 0) {
+                val clamped = progress.coerceIn(0, progressMax)
+                builder.setProgress(progressMax, clamped, false)
+            }
+
+            return builder.build()
         }
-
-        return builder.build()
     }
+
+
+
 
     private fun createChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
-                CHANNEL_ID, CHANNEL_NAME, NotificationManager.IMPORTANCE_LOW
+                CHANNEL_ID, CHANNEL_NAME, NotificationManager.IMPORTANCE_DEFAULT
             ).apply {
                 description = "Shows live workout progress"
                 enableVibration(false)
