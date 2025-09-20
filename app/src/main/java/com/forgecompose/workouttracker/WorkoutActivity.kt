@@ -163,6 +163,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.shadow
@@ -1167,6 +1168,30 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
         }
     }
 
+    val hour = remember { java.time.LocalTime.now().hour }
+    val introColors = remember(hour) {
+        when (hour) {
+            in 5..10 -> listOf(Color(0xFF2B1A00), Color(0xFF3C2405), Color(0xFF5A360A), Color(0xFF7A4A12))
+            in 11..16 -> listOf(Color(0xFF332300), Color(0xFF4A3408), Color(0xFF6B4B0F), Color(0xFF8C6217))
+            in 17..20 -> listOf(Color(0xFF1A0614), Color(0xFF2A0A20), Color(0xFF3D0F2D), Color(0xFF52153A))
+            else -> listOf(Color(0xFF02040A), Color(0xFF0A1324), Color(0xFF15243D), Color(0xFF1E3352))
+        }
+    }
+    val introBrush = remember(introColors) {
+        Brush.radialGradient(
+            colors = introColors,
+            center = Offset(0.5f, 0.5f), // Centered radial gradient
+            radius = 2000f // Adjust radius as needed for spread
+        )
+    }
+    var showIntro by remember { mutableStateOf(true) }
+    val introProgress by animateFloatAsState(
+        targetValue = if (showIntro) 0f else 1f,
+        animationSpec = tween(750, easing = LinearEasing),
+        label = "introFade"
+    )
+    LaunchedEffect(Unit) { showIntro = false }
+
     WorkoutTrackerTheme {
         Scaffold(
             topBar = {
@@ -1258,6 +1283,13 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                             drawCircle(Color(0x66FF8C42).copy(alpha = (a * 0.6f).coerceIn(0f, 1f)), r * 1.8f, Offset(x, y + r * 0.2f))
                         }
                     }
+                }
+                if (introProgress < 1f) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(introBrush, alpha = 1f - introProgress)
+                    )
                 }
                 Column(
                     modifier = Modifier
@@ -1376,13 +1408,13 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                         val scale by animateFloatAsState(if (isPressed) 0.96f else 1f, label = "buttonScale")
                         val animatedBg by animateColorAsState(
                             targetValue = if (isPressed) {
-                             lerp(
+                                lerp(
                                     Color(0xFF8B0000),
                                     Color(0xFF7A285A),
                                     purpleRise
                                 ).copy(alpha = (0.70f + 0.22f * hype).coerceIn(0f, 1f))
                             } else {
-                               lerp(
+                                lerp(
                                     Color(0xFF650000),
                                     Color(0xFF5C1D4D),
                                     purpleRise
@@ -1411,7 +1443,7 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                         Button(
                             onClick = {
                                 timeToMillis()
-                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                haptics.performHapticFeedback(HapticFeedbackType.ToggleOn)
                                 CurrentReps.intValue += 10
                                 CurrentSets.intValue += 1
                                 EnterRestMode()
@@ -1453,7 +1485,7 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                     ) {
                         Button(
                             onClick = {
-                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                haptics.performHapticFeedback(HapticFeedbackType.ContextClick)
                                 val now = SystemClock.elapsedRealtime()
                                 if (!isPaused) {
                                     accMs += now - startAt.longValue
@@ -1491,7 +1523,7 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                                 seconds = 0
                                 accMs = 0L
                                 startAt.longValue = SystemClock.elapsedRealtime()
-                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                haptics.performHapticFeedback(HapticFeedbackType.VirtualKey)
                                 scope.launch(Dispatchers.Main) {
                                     context.startActivity(intent)
                                     activity?.finish()
@@ -1721,8 +1753,19 @@ fun GoalScreen(navController: NavController, viewModel: WorkoutListViewModel) {
         label = "gradientOffset"
     )
 
-    var repsPerSet by remember { mutableIntStateOf(GoalReps.intValue.takeIf { it > 0 } ?: 10) }
-    val totalGoalReps by derivedStateOf { repsPerSet * GoalSets.intValue }
+    var repsPerSet by remember {
+        mutableIntStateOf(GoalReps.intValue.takeIf { it > 0 } ?: 10)
+    }
+
+    val totalGoalReps by derivedStateOf {
+        val mode = ConnectedWorkout.currentMode.value
+        if (mode == WorkoutMode.INACTIVE && GoalReps.intValue == 0) {
+            0
+        } else {
+            repsPerSet * GoalSets.intValue
+        }
+    }
+
 
     LaunchedEffect(Unit) {
         if (ConnectedWorkout.currentMode.value == WorkoutMode.ACTIVE){
@@ -1731,6 +1774,30 @@ fun GoalScreen(navController: NavController, viewModel: WorkoutListViewModel) {
             navController.navigate("RestScreen")
         }
     }
+
+    val hour = remember { java.time.LocalTime.now().hour }
+    val introColors = remember(hour) {
+        when (hour) {
+            in 5..10 -> listOf(Color(0xFF2B1A00), Color(0xFF3C2405), Color(0xFF5A360A), Color(0xFF7A4A12))
+            in 11..16 -> listOf(Color(0xFF332300), Color(0xFF4A3408), Color(0xFF6B4B0F), Color(0xFF8C6217))
+            in 17..20 -> listOf(Color(0xFF1A0614), Color(0xFF2A0A20), Color(0xFF3D0F2D), Color(0xFF52153A))
+            else -> listOf(Color(0xFF02040A), Color(0xFF0A1324), Color(0xFF15243D), Color(0xFF1E3352))
+        }
+    }
+    val introBrush = remember(introColors) {
+        Brush.linearGradient(
+            colors = introColors,
+            start = Offset.Zero,
+            end = Offset(Float.POSITIVE_INFINITY, 0f)
+        )
+    }
+    var showIntro by remember { mutableStateOf(true) }
+    val introProgress by animateFloatAsState(
+        targetValue = if (showIntro) 0f else 1f,
+        animationSpec = tween(750, easing = LinearEasing),
+        label = "introFade"
+    )
+    LaunchedEffect(Unit) { showIntro = false }
 
     WorkoutTrackerTheme {
         val aggressiveGradientBrush = remember(gradientOffset, glowIntensity, intensePulse) {
@@ -1762,14 +1829,19 @@ fun GoalScreen(navController: NavController, viewModel: WorkoutListViewModel) {
         val animatedContainerColor = remember(intensePulse) {
             Color(0xFF0D0404).copy(alpha = 0.8f + intensePulse * 0.1f)
         }
-val context = LocalContext.current
+        val context = LocalContext.current
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .drawBehind {
-                    drawRect(brush = aggressiveGradientBrush)
-                    drawRect(brush = secondaryGradientBrush)
-                    drawRect(color = animatedContainerColor)
+                .drawWithCache {
+                    onDrawBehind {
+                        drawRect(brush = aggressiveGradientBrush)
+                        drawRect(brush = secondaryGradientBrush)
+                        drawRect(color = animatedContainerColor)
+                        if (introProgress < 1f) {
+                            drawRect(brush = introBrush, alpha = 1f - introProgress)
+                        }
+                    }
                 }
         ) {
             Scaffold(
@@ -1789,7 +1861,7 @@ val context = LocalContext.current
                         navigationIcon = {
                             IconButton(onClick = {
                                 if (ConnectedWorkout.currentMode.value == WorkoutMode.INACTIVE){
-                                context.startActivity(Intent(context, MainActivity::class.java))} }) {
+                                    context.startActivity(Intent(context, MainActivity::class.java))} }) {
                                 Icon(
                                     Icons.Default.ArrowBack,
                                     contentDescription = "Back",
@@ -1817,7 +1889,7 @@ val context = LocalContext.current
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface,
 
-                    )
+                        )
                     Spacer(modifier = Modifier.height(48.dp))
 
                     GoalSelector(
@@ -1948,7 +2020,7 @@ val context = LocalContext.current
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold,
 
-                        )
+                            )
                         Spacer(modifier = Modifier.width(8.dp))
                         Icon(
                             Icons.Default.ArrowForward,

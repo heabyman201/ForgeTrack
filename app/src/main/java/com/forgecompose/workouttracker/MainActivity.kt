@@ -2375,7 +2375,9 @@ fun ProfileMuscleStatusRoute(
                             ) {
                                 if (cold.after100ms) {
                                     item {
-                                        GlassCard {
+                                        GlassCard(
+
+                                        ) {
                                             Column(Modifier.padding(20.dp)) {
                                                 SectionTitle("Summary")
                                                 Row(

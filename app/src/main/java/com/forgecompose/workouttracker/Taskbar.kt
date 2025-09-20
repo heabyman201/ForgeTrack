@@ -141,7 +141,7 @@ fun FloatingTaskbar(
                         .height(80.dp)
                         .clip(containerShape)
                         .clickable {
-                            haptics.performHapticFeedback(HapticFeedbackType.Confirm)
+                            haptics.performHapticFeedback(HapticFeedbackType.VirtualKey)
                             val intent = Intent(ctx, NotificationDispatcherActivity::class.java)
                             ctx.startActivity(intent)
                         }

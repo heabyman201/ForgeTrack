@@ -1,19 +1,30 @@
 package com.forgecompose.workouttracker
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.animateIntAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.KeyboardArrowDown
+import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material.icons.outlined.Warning
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -23,6 +34,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -353,6 +365,18 @@ lacking: $lacking
 """.trimIndent()
 }
 
+enum class BodyCategory { All, UpperBody, Arms, Core, LowerBody }
+
+private fun categoryOf(name: String): BodyCategory {
+    return when (name.lowercase()) {
+        "pecs", "delts", "lats", "traps", "upper back" -> BodyCategory.UpperBody
+        "biceps", "triceps", "forearms" -> BodyCategory.Arms
+        "abs", "lower back" -> BodyCategory.Core
+        "quads", "hamstrings", "glutes", "calves" -> BodyCategory.LowerBody
+        else -> BodyCategory.UpperBody
+    }
+}
+
 @Composable
 fun MuscleStatusSection(
     recentWorkouts: List<WorkoutSummary>,
@@ -369,6 +393,14 @@ fun MuscleStatusSection(
         loads = deriveMuscleLoads(now, recentWorkouts, profile, advicePayload)
     }
 
+    var selected by remember { mutableStateOf(BodyCategory.All) }
+    val headerPulse by rememberInfiniteTransition().animateFloat(
+        initialValue = 0.7f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(animation = tween(1400, easing = LinearEasing), repeatMode = RepeatMode.Reverse)
+    )
+    val headerColor = Color(0xFFFFA24C).copy(alpha = headerPulse)
+
     Column(
         modifier = modifier.padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -378,22 +410,31 @@ fun MuscleStatusSection(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                "Muscle Status",
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface
-            )
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Box(Modifier.size(10.dp).clip(CircleShape).background(headerColor))
+                Text(
+                    "Muscle Status",
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
             if (loads.isNotEmpty()) {
-                val trained = loads.count { it.lastTrainedAgo != null }
-                AssistChip(onClick = {}, label = {
-                    Text("$trained/${loads.size} active")
-                })
+                val trainedRaw = loads.count { it.lastTrainedAgo != null }
+                val animatedTrained by animateIntAsState(trainedRaw, tween(350, easing = LinearOutSlowInEasing), label = "trainedAnim")
+                AssistChip(onClick = {}, label = { Text("$animatedTrained/${loads.size} active") })
             }
         }
 
-        val last = remember(loads) {
-            loads.maxByOrNull {
+        CategoryFilterBar(selected = selected, onSelect = { selected = it })
+
+        val filtered = remember(loads, selected) {
+            if (selected == BodyCategory.All) loads
+            else loads.filter { categoryOf(it.group.name) == selected }
+        }
+
+        val last = remember(filtered) {
+            filtered.maxByOrNull {
                 when (it.lastTrainedAgo) {
                     "today" -> 999
                     null -> 0
@@ -406,12 +447,14 @@ fun MuscleStatusSection(
                 }
             }
         }
-        if (last?.lastTrainedAgo != null) {
-            AssistChipRow(last)
+        AnimatedVisibility(visible = last?.lastTrainedAgo != null) {
+            AssistChipRow(last!!)
         }
 
-        val sortedLoads = remember(loads) {
-            loads.sortedWith(
+        OverviewRow(loads = filtered)
+
+        val sortedLoads = remember(filtered) {
+            filtered.sortedWith(
                 compareByDescending<MuscleLoad> { it.band == LoadBand.Overtrained }
                     .thenByDescending { it.band == LoadBand.Balanced }
                     .thenByDescending { it.score }
@@ -426,17 +469,118 @@ fun MuscleStatusSection(
 }
 
 @Composable
-private fun AssistChipRow(last: MuscleLoad) {
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        AssistChip(onClick = {}, label = { Text("Last trained: ${last.group.name}") })
-        AssistChip(onClick = {}, label = { Text(last.lastTrainedAgo ?: "") })
+private fun CategoryFilterBar(selected: BodyCategory, onSelect: (BodyCategory) -> Unit) {
+    val items = listOf(
+        BodyCategory.All to "All",
+        BodyCategory.UpperBody to "Upper Body",
+        BodyCategory.Arms to "Arms",
+        BodyCategory.Core to "Core",
+        BodyCategory.LowerBody to "Lower Body"
+    )
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        items.forEach { (cat, label) ->
+            FilterChip(
+                selected = selected == cat,
+                onClick = { onSelect(cat) },
+                label = { Text(label) },
+                leadingIcon = if (selected == cat) ({ Icon(Icons.Outlined.Check, null) }) else null
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun OverviewRow(loads: List<MuscleLoad>) {
+    val top = remember(loads) { loads.maxByOrNull { it.score } }
+    val overCount = remember(loads) { loads.count { it.band == LoadBand.Overtrained } }
+    val balCount = remember(loads) { loads.count { it.band == LoadBand.Balanced } }
+    val lacCount = remember(loads) { loads.count { it.band == LoadBand.Lacking } }
+
+    val bg = MaterialTheme.colorScheme.surface.copy(alpha = 0.08f)
+    val stroke = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f)
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(bg)
+            .border(1.dp, stroke, RoundedCornerShape(18.dp))
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            val dotColor = Color(0xFF62E766)
+            Box(Modifier.size(10.dp).clip(CircleShape).background(dotColor))
+            Text(
+                text = top?.group?.name ?: "—",
+                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1
+            )
+            Spacer(Modifier.weight(1f))
+        }
+
+        FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            MiniStatPill("Over", overCount.toString(), Color(0xFFFF2A19))
+            MiniStatPill("Bal", balCount.toString(), Color(0xFF62E766))
+            MiniStatPill("Lack", lacCount.toString(), Color(0xFF1565A4))
+        }
     }
 }
 
 @Composable
+private fun MiniStatPill(label: String, value: String, tint: Color) {
+    val pillBg = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f)
+    val pillStroke = MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)
+
+    Row(
+        modifier = Modifier
+            .defaultMinSize(minHeight = 28.dp)
+            .clip(RoundedCornerShape(999.dp))
+            .background(pillBg)
+            .border(1.dp, pillStroke, RoundedCornerShape(999.dp))
+            .padding(horizontal = 10.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Box(Modifier.size(8.dp).clip(CircleShape).background(tint))
+        Text(
+            text = "$label: $value",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+    }
+}
+
+
+@Composable
+private fun AssistChipRow(last: MuscleLoad) {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        AssistChip(onClick = {}, leadingIcon = { Icon(Icons.Outlined.Check, null) }, label = { Text("Last trained: ${last.group.name}") })
+        AssistChip(onClick = {}, leadingIcon = { Icon(Icons.Outlined.Schedule, null) }, label = { Text(last.lastTrainedAgo ?: "") })
+    }
+}
+
+
+@Composable
 private fun MuscleBarRow(load: MuscleLoad) {
     val baseColor = when (load.band) {
-        LoadBand.Lacking -> Color(0xFF1565A4)
+        LoadBand.Lacking -> Color(0xFF5188AD)
         LoadBand.Balanced -> Color(0xFF62E766)
         LoadBand.Overtrained -> Color(0xFFFF2A19)
     }
@@ -460,47 +604,78 @@ private fun MuscleBarRow(load: MuscleLoad) {
     val fill by animateFloatAsState(load.score.coerceIn(0f, 1f), tween(650, 0, LinearOutSlowInEasing), label = "fill")
     val capsuleBg = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
 
+    val cfg = LocalConfiguration.current
+    val isTablet = cfg.smallestScreenWidthDp >= 600
+    val cardRadius = if (isTablet) 22.dp else 20.dp
+    val cardPadding = if (isTablet) 18.dp else 16.dp
+    val rowSpace = if (isTablet) 16.dp else 14.dp
+    val dotSize = if (isTablet) 16.dp else 14.dp
+    val pillHeight = if (isTablet) 48.dp else 40.dp
+    val pillHPadding = if (isTablet) 16.dp else 12.dp
+    val iconSize = if (isTablet) 22.dp else 20.dp
+    val barHeight = if (isTablet) 16.dp else 14.dp
+    val barRadius = if (isTablet) 12.dp else 10.dp
+    val zoneHeight = if (isTablet) 10.dp else 8.dp
+    val zoneGap = if (isTablet) 10.dp else 8.dp
+
     Column(
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(rowSpace),
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.08f))
-            .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.15f), RoundedCornerShape(16.dp))
-            .padding(12.dp)
+            .clip(RoundedCornerShape(cardRadius))
+            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.1f))
+            .border(1.5.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f), RoundedCornerShape(cardRadius))
+            .padding(cardPadding)
     ) {
         Row(
             Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Box(
                     modifier = Modifier
-                        .size(10.dp)
+                        .size(dotSize)
                         .clip(CircleShape)
                         .background(animatedColor)
                 )
-                Text(load.group.name, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+                Text(
+                    load.group.name,
+                    style = if (isTablet) {
+                        MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
+                    } else {
+                        MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                    },
+                    color = animatedColor
+                )
             }
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier
                     .clip(RoundedCornerShape(999.dp))
                     .background(capsuleBg)
-                    .padding(horizontal = 10.dp, vertical = 6.dp)
+                    .height(pillHeight)
+                    .padding(horizontal = pillHPadding, vertical = 4.dp)
             ) {
-                Icon(icon, contentDescription = null, tint = animatedColor, modifier = Modifier.size(16.dp))
-                Text(label, style = MaterialTheme.typography.labelLarge, color = onBand)
+                Icon(icon, contentDescription = null, tint = animatedColor, modifier = Modifier.size(iconSize))
+                Text(
+                    label,
+                    style = if (isTablet) {
+                        MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold)
+                    } else {
+                        MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold)
+                    },
+                    color = onBand
+                )
             }
         }
 
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(12.dp)
-                .clip(RoundedCornerShape(8.dp))
+                .height(barHeight)
+                .clip(RoundedCornerShape(barRadius))
                 .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
         ) {
             val barBrush = remember(animatedColor) {
@@ -515,7 +690,7 @@ private fun MuscleBarRow(load: MuscleLoad) {
                 modifier = Modifier
                     .fillMaxWidth(fill)
                     .fillMaxHeight()
-                    .clip(RoundedCornerShape(8.dp))
+                    .clip(RoundedCornerShape(barRadius))
                     .background(barBrush)
             )
         }
@@ -530,11 +705,31 @@ private fun MuscleBarRow(load: MuscleLoad) {
                 LoadBand.Balanced -> "Maintain or light focus"
                 LoadBand.Overtrained -> "Prioritize recovery"
             }
-            Text(readiness, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("${"%.0f".format(intensity)}%", style = MaterialTheme.typography.labelLarge, color = animatedColor, fontWeight = FontWeight.SemiBold)
+            Text(
+                readiness,
+                style = if (isTablet) {
+                    MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Medium)
+                } else {
+                    MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium)
+                },
+                color = animatedColor
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "${"%.0f".format(intensity)}%",
+                    style = if (isTablet) {
+                        MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                    } else {
+                        MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
+                    },
+                    color = animatedColor
+                )
                 if (load.lastTrainedAgo != null) {
-                    Text("Last: ${load.lastTrainedAgo}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(
+                        "Last: ${load.lastTrainedAgo}",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
         }
@@ -548,14 +743,15 @@ private fun MuscleBarRow(load: MuscleLoad) {
                 Box(
                     modifier = Modifier
                         .weight(1f)
-                        .height(6.dp)
+                        .height(zoneHeight)
                         .clip(RoundedCornerShape(4.dp))
                         .background(zoneColor)
                 )
-                if (it < 2) Spacer(Modifier.width(6.dp))
+                if (it < 2) Spacer(Modifier.width(zoneGap))
             }
         }
     }
 }
+
 
 private fun ln2() = kotlin.math.ln(2.0).toFloat()
