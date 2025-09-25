@@ -32,17 +32,6 @@ import androidx.core.content.edit
 import dev.chrisbanes.haze.HazeState
 
 
-// =====================================================
-// Reactive persona object (mode + global AI enable flag)
-// =====================================================
-data class PersonaConfig(
-    val mode: String,      // "coach", "drill", "companion", ...
-    val enabled: Boolean   // master AI switch
-)
-
-// =======================================
-// Encrypted storage for persona + enabled
-// =======================================
 object PersonaPrefs {
     private const val FILE = "ai_prefs_secure"
     private const val KEY_PERSONA = "persona_mode"
@@ -93,12 +82,12 @@ object PersonaPrefs {
     fun readConfig(
         defaultMode: String = "coach",
         defaultEnabled: Boolean = false
-    ): PersonaConfig = PersonaConfig(
+    ): dynamicModel.PersonaConfig = dynamicModel.PersonaConfig(
         mode = readPersona(defaultMode),
         enabled = readEnabled(defaultEnabled)
     )
 
-    fun writeConfig(config: PersonaConfig) {
+    fun writeConfig(config: dynamicModel.PersonaConfig) {
         runCatching {
             prefs().edit {
                 putString(KEY_PERSONA, config.mode.sanitizePersona())
@@ -107,22 +96,17 @@ object PersonaPrefs {
         }
     }
 
-    /** Call once at app start or before UI reads global state. */
-    fun bootstrapInto(global: MutableState<PersonaConfig>, defaultMode: String = "coach", defaultEnabled: Boolean = true) {
+    fun bootstrapInto(global: MutableState<dynamicModel.PersonaConfig>, defaultMode: String = "coach", defaultEnabled: Boolean = true) {
         val persisted = readConfig(defaultMode, defaultEnabled)
         if (global.value != persisted) global.value = persisted
     }
 }
 
-// Keep your sanitizer
 fun String.sanitizePersona(): String = when (this.lowercase()) {
     "coach","drill","companion","companion_plus","hype","minimal","nerd","monk","scientist" -> this
     else -> "coach"
 }
 
-// =======================================
-// Persona Settings Screen (drop-in)
-// =======================================
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PersonaSettingsScreen(
@@ -132,26 +116,13 @@ fun PersonaSettingsScreen(
     val context = LocalContext.current
     PersonaPrefs.init(context)
 
-    // Assume dynamicModel exposes:
-    //   val personaConfig: MutableState<PersonaConfig> = mutableStateOf(PersonaConfig("coach", true))
-    //   (You can also keep a legacy personaMode proxy if needed.)
-    // Make a local working copy synced to global + persisted.
-    var localConfig by remember {
-        mutableStateOf(
-            PersonaPrefs.readConfig(
-                defaultMode = dynamicModel.personaConfig.value.mode,
-                defaultEnabled = dynamicModel.personaConfig.value.enabled
-            )
-        )
-    }
+    var localConfig: dynamicModel.PersonaConfig by remember { mutableStateOf(dynamicModel.personaConfig.value) }
 
-    // local -> global
     LaunchedEffect(localConfig) {
         if (dynamicModel.personaConfig.value != localConfig) {
             dynamicModel.personaConfig.value = localConfig
         }
     }
-    // global -> local
     LaunchedEffect(dynamicModel.personaConfig.value) {
         val normalized = dynamicModel.personaConfig.value.copy(
             mode = dynamicModel.personaConfig.value.mode.sanitizePersona()
@@ -159,7 +130,6 @@ fun PersonaSettingsScreen(
         if (normalized != localConfig) localConfig = normalized
     }
 
-    // === Aesthetic background (unchanged) ===
     val staticGradientBrush = remember {
         Brush.radialGradient(
             colors = listOf(
@@ -237,7 +207,6 @@ fun PersonaSettingsScreen(
                         color = Color.White.copy(alpha = 0.78f)
                     )
 
-                    // ===== Master Enable/Disable Switch =====
                     ElevatedCard(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(20.dp),
@@ -270,7 +239,6 @@ fun PersonaSettingsScreen(
                         )
                     }
 
-                    // ===== Persona List Card =====
                     val listAlpha = if (localConfig.enabled) 1f else 0.4f
                     val listClickable = localConfig.enabled
 
@@ -284,7 +252,6 @@ fun PersonaSettingsScreen(
                         ),
                         elevation = CardDefaults.elevatedCardElevation(defaultElevation = 8.dp)
                     ) {
-                        // Hairline border & gentle highlight
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -350,18 +317,18 @@ fun PersonaSettingsScreen(
                                     PersonaPrefs.writeConfig(updated)
                                 }
                                 Divider(color = Color.White.copy(alpha = 0.06f))
-                                PersonaOptionRowThemed(
-                                    title = "Spicy Companion",
-                                    subtitle = "Flirty, cheeky",
-                                    value = "companion_plus",
-                                    selected = localConfig.mode,
-                                    enabled = listClickable
-                                ) { select ->
-                                    val updated = localConfig.copy(mode = select.sanitizePersona())
-                                    localConfig = updated
-                                    PersonaPrefs.writeConfig(updated)
-                                }
-                                Divider(color = Color.White.copy(alpha = 0.06f))
+//                                PersonaOptionRowThemed(
+//                                    title = "Spicy Companion",
+//                                    subtitle = "Flirty, cheeky",
+//                                    value = "companion_plus",
+//                                    selected = localConfig.mode,
+//                                    enabled = listClickable
+//                                ) { select ->
+//                                    val updated = localConfig.copy(mode = select.sanitizePersona())
+//                                    localConfig = updated
+//                                    PersonaPrefs.writeConfig(updated)
+//                                }
+//                                Divider(color = Color.White.copy(alpha = 0.06f))
                                 PersonaOptionRowThemed(
                                     title = "Hype Master",
                                     subtitle = "High energy, short punchy lines",
@@ -386,18 +353,18 @@ fun PersonaSettingsScreen(
                                     PersonaPrefs.writeConfig(updated)
                                 }
                                 Divider(color = Color.White.copy(alpha = 0.06f))
-                                PersonaOptionRowThemed(
-                                    title = "Nerd Scholar",
-                                    subtitle = "Geeky metaphors, precise wording",
-                                    value = "nerd",
-                                    selected = localConfig.mode,
-                                    enabled = listClickable
-                                ) { select ->
-                                    val updated = localConfig.copy(mode = select.sanitizePersona())
-                                    localConfig = updated
-                                    PersonaPrefs.writeConfig(updated)
-                                }
-                                Divider(color = Color.White.copy(alpha = 0.06f))
+//                                PersonaOptionRowThemed(
+//                                    title = "Nerd Scholar",
+//                                    subtitle = "Geeky metaphors, precise wording",
+//                                    value = "nerd",
+//                                    selected = localConfig.mode,
+//                                    enabled = listClickable
+//                                ) { select ->
+//                                    val updated = localConfig.copy(mode = select.sanitizePersona())
+//                                    localConfig = updated
+//                                    PersonaPrefs.writeConfig(updated)
+//                                }
+//                                Divider(color = Color.White.copy(alpha = 0.06f))
                                 PersonaOptionRowThemed(
                                     title = "Zen Monk",
                                     subtitle = "Calm, reflective, almost meditative",
@@ -412,7 +379,7 @@ fun PersonaSettingsScreen(
                                 Divider(color = Color.White.copy(alpha = 0.06f))
                                 PersonaOptionRowThemed(
                                     title = "Scientist",
-                                    subtitle = "Fact-based, nerdy, biohacker tone",
+                                    subtitle = "Biohacker tone",
                                     value = "scientist",
                                     selected = localConfig.mode,
                                     enabled = listClickable
@@ -436,9 +403,6 @@ fun PersonaSettingsScreen(
     }
 }
 
-/**
- * Persona row styled to match the dark/glass theme.
- */
 @Composable
 private fun PersonaOptionRowThemed(
     title: String,
@@ -456,7 +420,7 @@ private fun PersonaOptionRowThemed(
             Text(
                 title,
                 style = if (isSelected) MaterialTheme.typography.titleMedium
-                else MaterialTheme.typography.bodyLarge, // Note: if you don't have titleMedium/bodyLarge in your theme, adjust here.
+                else MaterialTheme.typography.bodyLarge,
                 fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
                 color = Color.White
             )

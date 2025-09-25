@@ -95,6 +95,8 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import com.forgecompose.workouttracker.ConnectedWorkout.workout
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.math.abs
+import kotlin.math.sign
 
 @RequiresApi(Build.VERSION_CODES.TIRAMISU)
 @Composable
@@ -107,17 +109,7 @@ fun FloatingTaskbar(
 ) {
     val isWorkoutInProgress = ConnectedWorkout.currentMode.value != ConnectedWorkout.WorkoutMode.INACTIVE
     val ctx = LocalContext.current
-
-    val chroma = rememberInfiniteTransition(label = "tbGlow")
-    val glow by chroma.animateFloat(
-        initialValue = 0.35f,
-        targetValue = 0.9f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(2000, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "glow"
-    )
+    val glow = 1f
 
     Box(modifier = modifier.fillMaxWidth(), contentAlignment = Alignment.BottomCenter) {
         AnimatedContent(
@@ -128,70 +120,139 @@ fun FloatingTaskbar(
             }
         ) { workoutIsActive ->
             if (workoutIsActive) {
-                val containerShape = remember(cornerRadius) { RoundedCornerShape(cornerRadius) }
                 val density = LocalDensity.current
-                val cornerRpx = with(density) { cornerRadius.toPx() }
                 val haptics = LocalHapticFeedback.current
+                val expand = remember { Animatable(0f) }
+                var expanding by remember { mutableStateOf(false) }
+
+                val pressSource = remember { MutableInteractionSource() }
+                val isPressed by pressSource.collectIsPressedAsState()
+                val pressScale by animateFloatAsState(
+                    targetValue = if (isPressed && !expanding) 0.965f else 1f,
+                    animationSpec = tween(200, easing = FastOutSlowInEasing),
+                    label = "pressScale"
+                )
+
+                LaunchedEffect(expanding) {
+                    if (expanding) {
+                        haptics.performHapticFeedback(HapticFeedbackType.VirtualKey)
+                        expand.animateTo(0.65f, tween(95, easing = FastOutSlowInEasing))
+                        val intent = Intent(ctx, NotificationDispatcherActivity::class.java)
+                        ctx.startActivity(intent)
+                        expand.animateTo(1f, tween(300, easing = FastOutSlowInEasing))
+                        expand.snapTo(0f)
+                        expanding = false
+                    }
+                }
+
+                val t = expand.value
+                val heightAnim = 80.dp * (1f - t) + 260.dp * t
+                val radiusAnim = cornerRadius * (1f - 0.6f * t)
+                val containerShape = RoundedCornerShape(radiusAnim)
+                val cornerRpx = with(density) { radiusAnim.toPx() }
+
+                val neonPhase by rememberInfiniteTransition(label = "neonPhase")
+                    .animateFloat(
+                        initialValue = 0f, targetValue = 1f,
+                        animationSpec = infiniteRepeatable(tween(2400, easing = LinearEasing)),
+                        label = "phase"
+                    )
+
                 Box(
                     modifier = Modifier
                         .padding(horizontal = 16.dp, vertical = 10.dp)
                         .navigationBarsPadding()
                         .imePadding()
                         .fillMaxWidth()
-                        .height(80.dp)
-                        .clip(containerShape)
-                        .clickable {
-                            haptics.performHapticFeedback(HapticFeedbackType.VirtualKey)
-                            val intent = Intent(ctx, NotificationDispatcherActivity::class.java)
-                            ctx.startActivity(intent)
-                        }
-                        .drawWithCache {
-                            val bgBrush = Brush.radialGradient(
-                                listOf(
-                                    Color(0xFF3A0E0E).copy(alpha = 0.65f * glow),
-                                    Color(0xFF120707).copy(alpha = 0.95f)
-                                ),
-                                center = Offset(size.width / 2f, size.height / 2f),
-                                radius = size.minDimension * 0.95f
-                            )
-                            val borderBrush = Brush.linearGradient(
-                                listOf(
-                                    Color(0xFFFF5555).copy(alpha = 0.4f * glow),
-                                    Color(0xFF8B0000).copy(alpha = 0.25f)
-                                )
-                            )
-                            onDrawBehind {
-                                drawRoundRect(
-                                    brush = bgBrush,
-                                    cornerRadius = CornerRadius(cornerRpx, cornerRpx)
-                                )
-                                drawRoundRect(
-                                    brush = borderBrush,
-                                    style = Stroke(width = 1.dp.toPx()),
-                                    cornerRadius = CornerRadius(cornerRpx, cornerRpx)
-                                )
-                            }
-                        },
-                    contentAlignment = Alignment.Center
+                        .height(heightAnim)
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center
+                    Box(
+                        modifier = Modifier
+                            .matchParentSize()
+                            .clip(containerShape)
+                            .clickable(
+                                interactionSource = pressSource,
+                                indication = null
+                            ) {
+                                if (!expanding) expanding = true
+                            }
+                            .graphicsLayer {
+                                val baseScaleX = 1f + 0.04f * t
+                                val baseScaleY = 1f + 0.18f * t
+                                scaleX = baseScaleX * pressScale
+                                scaleY = baseScaleY * pressScale
+                            }
+                            .drawWithCache {
+                                val bgBrush = Brush.radialGradient(
+                                    listOf(
+                                        Color(0xFF3A0E0E),
+                                        Color(0xFF120707)
+                                    ),
+                                    center = Offset(size.width / 2f, size.height / 2f),
+                                    radius = size.minDimension * (0.95f + 0.25f * t)
+                                )
+
+                                val sweepX = size.width * (neonPhase * 2f - 0.5f)
+                                val start = Offset(sweepX, 0f)
+                                val end = Offset(sweepX + size.width * 0.6f, size.height)
+
+                                val neonCore = Brush.linearGradient(
+                                    colors = listOf(
+                                        Color(0xFFFF3B30).copy(alpha = 0f),
+                                        Color(0xFFFF3B30),
+                                        Color(0xFFFF3B30).copy(alpha = 0f)
+                                    ),
+                                    start = start,
+                                    end = end
+                                )
+                                val neonOuter = Brush.linearGradient(
+                                    colors = listOf(
+                                        Color(0xFFFF3B30).copy(alpha = 0f),
+                                        Color(0xFFFF3B30).copy(alpha = 0.35f),
+                                        Color(0xFFFF3B30).copy(alpha = 0f)
+                                    ),
+                                    start = start,
+                                    end = end
+                                )
+
+                                onDrawBehind {
+                                    drawRoundRect(
+                                        brush = bgBrush,
+                                        cornerRadius = CornerRadius(cornerRpx, cornerRpx)
+                                    )
+                                    drawRoundRect(
+                                        brush = neonOuter,
+                                        style = Stroke(width = 6.dp.toPx() * (1f + 0.6f * t)),
+                                        cornerRadius = CornerRadius(cornerRpx, cornerRpx)
+                                    )
+                                    drawRoundRect(
+                                        brush = neonCore,
+                                        style = Stroke(width = 2.dp.toPx() * (1f + 0.8f * t)),
+                                        cornerRadius = CornerRadius(cornerRpx, cornerRpx)
+                                    )
+                                }
+                            },
+                        contentAlignment = Alignment.Center
                     ) {
-                        Icon(
-                            imageVector = Icons.Filled.FitnessCenter,
-                            contentDescription = "Return to Workout",
-                            tint = Color(0xFFFF3B30),
-                            modifier = Modifier.size(38.dp)
-                        )
-                        Spacer(Modifier.width(12.dp))
-                        Text(
-                            "Return to Workout",
-                            color = Color.White,
-                            fontSize = 24.sp,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.FitnessCenter,
+                                contentDescription = "Return to Workout",
+                                tint = Color(0xFFFF3B30),
+                                modifier = Modifier.size(38.dp * (1f + 0.1f * t))
+                            )
+                            Spacer(Modifier.width(12.dp))
+                            Text(
+                                "Return to Workout",
+                                color = Color.White,
+                                fontSize = (24.sp * (1f + 0.06f * t)),
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                     }
                 }
             } else {
@@ -223,18 +284,7 @@ fun FloatingTaskbar(
                                 "UserProfile" to Icons.Filled.Person
                             )
                         }
-                        fun taskbarSafetyCheck(){
-                            if (taskbarOverride.shouldOverrideVisiblity.value && currentRoute.toString() == "HomeScreen" ){
-                                taskbarOverride.shouldOverrideVisiblity.value = false
-                                Log.d("TaskbarSafetyCheck", "Taskbar safety check triggered")
-                            }
-                        }
-                        LaunchedEffect(Unit) {
-                            while (true) {
-                                taskbarSafetyCheck()
-                                delay(2000)
-                            }
-                        }
+
                         val containerShape = remember(cornerRadius) { RoundedCornerShape(cornerRadius) }
                         val accentGlow = remember { Color(0xFFFF3535) }
 
@@ -242,11 +292,11 @@ fun FloatingTaskbar(
                         val squish = remember { Animatable(1f) }
                         val skew = remember { Animatable(0f) }
 
-                        val interactions = remember { MutableInteractionSource() }
-                        val isPressed by interactions.collectIsPressedAsState()
+                        val sharedInteraction = remember { MutableInteractionSource() }
+                        val isPressed by sharedInteraction.collectIsPressedAsState()
 
                         val am = remember(ctx) { ctx.getSystemService(android.app.ActivityManager::class.java) }
-                        val lowSpec = remember { (am?.isLowRamDevice == true) || Build.VERSION.SDK_INT < Build.VERSION_CODES.S }
+                        val lowSpec = remember { (am?.isLowRamDevice == true)  }
                         val idle = rememberInfiniteTransition(label = "idle")
                         val idleBob by idle.animateFloat(
                             initialValue = if (lowSpec) 0f else -0.6f, targetValue = if (lowSpec) 0f else 0.6f,
@@ -271,7 +321,7 @@ fun FloatingTaskbar(
                             val spin = 0.07f * dir
                             pos.snapTo(Offset(-kick, 0f))
                             skew.snapTo(spin)
-                            squish.snapTo(1.06f - 0.02f * kotlin.math.abs(dir))
+                            squish.snapTo(1.06f - 0.02f * abs(dir.toFloat()))
                             launch {
                                 pos.animateTo(
                                     targetValue = Offset.Zero,
@@ -300,11 +350,13 @@ fun FloatingTaskbar(
                         }
 
                         var boxSize by remember { mutableStateOf(IntSize.Zero) }
-                        val density = LocalDensity.current
-                        val cornerRpx = with(density) { cornerRadius.toPx() }
+                        val density2 = LocalDensity.current
+                        val cornerRpx2 = with(density2) { cornerRadius.toPx() }
 
                         val borderShape = remember { RoundedCornerShape(32.dp) }
                         val borderColor = remember { Color.White.copy(alpha = 0.11f) }
+                        var dragPreviewIndex by remember { mutableStateOf<Int?>(null) }
+                        var dragProgress by remember { mutableStateOf(0f) }
 
                         Box(
                             modifier = Modifier
@@ -344,32 +396,10 @@ fun FloatingTaskbar(
                                 modifier = Modifier
                                     .matchParentSize()
                                     .clip(containerShape)
-                                    .indication(interactions, indication = null)
-                                    .pointerInput(Unit) {
-                                        detectTapGestures(
-                                            onPress = { offset ->
-                                                val w = boxSize.width.toFloat().coerceAtLeast(1f)
-                                                val h = boxSize.height.toFloat().coerceAtLeast(1f)
-                                                val cx = w * 0.5f
-                                                val cy = h * 0.5f
-                                                val dx = ((offset.x - cx) / (w * 0.5f)).coerceIn(-1f, 1f)
-                                                val dy = ((offset.y - cy) / (h * 0.5f)).coerceIn(-1f, 1f)
-                                                val tx = dx * 10f
-                                                val ty = dy * 6f
-                                                val kx = dx * 0.08f
-                                                val squeeze = 1f + (-0.05f * (0.6f * kotlin.math.abs(dx) + 0.4f * kotlin.math.abs(dy)))
-                                                scope.launch {
-                                                    pos.snapTo(Offset(tx, ty))
-                                                    skew.snapTo(kx)
-                                                    squish.snapTo(squeeze)
-                                                    launch { pos.animateTo(Offset.Zero, spring(dampingRatio = 0.7f, stiffness = Spring.StiffnessMediumLow)) }
-                                                    launch { skew.animateTo(0f, spring(dampingRatio = 0.75f, stiffness = Spring.StiffnessLow)) }
-                                                    launch { squish.animateTo(1f, spring(dampingRatio = 0.75f, stiffness = Spring.StiffnessLow)) }
-                                                }
-                                                tryAwaitRelease()
-                                            }
-                                        )
-                                    }
+                                    .indication(
+                                        sharedInteraction,
+                                        null
+                                    )
                                     .graphicsLayer {
                                         translationX = pos.value.x
                                         translationY = pos.value.y + idleBob * 0.5f
@@ -382,94 +412,126 @@ fun FloatingTaskbar(
                                         clip = true
                                         shadowElevation = 0f
                                     }
-                            ) {
-                                val glassColor = Color.Black.copy(alpha = 0.5f)
-                                AndroidView(
-                                    factory = { context ->
-                                        View(context).apply {
-                                            setBackgroundColor(glassColor.toArgb())
-                                        }
-                                    },
-                                    modifier = Modifier.matchParentSize(),
-                                    update = { view ->
-                                        val blurEffect = RenderEffect.createBlurEffect(
-                                            80f, 80f, Shader.TileMode.DECAL
+                                    .drawWithCache {
+                                        val bgBrush = Brush.radialGradient(
+                                            listOf(
+                                                Color(0xFF3A0E0E),
+                                                Color(0xFF120707)
+                                            ),
+                                            center = Offset(size.width / 2f, size.height / 2f),
+                                            radius = size.minDimension * 0.95f
                                         )
-                                        view.setRenderEffect(blurEffect)
-                                    }
-                                )
-
-                                Box(
-                                    Modifier
-                                        .matchParentSize()
-                                        .drawWithCache {
-                                            val bgBrush = Brush.radialGradient(
-                                                listOf(
-                                                    Color(0xFF3A0E0E).copy(alpha = 0.65f * glow),
-                                                    Color(0xFF120707).copy(alpha = 0.95f)
-                                                ),
-                                                center = Offset(size.width / 2f, size.height / 2f),
-                                                radius = size.minDimension * 0.95f
+                                        val borderBrush = Brush.linearGradient(
+                                            listOf(
+                                                Color(0xFFFF5555).copy(alpha = 0.6f),
+                                                Color(0xFF8B0000).copy(alpha = 0.45f)
                                             )
-                                            val borderBrush = Brush.linearGradient(
-                                                listOf(
-                                                    Color(0xFFFF5555).copy(alpha = 0.4f * glow),
-                                                    Color(0xFF8B0000).copy(alpha = 0.25f)
-                                                )
+                                        )
+                                        onDrawBehind {
+                                            drawRoundRect(
+                                                brush = bgBrush,
+                                                cornerRadius = CornerRadius(cornerRpx2, cornerRpx2)
                                             )
-                                            onDrawBehind {
-                                                drawRoundRect(
-                                                    brush = bgBrush,
-                                                    cornerRadius = CornerRadius(cornerRpx, cornerRpx)
-                                                )
-                                                drawRoundRect(
-                                                    brush = borderBrush,
-                                                    style = Stroke(width = 1.dp.toPx()),
-                                                    cornerRadius = CornerRadius(cornerRpx, cornerRpx)
-                                                )
-                                            }
+                                            drawRoundRect(
+                                                brush = borderBrush,
+                                                style = Stroke(width = 1.dp.toPx()),
+                                                cornerRadius = CornerRadius(cornerRpx2, cornerRpx2)
+                                            )
                                         }
-                                )
-
+                                    }
+                            ) {
+                                val borderShapeInner = RoundedCornerShape(32.dp)
                                 Row(
                                     modifier = Modifier
                                         .matchParentSize()
                                         .clip(containerShape)
-                                        .border(width = 0.5.dp, color = borderColor, shape = borderShape)
+                                        .border(width = 0.5.dp, color = borderColor, shape = borderShapeInner)
                                         .padding(horizontal = 10.dp, vertical = 10.dp),
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    items.forEach { (route, icon) ->
+                                    val routeOrder = listOf("WorkoutHistory", "HomeScreen", "MuscleGroup", "UserProfile")
+                                    items.forEachIndexed { index, (route, icon) ->
                                         val selected = currentRoute == route
                                         val glowAlpha by animateFloatAsState(
                                             targetValue = if (selected) 1f else 0f,
-                                            animationSpec = tween(220, easing = FastOutSlowInEasing),
+                                            animationSpec = tween(150, easing = FastOutSlowInEasing),
                                             label = ""
                                         )
-                                        val scale by animateFloatAsState(
+                                        val baseScale by animateFloatAsState(
                                             targetValue = if (selected) 1.055f else 1f,
-                                            animationSpec = tween(180, easing = FastOutSlowInEasing),
+                                            animationSpec = tween(300, easing = FastOutSlowInEasing),
                                             label = ""
                                         )
                                         val pressSquish by animateFloatAsState(
                                             targetValue = if (selected && isPressed) 0.985f else 1f,
-                                            animationSpec = tween(130, easing = FastOutSlowInEasing),
+                                            animationSpec = tween(300, easing = FastOutSlowInEasing),
                                             label = ""
                                         )
+                                        val burst = remember(route) { Animatable(0f) }
+                                        val densityLocal = LocalDensity.current
+                                        val dragThresholdPx = with(densityLocal) { 36.dp.toPx() }
+                                        var dragAccum by remember(route) { mutableStateOf(0f) }
+
+                                        val isTargetPreview = dragPreviewIndex == index
+                                        val isCurrentSelectedPreviewing = selected && dragPreviewIndex != null
+                                        val extraScaleTarget = if (isTargetPreview) 1f + 0.18f * dragProgress else 1f
+                                        val extraScaleSelected = if (isCurrentSelectedPreviewing && selected) 1f + 0.08f * dragProgress else 1f
+                                        val extraScale = extraScaleTarget * extraScaleSelected
 
                                         Box(
                                             modifier = Modifier
                                                 .weight(1f)
                                                 .padding(horizontal = 6.dp)
                                                 .graphicsLayer {
-                                                    scaleX = scale * pressSquish
-                                                    scaleY = scale / pressSquish
+                                                    val burstScale = 1f + 0.16f * burst.value
+                                                    val s = (baseScale * pressSquish) * burstScale * extraScale
+                                                    scaleX = s
+                                                    scaleY = (baseScale / pressSquish) * burstScale * extraScale
                                                 }
                                                 .clip(RoundedCornerShape(32.dp))
+                                                .pointerInput(selected) {
+                                                    if (selected) {
+                                                        detectDragGestures(
+                                                            onDragEnd = {
+                                                                dragAccum = 0f
+                                                                dragPreviewIndex = null
+                                                                dragProgress = 0f
+                                                            }
+                                                        ) { change, dragAmount ->
+                                                            change.consume()
+                                                            dragAccum += dragAmount.x
+                                                            val absAccum = abs(dragAccum)
+                                                            val progress = (absAccum / dragThresholdPx).coerceIn(0f, 1f)
+                                                            val dir = dragAccum.sign.toInt().coerceIn(-1, 1)
+                                                            val idx = routeOrder.indexOf(route).let { if (it < 0) 1 else it }
+                                                            val next = (idx + dir).coerceIn(0, routeOrder.lastIndex)
+                                                            if (dir != 0 && next != idx) {
+                                                                dragPreviewIndex = next
+                                                                dragProgress = progress
+                                                            } else {
+                                                                dragPreviewIndex = null
+                                                                dragProgress = 0f
+                                                            }
+                                                            if (absAccum > dragThresholdPx) {
+                                                                val nextRoute = routeOrder[next]
+                                                                if (nextRoute != route) {
+                                                                    navController.navigate(nextRoute) {
+                                                                        popUpTo(navController.graph.startDestinationId)
+                                                                        launchSingleTop = true
+                                                                    }
+                                                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                                }
+                                                                dragAccum = 0f
+                                                                dragPreviewIndex = null
+                                                                dragProgress = 0f
+                                                            }
+                                                        }
+                                                    }
+                                                }
                                                 .clickable(
                                                     indication = null,
-                                                    interactionSource = remember { MutableInteractionSource() }
+                                                    interactionSource = sharedInteraction
                                                 ) {
                                                     navController.navigate(route) {
                                                         popUpTo(navController.graph.startDestinationId)
@@ -477,6 +539,10 @@ fun FloatingTaskbar(
                                                     }
                                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                                     val tapNudge = if (selected) 0f else if (route.hashCode() % 2 == 0) 8f else -8f
+                                                    scope.launch {
+                                                        burst.snapTo(1f)
+                                                        burst.animateTo(0f, tween(900))
+                                                    }
                                                     scope.launch {
                                                         pos.snapTo(Offset(tapNudge, 0f))
                                                         squish.snapTo(1.04f)
@@ -497,18 +563,26 @@ fun FloatingTaskbar(
                                                     .background(
                                                         if (selected)
                                                             Brush.verticalGradient(
-                                                                0f to Color.White.copy(alpha = 0.10f),
-                                                                1f to Color.White.copy(alpha = 0.06f)
+                                                                0f to Color(0xFF2D0C0C).copy(alpha = 0.45f),
+                                                                1f to Color(0xFF310D0D).copy(alpha = 0.45f)
                                                             )
                                                         else
-                                                            Brush.verticalGradient(0f to Color.Transparent, 1f to Color.Transparent)
+                                                            Brush.verticalGradient(
+                                                                0f to Color.Transparent,
+                                                                1f to Color.Transparent
+                                                            )
+                                                    )
+                                                    .border(
+                                                        width = 2.0.dp,
+                                                        shape = RoundedCornerShape(pillRadius),
+                                                        color = if (selected) Color(0xFF752626) else Color.Transparent
                                                     )
                                                     .drawWithCache {
                                                         val r = size.minDimension / 2f
                                                         val glowBrush = Brush.radialGradient(
                                                             listOf(
-                                                                accentGlow.copy(alpha = 0.42f * glow),
-                                                                accentGlow.copy(alpha = 0.18f * glow),
+                                                                accentGlow.copy(alpha = 0.50f * glowAlpha),
+                                                                accentGlow.copy(alpha = 0.22f * glowAlpha),
                                                                 Color.Transparent
                                                             ),
                                                             center = Offset(size.width / 2f, size.height / 2f),
@@ -581,8 +655,8 @@ fun FloatingTaskbar(
                                     .background(
                                         Brush.radialGradient(
                                             colors = listOf(
-                                                Color(0xFF3A0E0E).copy(alpha = 0.85f * glow),
-                                                Color(0xFF120707).copy(alpha = 0.95f)
+                                                Color(0xFF3A0E0E),
+                                                Color(0xFF120707)
                                             )
                                         )
                                     )
@@ -590,8 +664,8 @@ fun FloatingTaskbar(
                                         width = 1.dp,
                                         brush = Brush.linearGradient(
                                             listOf(
-                                                Color(0xFFFF5555).copy(alpha = 0.5f * glow),
-                                                Color(0xFF8B0000).copy(alpha = 0.35f)
+                                                Color(0xFFFF5555).copy(alpha = 0.6f),
+                                                Color(0xFF8B0000).copy(alpha = 0.45f)
                                             )
                                         ),
                                         shape = FloatingActionButtonDefaults.extendedFabShape

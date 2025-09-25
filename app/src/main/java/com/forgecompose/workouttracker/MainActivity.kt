@@ -19,6 +19,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.annotation.RequiresApi
 import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.InfiniteTransition
@@ -571,9 +572,10 @@ fun MainScreen(viewModel: WorkoutListViewModel, viewModel2: MainScreenViewModel)
 fun AdviceSectionUser(
     advice: String,
     lastWorkoutName: String,
-    extraLines: List<String>,                 // ← NEW: lines shown under name when AI is OFF
-    maxExtraLines: Int = 4,                   // ← cap how many to show
-    modifier: Modifier = Modifier
+    extraLines: List<String>,
+    maxExtraLines: Int = 4,
+    modifier: Modifier = Modifier,
+    navController: NavController
 ) {
     val aiEnabled = dynamicModel.personaConfig.value.enabled
 
@@ -679,14 +681,17 @@ fun AdviceSectionUser(
                                 .heightIn(min = 24.dp)
                         )
                     } else {
-                        // ── AI OFF: show label, big name, then extra lines
+
                         Column(
                             modifier = Modifier.weight(1f)
                         ) {
                             Text(
                                 text = "Last workout :",
                                 style = MaterialTheme.typography.labelLarge,
-                                color = Color.Gray
+                                color = Color.LightGray,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 21.sp
+
                             )
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
@@ -694,7 +699,7 @@ fun AdviceSectionUser(
                                 style = MaterialTheme.typography.headlineSmall.copy(
                                     fontWeight = FontWeight.Bold
                                 ),
-                                color = MaterialTheme.colorScheme.onSurface,
+                                color = Color(0xFFFABEC2),
                                 maxLines = 2,
                                 overflow = TextOverflow.Ellipsis
                             )
@@ -708,8 +713,10 @@ fun AdviceSectionUser(
                                     Text(
                                         text = line,
                                         style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.Bold,
                                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.9f),
                                         maxLines = 1,
+                                        fontSize = 16.sp,
                                         overflow = TextOverflow.Ellipsis,
                                         modifier = Modifier.padding(bottom = 2.dp)
                                     )
@@ -918,16 +925,17 @@ fun AdviceSectionUser(
         val usageTracker = remember { PresetUsageTracker(context) }
         val usageMap by usageTracker.usageFlow.collectAsState(initial = emptyMap())
         LaunchedEffect(userName, userAge, userWeight, userHeight, userExperience, personalRecords, recentWorkouts) {
-            WellnessAI.startBackgroundJobs(scope)
+            val tape: String = PDE.readTape()
             setPrefStyle()
             generateAdvice(
+
                 """
     The user’s profile:
     – Name: $userName
     – Age: $userAge
     – Weight: $userWeight kg
     – Height: $userHeight cm
-    – Training experience: $userExperience
+    – Training experience: $userExperience years of experience
     """.trimIndent(),
 
                 """
@@ -938,9 +946,10 @@ fun AdviceSectionUser(
     """.trimIndent(),
 
                 """
+                    some info about their logged workouts $tape , take the dates and times for each workout into account
     Recent workout history for this user: $recentWorkouts
 
-    Use this information to create advice that feels personal and tailored to their current fitness level, goals, and style.
+    Use this information to create advice and suggest their next move that feels personal and tailored to their current fitness level, goals, and style.
     Be encouraging, practical, and specific (not generic). Mention progress opportunities, form cues, or recovery tips that match their profile.
     """.trimIndent()
             )
@@ -1089,15 +1098,22 @@ fun AdviceSectionUser(
                                                         containerColor = surface.copy(alpha = 0.28f + clampedPulse * 0.08f + clampedGlow * 0.08f)
                                                     )
                                                 ) {
-                                                    Column(verticalArrangement = Arrangement.Center) {
+                                                    Column(verticalArrangement = Arrangement.Center,
+                                                        modifier = Modifier.clickable{
+                                                            navController.navigate(Routes.DetailedWorkout.replace("{${Routes.ArgId}}", "${latestName?.id}"))
+                                                        }) {
                                                         AdviceSectionUser(
                                                             advice = advice,
-                                                            modifier = Modifier.fillMaxSize(),
+                                                            modifier = Modifier.fillMaxSize()
+                                                                .clickable{
+                                                                    navController.navigate(Routes.DetailedWorkoutRoute.replace("{${Routes.ArgId}}", "${latestName?.id}"))
+                                                                },
                                                             lastWorkoutName = "No workouts yet.",
                                                             extraLines = listOf(
                                                                 "Get started: Quick Start below",
                                                                 "Or choose a preset from the list"
                                                             ),
+                                                            navController = navController
                                                         )
                                                     }
                                                 }
@@ -1226,6 +1242,13 @@ fun AdviceSectionUser(
                                                 )
                                             )
                                         }
+                                        fun formatTime(ms: Long): String {
+                                            val hours = ms / (1000 * 60 * 60)
+                                            val minutes = (ms / (1000 * 60)) % 60
+                                            val seconds = (ms / 1000) % 60
+                                            return String.format("%02d:%02d:%02d", hours, minutes, seconds)
+                                        }
+
                                         Card(
                                             modifier = Modifier
                                                 .fillMaxWidth()
@@ -1248,7 +1271,9 @@ fun AdviceSectionUser(
                                             )
                                         ) {
                                             Column(verticalArrangement = Arrangement.Center) {
-
+                                                val time = formatTime(
+                                                    latestName?.durationMillis?.toLong()
+                                                    ?: 0)
                                                 AdviceSectionUser(
                                                     advice = advice,
                                                     modifier = Modifier.fillMaxSize(),
@@ -1256,8 +1281,9 @@ fun AdviceSectionUser(
                                                         ?: "No workouts yet.",
                                                     extraLines = listOf(
                                                         "Weight : ${latestName?.weight}",
-                                                        "Status : ${latestName?.status}"
+                                                        "Time : ${time}"
                                                     ),
+                                                    navController = navController
 
                                                 )
                                             }
@@ -1303,18 +1329,23 @@ Spacer(
                                             verticalArrangement = Arrangement.spacedBy(12.dp)
                                         ) {
                                             items(topPresets, key = { it.first }, contentType = { "preset" }) { (workoutName, useCount) ->
+                                                val scope = rememberCoroutineScope()
                                                 val itemInteraction = remember { MutableInteractionSource() }
                                                 val itemPressed by itemInteraction.collectIsPressedAsState()
                                                 val itemScale by animateFloatAsState(
                                                     targetValue = if (itemPressed) 0.985f else 1f,
                                                     label = "cardScaleItem"
                                                 )
-                                                val borderBrushItem by remember(clampedPulse, clampedGlow) {
+                                                val expand = remember { Animatable(0f) }
+                                                val isExpanding = expand.isRunning || expand.value > 0f
+                                                val h by remember { derivedStateOf { 65.dp + (160.dp - 65.dp) * expand.value } }
+                                                val contentAlpha by animateFloatAsState(targetValue = if (isExpanding) 0.0f else 1f, animationSpec = tween(180), label = "contentAlpha")
+                                                val borderBrushItem by remember(clampedPulse, clampedGlow, expand.value) {
                                                     mutableStateOf(
                                                         Brush.linearGradient(
                                                             colors = listOf(
-                                                                Color(0xFF622121).copy(alpha = 0.86f + clampedPulse * 0.12f + clampedGlow * 0.12f),
-                                                                Color.White.copy(alpha = 0.08f + clampedPulse * 0.06f + clampedGlow * 0.06f)
+                                                                Color(0xFF622121).copy(alpha = (0.86f + clampedPulse * 0.12f + clampedGlow * 0.12f) * (1f - 0.2f * expand.value)),
+                                                                Color.White.copy(alpha = (0.08f + clampedPulse * 0.06f + clampedGlow * 0.06f) * (1f - 0.2f * expand.value))
                                                             )
                                                         )
                                                     )
@@ -1323,36 +1354,34 @@ Spacer(
                                                 Card(
                                                     modifier = Modifier
                                                         .fillMaxWidth()
-                                                        .height(65.dp)
+                                                        .height(h)
                                                         .graphicsLayer { scaleX = itemScale; scaleY = itemScale }
                                                         .border(
                                                             width = 1.dp,
                                                             brush = borderBrushItem,
                                                             shape = cardShape16
                                                         )
+                                                        .zIndex(if (isExpanding) 1f else 0f)
                                                         .clickable(interactionSource = itemInteraction, indication = null) {
-                                                            if (ConnectedWorkout.currentMode.value == WorkoutMode.INACTIVE) {
-                                                                haptics.performHapticFeedback(
-                                                                    HapticFeedbackType.LongPress
-                                                                )
+                                                            if (ConnectedWorkout.currentMode.value == WorkoutMode.INACTIVE && !isExpanding) {
+                                                                haptics.performHapticFeedback(HapticFeedbackType.ContextClick)
                                                                 workout.value = workoutName
-                                                                val intent = Intent(
-                                                                    context,
-                                                                    WorkoutActivity::class.java
-                                                                ).apply {
-                                                                    putExtra(
-                                                                        "WORKOUT_NAME",
-                                                                        workoutName
-                                                                    )
+                                                                scope.launch {
+                                                                    expand.animateTo(0.55f, tween(150))
+                                                                    val intent = Intent(context, WorkoutActivity::class.java).apply {
+                                                                        putExtra("WORKOUT_NAME", workoutName)
+                                                                    }
+                                                                    startActivity(context, intent, null)
+                                                                    expand.animateTo(1f, tween(200))
+                                                                    expand.snapTo(0f)
                                                                 }
-                                                                startActivity(context, intent, null)
                                                             }
                                                         },
                                                     shape = cardShape16,
                                                     colors = CardDefaults.cardColors(
-                                                        containerColor = if (ConnectedWorkout.currentMode.value == WorkoutMode.INACTIVE) surface.copy(
-                                                            alpha = 0.14f + clampedPulse * 0.05f + clampedGlow * 0.05f
-                                                        ) else Color.DarkGray
+                                                        containerColor = if (ConnectedWorkout.currentMode.value == WorkoutMode.INACTIVE)
+                                                            surface.copy(alpha = 0.14f + clampedPulse * 0.05f + clampedGlow * 0.05f)
+                                                        else Color.DarkGray
                                                     )
                                                 ) {
                                                     Box(
@@ -1362,7 +1391,9 @@ Spacer(
                                                         contentAlignment = Alignment.CenterStart
                                                     ) {
                                                         Row(
-                                                            modifier = Modifier.fillMaxWidth(),
+                                                            modifier = Modifier
+                                                                .fillMaxWidth()
+                                                                .graphicsLayer { alpha = contentAlpha },
                                                             verticalAlignment = Alignment.CenterVertically,
                                                             horizontalArrangement = Arrangement.SpaceBetween
                                                         ) {
@@ -1383,6 +1414,7 @@ Spacer(
                                                 }
                                             }
                                         }
+
 
                                         Box(
                                             modifier = Modifier
@@ -1642,7 +1674,8 @@ val cold = rememberColdStartStages()
                         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                         onItemClick.value(workout)
                     },
-                    onDelete = { onItemDelete.value(workout) }
+                    onDelete = { onItemDelete.value(workout);
+                    haptics.performHapticFeedback(HapticFeedbackType.Confirm)}
                 )
             }
         }
@@ -1919,7 +1952,7 @@ val cold = rememberColdStartStages()
                                     contentPadding = PaddingValues(bottom = 90.dp)
                                 ) {
 
-                                    if (cold.after700ms) {
+                                    if (cold.after200ms) {
                                         item {
                                             GlassCard {
                                                 Column(Modifier.padding(20.dp)) {
@@ -1958,7 +1991,7 @@ val cold = rememberColdStartStages()
                                             }
                                         }
                                     }
-                                    if (cold.after400ms) {
+                                    if (cold.afterFirstFrame) {
                                         item {
                                             GlassCard {
                                                 Column(Modifier.padding(20.dp)) {
@@ -2035,7 +2068,7 @@ val cold = rememberColdStartStages()
                                             }
                                         }
                                     }
-                                    if (sameNameWorkouts.isNotEmpty() && cold.after800ms) {
+                                    if (sameNameWorkouts.isNotEmpty() && cold.after400ms) {
 
                                         item {
                                             GlassCard {

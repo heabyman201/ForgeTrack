@@ -1,6 +1,7 @@
 package com.forgecompose.workouttracker
 
 import android.app.Application
+import androidx.compose.runtime.mutableStateOf
 import androidx.appcompat.app.AppCompatDelegate
 
 class MyApplication : Application() {
@@ -17,8 +18,11 @@ class MyApplication : Application() {
         super.onCreate()
     SecureGeminiStore.init(this)
         PersonaPrefs.init(this)
-        WellnessAI.initialize(this)
+        PDE.init(applicationContext)
+
         AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_YES)
         PersonaPrefs.bootstrapInto(dynamicModel.personaConfig)
+
+
     }
 }

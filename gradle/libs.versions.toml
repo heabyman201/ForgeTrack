@@ -42,6 +42,9 @@ uiautomator = "2.2.0"
 benchmarkMacroJunit4 = "1.4.1"
 baselineprofile = "1.4.1"
 profileinstaller = "1.4.1"
+animationCore = "1.9.1"
+ui = "1.9.1"
+uiGraphics = "1.9.1"
 [libraries]
 accompanist-navigation-animation = { module = "com.google.accompanist:accompanist-navigation-animation", version.ref = "accompanistNavigationAnimation" }
 accompanist-navigation-animation-vlatest = { module = "com.google.accompanist:accompanist-navigation-animation", version.ref = "accompanistNavigationAnimationVersion" }
@@ -94,6 +97,9 @@ androidx-compose-material3-material3 = { group = "androidx.compose.material3", n
 androidx-uiautomator = { group = "androidx.test.uiautomator", name = "uiautomator", version.ref = "uiautomator" }
 androidx-benchmark-macro-junit4 = { group = "androidx.benchmark", name = "benchmark-macro-junit4", version.ref = "benchmarkMacroJunit4" }
 androidx-profileinstaller = { group = "androidx.profileinstaller", name = "profileinstaller", version.ref = "profileinstaller" }
+androidx-animation-core = { group = "androidx.compose.animation", name = "animation-core", version.ref = "animationCore" }
+androidx-compose-ui-ui = { group = "androidx.compose.ui", name = "ui", version.ref = "ui" }
+androidx-compose-ui-ui-graphics3 = { group = "androidx.compose.ui", name = "ui-graphics", version.ref = "uiGraphics" }
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
 kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }

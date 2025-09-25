@@ -2,6 +2,7 @@ package com.forgecompose.workouttracker
 
 import android.content.Context
 import android.content.Intent
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background

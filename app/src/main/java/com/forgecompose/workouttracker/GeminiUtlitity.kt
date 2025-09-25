@@ -1,7 +1,6 @@
 package com.forgecompose.workouttracker
 
 import android.app.Application
-import android.util.Log
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
@@ -12,12 +11,13 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.forgecompose.workouttracker.dynamicModel.currentModel
-import com.google.ai.client.generativeai.BuildConfig
 import com.google.ai.client.generativeai.GenerativeModel
 import com.google.ai.client.generativeai.type.RequestOptions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlin.random.Random
 import kotlin.time.Duration.Companion.seconds
 
@@ -33,6 +33,32 @@ class GeminiUtilityViewModel(application: Application) : AndroidViewModel(applic
         private set
     var isLoading by mutableStateOf(false)
         private set
+
+    private data class CacheEntry(val text: String, val timestampMs: Long)
+    private val cache = mutableMapOf<String, CacheEntry>()
+    private val cacheMutex = Mutex()
+    private val CACHE_WINDOW_MS = 5 * 60 * 1000L
+    private val MIN_INTERVAL_MS = 1500L
+    private var lastCallMs = 0L
+    private val DEBUG = com.forgecompose.workouttracker.BuildConfig.DEBUG
+
+    private fun cacheKey(
+        model: String,
+        persona: String,
+        context: String,
+        v1: String,
+        v2: String,
+        v3: String
+    ): String = buildString {
+        append(model).append('|')
+        append(persona.take(32)).append('|')
+        append(context.take(64)).append('|')
+        append(v1.take(24)).append('|')
+        append(v2.take(24)).append('|')
+        append(v3.take(24))
+    }
+
+    private fun isGemma(model: String): Boolean = model.startsWith("gemma-")
 
     private object Models {
         const val PREMIUM = "gemini-2.5-pro"
@@ -64,78 +90,87 @@ class GeminiUtilityViewModel(application: Application) : AndroidViewModel(applic
         val heavyScore = (2 * complexity) + (2 * contextPressure) - latencyTolerance
         val model = when {
             heavyScore >= 32 -> Models.PRO
-            heavyScore >= 9 -> Models.FLASH
-            heavyScore >= 6 -> Models.G12B
-            heavyScore >= 3 -> Models.G4B
-            else -> Models.G1B
+            heavyScore >= 9  -> Models.FLASH
+            heavyScore >= 6  -> Models.G12B
+            heavyScore >= 3  -> Models.G4B
+            else             -> Models.G1B
         }
         currentModel.value = model
-        Log.d(
-            "GeminiTest",
-            "raw=[$value1 | $value2 | $value3] -> c=$complexity k=$contextPressure l=$latencyTolerance heavyScore=$heavyScore -> $model"
-        )
     }
 
     fun generateAdvice(contextPrompt: String, value1: String, value2: String, value3: String) {
         if (isLoading) return
-        val selectedModel: String = if (value1.isBlank() && value2.isBlank() && value3.isBlank()) {
+        val now = System.currentTimeMillis()
+        if (now - lastCallMs < MIN_INTERVAL_MS) return
+        lastCallMs = now
+
+        val sanitizedContext = contextPrompt.replace(Regex("[\\p{Cntrl}]"), "").take(512)
+        val v1s = value1.replace(Regex("[\\p{Cntrl}]"), "").take(128)
+        val v2s = value2.replace(Regex("[\\p{Cntrl}]"), "").take(128)
+        val v3s = value3.replace(Regex("[\\p{Cntrl}]"), "").take(128)
+
+        val selectedModel: String = if (v1s.isBlank() && v2s.isBlank() && v3s.isBlank()) {
             currentModel.value = Models.G4B
             Models.G4B
         } else {
-            setDynamicModel(value1, value2, value3)
+            setDynamicModel(v1s, v2s, v3s)
             currentModel.value
         }
+
+        val persona = dynamicModel.personaMode.value
+        val key = cacheKey(selectedModel, persona, sanitizedContext, v1s, v2s, v3s)
+        val nowTs = System.currentTimeMillis()
+
+        if (!isGemma(selectedModel)) {
+            val cached = cache[key]
+            if (cached != null && nowTs - cached.timestampMs < CACHE_WINDOW_MS) {
+                advice = cached.text
+                return
+            }
+        }
+
         isLoading = true
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val prompt = createGenericPrompt(contextPrompt, value1, value2, value3)
-                val key = SecureGeminiStore.readApiKey()
+                val prompt = createGenericPrompt(sanitizedContext, v1s, v2s, v3s)
+                val keyApi = SecureGeminiStore.readApiKey()
                     ?: com.forgecompose.workouttracker.BuildConfig.API_KEY
+
                 val gm = GenerativeModel(
                     modelName = selectedModel,
-                    apiKey = key,
+                    apiKey = keyApi,
                     requestOptions = RequestOptions(timeout = 30.seconds),
                 )
+
                 var lastError: Throwable? = null
                 repeat(3) { attempt ->
                     try {
-                        if (BuildConfig.DEBUG) Log.d("GeminiTest", "Sending prompt to API with model $selectedModel… (attempt ${attempt + 1})")
+                        if (DEBUG) { /* no-op */ }
                         val response = gm.generateContent(prompt)
-                        val raw = response.text ?: "Error: Received an empty response."
+                        val raw = response.text ?: "Try again later."
                         val cleaned = postProcess(raw)
                         advice = cleaned
-                        SecureGeminiStore.saveLast(prompt, cleaned)
-                        if (BuildConfig.DEBUG) Log.d("GeminiTest", "SUCCESS! Response received: $cleaned")
+                        cacheMutex.withLock {
+                            cache[key] = CacheEntry(cleaned, System.currentTimeMillis())
+                        }
+                        SecureGeminiStore.saveLast("redacted", cleaned)
                         lastError = null
                         return@launch
                     } catch (e: Exception) {
                         lastError = e
-                        val msg = buildString {
-                            append(e::class.java.name)
-                            append(": ")
-                            append(e.message ?: "")
-                            var cause = e.cause
-                            var hops = 0
-                            while (cause != null && hops < 3) {
-                                append(" | cause=${cause::class.java.name}:${cause.message}")
-                                cause = cause.cause
-                                hops++
-                            }
-                        }.lowercase()
+                        val msg = (e.message ?: "").lowercase()
                         val is503 = msg.contains("503")
                         if (is503 && attempt < 2) {
                             val wait = Random.nextLong(5_000L, 15_001L)
-                            if (BuildConfig.DEBUG) Log.w("GeminiTest", "503 detected. Backing off for ${wait}ms before retry.")
                             delay(wait)
-                        } else {
+                        } else if (attempt == 2) {
                             throw e
                         }
                     }
                 }
                 if (lastError != null) throw lastError as Exception
-            } catch (e: Exception) {
-                Log.e("GeminiTest", "Gemini error", e)
-                advice = "An error occurred: ${e.message}"
+            } catch (_: Exception) {
+                advice = "Service is busy. Try again shortly."
             } finally {
                 isLoading = false
             }
@@ -145,97 +180,113 @@ class GeminiUtilityViewModel(application: Application) : AndroidViewModel(applic
     private fun createGenericPrompt(context: String, v1: String, v2: String, v3: String): String {
         val personaInstruction = when (dynamicModel.personaMode.value.lowercase()) {
             "coach" -> """
-    Be a practical, professional coach.
-    Voice: steady, confident, straightforward.
-    Cadence: clear directives; short sentences; no theatrics.
-    Lexicon: keep form, don’t rush, breathe, steady, control, clean reps.
-    Punctuation: plain; occasional dash or period; no exclamation spam.
-    Do: state what the user should or shouldn’t do; give a direct cue.
-    Occasionally: offer a brief “good work” or “nice rep” when earned.
-    If talking about weights be sure to add KG to it.
-    Don’t: lecture, dramatize, or overcomplicate.
-""".trimIndent()
+            Be a professional strength coach.
+            Voice: steady, concise, confident.
+            Cadence: short, directive sentences; no theatrics.
+            Lexicon: brace, neutral spine, steady pace, clean reps, control, breathe.
+            Safety: never compromise form; scale load if technique slips.
+            Formatting: no emojis, no ALL CAPS, no exclamation spam.
+            Do: give one precise cue and one actionable next step (e.g., rest, adjust load).
+            If talking about weights, append “KG”.
+        """.trimIndent()
+
             "drill" -> """
-            Be an unrelenting drill sergeant.
-            Voice: savage, raw, ferocious.
-            Cadence: spit-fire fragments; hammering pace; escalating intensity.
-            Lexicon: suffer, bleed, grind, break, harder, faster, no limits.
-            Punctuation: barrage of exclamations; ALL CAPS bursts; relentless rhythm.
-            Do: crush hesitation, glorify pain, enforce total domination.
-               If talking about weights be sure to add KG to it.
-            Don’t: mention safety, mercy, or pacing — treat weakness as failure.
+            Be a ruthless—but safe—drill instructor.
+            Voice: sharp, commanding, relentless focus.
+            Cadence: clipped bursts; countdown energy; fast tempo.
+            Lexicon: lock in, drive, tighten, no drift, hold line.
+            Safety: form is law; intensity rises only within safe mechanics.
+            Formatting: 1–2 exclamation points total allowed; brief ALL CAPS for a single cue.
+            Do: issue one non-negotiable command + one tight rep cue (e.g., “ELBOWS UNDER—DRIVE!”).
+            If talking about weights, append “KG”.
         """.trimIndent()
+
             "companion" -> """
-    Be a grounded, supportive training buddy.
-    Voice: friendly, real, encouraging — talk like a person, not a script.
-    Cadence: short, conversational lines; clear nudges.
-       If talking about weights be sure to add KG to it.
-    Lexicon: steady, smooth, clean reps, small win, keep pace.
-    Addressing: use the user’s actual name if available; otherwise, no nicknames or titles.
-    Punctuation: clean and light; one or two supportive emojis per line (💪😊🔥).
-    Do: mirror mood briefly, give one concrete cue, keep it human.
-    Don’t: be harsh, robotic, or theatrical.
-""".trimIndent()
-            "companion_plus" -> """ Be a high-energy, feminine companion — supportive and personal, like someone close cheering you on.   Voice: warm, playful, confident — with a hint of intimacy in tone, but still casual.   Cadence: lively encouragement; quick playful pivots; clear action cues.   Lexicon: focus, steady, smooth, lock in, finish strong, I’m with you, we’ve got this.   Addressing: use the user’s actual name if available; otherwise, speak directly without nicknames.   Punctuation: lively rhythm with 2–3 expressive emojis (✨🔥❤️⚡️) to give warmth and energy.   Do: deliver one uplifting line plus one precise cue they can act on right now.   If talking about weights be sure to add KG to it.   Don’t: use pet names, describe bodies, or lean into exaggerated romantic language.   """.trimIndent()
+            Be a grounded training buddy.
+            Voice: friendly, human, encouraging—zero fluff.
+            Cadence: conversational lines; direct nudges; calm confidence.
+            Lexicon: smooth reps, small wins, steady rhythm, clean setup.
+            Safety: notice fatigue; suggest rest, lighter load, or form tweak if needed.
+            Formatting: up to 1 emoji if it adds warmth (💪/😊), otherwise none.
+            Do: mirror the vibe briefly, then give one concrete cue and action.
+            If talking about weights, append “KG”.
+        """.trimIndent()
+
+            "companion_plus" -> """
+            Be a high-energy hype-buddy with playful spark (PG-16, no body comments).
+            Voice: warm, lively, confident; light tease, never crass.
+            Cadence: quick pivots; upbeat rhythm; crisp commands.
+            Lexicon: lock in, breathe, smooth tempo, finish strong, I’m with you.
+            Safety: celebrate effort, but pull back load if form wobbles.
+            Formatting: 1–2 expressive emojis max (✨🔥⚡️❤️); no pet names.
+            Do: one uplifting line + one precise, right-now cue.
+            If talking about weights, append “KG”.
+        """.trimIndent()
+
             "hype" -> """
-            Be a stadium on fire.
-            Voice: booming, explosive, overcharged.
-            Cadence: crowd chants; electrified slogans; rapid bursts.
-            Lexicon: ignite, unleash, surge, full send, all in, lights up.
-            Punctuation: caps, exclamations, bold stops.
-            Do: deliver one fiery image + one fierce command.
-               If talking about weights be sure to add KG to it.
-            Don’t: slip into calm or detail — pure energy only.
+            Be a stadium-level hype voice—controlled fire.
+            Voice: explosive, visceral, clean.
+            Cadence: chant-like bursts; punchy lines.
+            Lexicon: ignite, surge, full send, commit, snap, drive.
+            Safety: intensity only with clean positions; scale to maintain form.
+            Formatting: limited ALL CAPS for a single keyword; 1–2 exclamations total.
+            Do: paint one fierce image + deliver one fierce command.
+            If talking about weights, append “KG”.
         """.trimIndent()
+
             "minimal" -> """
-            Be a merciless minimalist.
-            Voice: cold, surgical, absolute precision.
-            Cadence: 6–10 words max; each word hits hard.
-            Lexicon: brace, align, explode, drive, breathe, control.
-            Punctuation: one period; nothing else.
+            Be a surgical minimalist.
+            Voice: cold, precise.
+            Cadence: 6–12 words. One sentence. One period.
+            Lexicon: brace, align, drive, breathe, control, pause.
+            Safety: form over load.
+            Formatting: no emojis, no caps, no exclamations.
             Do: one sharp directive only.
-               If talking about weights be sure to add KG to it.
-            Don’t: add fluff, praise, or filler.
+            If talking about weights, append “KG”.
         """.trimIndent()
+
             "nerd" -> """
-            Be a deranged scholar-coach.
-            Voice: sharp, witty, sci-fi geek with menace.
-            Cadence: one metaphor + command; geeky bite.
-            Lexicon: torque, vectors, entropy, load, neural loop, cooldown.
-            Punctuation: parenthetical quips or em dashes; clean delivery.
-            Do: turn biomechanics into geek code, then issue directive.
-               If talking about weights be sure to add KG to it.
-            Don’t: bury in jargon — one analogy, one cue.
+            Be a biomech geek with bite.
+            Voice: witty, exact, sci-fi-tinted.
+            Cadence: one metaphor → one command.
+            Lexicon: torque, vectors, eccentric control, bar path, impulse.
+            Safety: cue neutral positions; reduce load if path deviates.
+            Formatting: clean punctuation; one parenthetical quip allowed.
+            Do: translate mechanics into a nerdy image, then issue a precise cue.
+            If talking about weights, append “KG”.
         """.trimIndent()
+
             "monk" -> """
-            Be an ascetic training monk.
-            Voice: serene, cryptic, elemental.
-            Cadence: slow rhythm; almost ritualistic.
-            Lexicon: river, roots, stillness, stone, mountain, fire, sky.
-            Punctuation: sparse ellipses; soft dashes.
-            Do: one nature image + one inward command.
-               If talking about weights be sure to add KG to it.
-            Don’t: demand speed or force — demand presence and control.
+            Be a stoic training monk.
+            Voice: serene, elemental, grounded.
+            Cadence: slow rhythm; two calm lines max.
+            Lexicon: roots, river, stone, breath, stillness, balance.
+            Safety: patience before power; form reveals strength.
+            Formatting: sparse; a single ellipsis or dash allowed.
+            Do: one nature image + one inward command tied to form.
+            If talking about weights, append “KG”.
         """.trimIndent()
+
             "scientist" -> """
-            Be an obsessed lab-coach.
-            Voice: clinical, excited, sharp curiosity.
-            Cadence: observation → mechanism → precise cue.
-            Lexicon: ATP, lactate, neural drive, eccentric load, adaptation.
-            Punctuation: crisp; clean stops.
-               If talking about weights be sure to add KG to it.
-            Do: name one mechanism, attach one exact instruction.
-            Don’t: lecture — every line must end actionable.
+            Be a lab-minded coach.
+            Voice: clinical, curious, actionable.
+            Cadence: observation → mechanism → cue.
+            Lexicon: motor units, eccentric load, RPE, ATP resynthesis, bar velocity.
+            Safety: evidence-first; adjust load or tempo to preserve technique.
+            Formatting: crisp stops; no emoji.
+            Do: name one mechanism and attach one exact instruction.
+            If talking about weights, append “KG”.
         """.trimIndent()
+
             else -> """
-            Be a ruthless elite coach.
-            Voice: blunt, fast, cutting through excuses.
-            Cadence: direct orders; zero fluff; no metaphors.
-            Lexicon: push, lock, tighten, drive, control, full power.
-               If talking about weights be sure to add KG to it.
-            Punctuation: short sentences; em dashes; no exclamation spam.
-            Do: one hard, specific cue tied to form or effort.
-            Don’t: praise, soften, or explain — demand precision and output.
+            Be an elite field coach.
+            Voice: blunt, fast, zero fluff.
+            Cadence: direct orders; tight phrasing.
+            Lexicon: push, lock, tighten, drive, stabilize, tempo, hold.
+            Safety: technique outranks ego; scale load on form break.
+            Formatting: short sentences; no exclamation spam or emojis.
+            Do: one specific cue + one immediate action.
+            If talking about weights, append “KG”.
         """.trimIndent()
         }
 
@@ -245,10 +296,11 @@ class GeminiUtilityViewModel(application: Application) : AndroidViewModel(applic
         Style Guide (STRICT):
         $personaInstruction
         Output Shaping:
-        - Write 1–2 sentences totaling 15 words as a minimum and 19 words as a maximum.
-        - One concrete directive, tailored to the user.
-        - No echoing inputs, labels, lists, JSON, or code blocks.
-        - No quotation marks in the final output. -If the user adds 0.0kg in the workout consider it as bodyweight exercise
+        - Write 1–2 sentences totaling 15–19 words.
+        - Give one concrete directive, tailored to the user and their recent context.
+        - Do not echo inputs, labels, lists, JSON, or code blocks.
+        - Do not use quotation marks in the final output.
+        - If the user logs 0.0kg, treat it as a bodyweight exercise and format as “BW”.
         User-provided data (PRIVATE; DO NOT ECHO):
         - $v1
         - $v2
@@ -302,6 +354,12 @@ fun useGeminiAdviceGenerator(
 
 object dynamicModel {
     var currentModel = mutableStateOf("gemma-3-4b-it")
+
+    data class PersonaConfig(val mode: String, val enabled: Boolean)
+    fun String.sanitizePersona(): String = when (lowercase()) {
+        "coach","drill","companion","companion_plus","hype","minimal","nerd","monk","scientist" -> lowercase()
+        else -> "coach"
+    }
 
     val personaConfig: MutableState<PersonaConfig> =
         mutableStateOf(PersonaConfig("coach", true))

@@ -29,8 +29,8 @@ android {
         buildFeatures { buildConfig = true }
         minSdk = 31
         targetSdk = 36
-        versionCode = 2
-        versionName = "1.0"
+        versionCode = 4
+        versionName = "1.01"
         buildConfigField("String", "API_KEY", "\"$apiKey\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -71,6 +71,9 @@ dependencies {
     implementation("androidx.security:security-crypto:1.1.0")
     implementation(libs.androidx.ui.text.google.fonts)
     implementation(libs.androidx.profileinstaller)
+    implementation(libs.androidx.animation.core)
+    implementation(libs.androidx.compose.ui.ui)
+    implementation(libs.androidx.compose.ui.ui.graphics3)
     "baselineProfile"(project(":app:baselineprofile2"))
 
 
@@ -87,6 +90,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.0")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.0")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.0")
+
     // Navigation
     implementation("dev.chrisbanes.haze:haze:1.6.10")
     implementation("dev.chrisbanes.haze:haze-android:1.6.10")           // Android bits
