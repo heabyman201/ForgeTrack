@@ -2,57 +2,20 @@ package com.forgecompose.workouttracker
 
 import android.os.Build
 import androidx.annotation.RequiresApi
-import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ColumnScope
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.DataExploration
-import androidx.compose.material.icons.filled.Height
-import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.MonitorWeight
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Stars
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -61,19 +24,16 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
-import dev.chrisbanes.haze.HazeState
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.*
 
 data class PersonalRecord(val exerciseName: String, val maxWeight: Double)
 
@@ -101,7 +61,8 @@ fun UserProfileScreen(
                 .groupBy { it.name }
                 .map { (name, workoutList) -> PersonalRecord(name, workoutList.maxOf { it.weight!! }) }
                 .sortedByDescending { it.maxWeight }
-            val recent = workouts.take(5)
+                .take(4)
+            val recent = workouts.take(4)
             prs to recent
         } else {
             emptyList<PersonalRecord>() to emptyList<Workout>()
@@ -118,11 +79,7 @@ fun UserProfileScreen(
         }
     }
     val introBrush = remember(introColors) {
-        Brush.linearGradient(
-            colors = introColors,
-            start = Offset.Zero,
-            end = Offset(Float.POSITIVE_INFINITY, 0f)
-        )
+        Brush.linearGradient(colors = introColors)
     }
     var showIntro by remember { mutableStateOf(true) }
     val introProgress by animateFloatAsState(targetValue = if (showIntro) 0f else 1f, animationSpec = tween(650, easing = LinearEasing), label = "introFade")
@@ -130,324 +87,272 @@ fun UserProfileScreen(
 
     val staticGradientBrush = remember {
         Brush.radialGradient(
-            colors = listOf(
-                Color(0xFF0A0404),
-                Color(0xFF2A0F0F),
-                Color(0xFF3D0000),
-                Color(0xFF4A0000),
-                Color(0xFF060202)
-            ),
-            radius = 1000f,
+            colors = listOf(Color(0xFF2A0F0F), Color(0xFF3D0000), Color(0xFF060202)),
+            radius = 1200f,
             center = Offset(0.5f, 0.4f)
         )
     }
-    val secondaryStaticBrush = remember {
-        Brush.linearGradient(
-            colors = listOf(
-                Color(0xFF4A0000).copy(alpha = 0.2f),
-                Color.Transparent,
-                Color(0xFF2A0F0F).copy(alpha = 0.15f),
-                Color.Transparent
-            )
-        )
-    }
 
-    val haptic = LocalHapticFeedback.current
-
-
-    val haze = remember { HazeState() }
-    val typography = MaterialTheme.typography
-    val nameStyle = remember(typography) {
-        typography.headlineMedium.copy(
-            shadow = Shadow(
-                color = Color.White.copy(alpha = 0.3f),
-                offset = Offset(0f, 0f),
-                blurRadius = 8f
-            )
-        )
-    }
-
-    val dateFormatter = remember {
-        java.text.SimpleDateFormat("MMM dd, yyyy", java.util.Locale.getDefault())
-    }
-
-    CompositionLocalProvider(LocalHazeState provides haze) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .drawWithCache {
-                    val base = Color(0xFF0D0404).copy(alpha = 0.8f)
-                    onDrawBehind {
-                        drawRect(base)
-                        drawRect(staticGradientBrush)
-                        drawRect(secondaryStaticBrush)
-                        if (introProgress < 1f) drawRect(introBrush, alpha = 1f - introProgress)
-                    }
-                }
-        ) {
-            Scaffold(
-                containerColor = Color.Transparent,
-                topBar = {
-                    TopAppBar(
-                        title = { Text("Profile", fontWeight = FontWeight.Bold) },
-                        navigationIcon = {
-                            IconButton(onClick = { navController.navigateUp() }) {
-                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Go back")
-                            }
-                        },
-                        actions = {
-                            IconButton(onClick = { navController.navigate("PersonaSettings") }) {
-                                Icon(Icons.Default.Settings, contentDescription = "Settings")
-                            }
-                        },
-                        colors = TopAppBarDefaults.topAppBarColors(
-                            containerColor = Color.Transparent,
-                            titleContentColor = Color.White
-                        )
-                    )
-                },
-                modifier = Modifier.fillMaxSize(),
-                contentWindowInsets = WindowInsets(0)
-            ) { paddingValues ->
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(paddingValues),
-                    contentPadding = PaddingValues(
-                        start = 16.dp,
-                        end = 16.dp,
-                        top = 16.dp,
-                        bottom = 100.dp
-                    ),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(24.dp)
-                ) {
-                    item {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Box {
-                                Box(
-                                    modifier = Modifier
-                                        .size(140.dp)
-                                        .background(
-                                            Brush.radialGradient(
-                                                colors = listOf(
-                                                    Color.White.copy(alpha = 0.1f),
-                                                    Color.Transparent
-                                                ),
-                                                radius = 70.dp.value
-                                            ),
-                                            CircleShape
-                                        )
-                                )
-                            }
-                            Spacer(modifier = Modifier.height(16.dp))
-                            Text(
-                                userName,
-                                style = nameStyle,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White
-                            )
-                        }
-                    }
-                    if (stages.after600ms && personalRecords.isNotEmpty()) {
-                        item {
-                            ProfileSectionCard(
-                                title = "Personal Records",
-                                onClick = { haptic.performHapticFeedback(HapticFeedbackType.LongPress) }
-                            ) {
-                                personalRecords.forEach { pr ->
-                                    ProfileStatRow(
-                                        label = pr.exerciseName,
-                                        value = "${String.format("%.1f", pr.maxWeight)} kg",
-                                        icon = Icons.Default.Stars,
-                                        iconTint = Color(0xFFfce18a)
-                                    )
-                                }
-                            }
-                        }
-                    }
-                    if (stages.after200ms) {
-                        item {
-                            ProfileSectionCard(
-                                title = "Body Stats",
-                                onClick = { navController.navigate("EditUserStats") }
-                            ) {
-                                ProfileStatRow(
-                                    label = "Age",
-                                    value = userAge,
-                                    icon = Icons.Default.Person
-                                )
-                                ProfileStatRow(
-                                    label = "Height",
-                                    value = "$userHeight cm",
-                                    icon = Icons.Default.Height
-                                )
-                                ProfileStatRow(
-                                    label = "Weight",
-                                    value = "$userWeight kg",
-                                    icon = Icons.Default.MonitorWeight
-                                )
-                                ProfileStatRow(
-                                    label = "Experience",
-                                    value = prefsManager.getExperience(),
-                                    icon = Icons.Default.DataExploration
-                                )
-                            }
-                        }
-                    }
-                    if (stages.after200ms && recentWorkouts.isNotEmpty()) {
-                        item {
-                            ProfileSectionCard(
-                                title = "Recent Activity",
-                                onClick = {
-                                    navController.navigate("WorkoutHistory")
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress) }
-                            ) {
-                                recentWorkouts.forEach { workout ->
-                                    val date = remember(workout.date) { dateFormatter.format(java.util.Date(workout.date)) }
-                                    ProfileStatRow(
-                                        label = workout.name,
-                                        value = date,
-                                        icon = Icons.Default.History
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            if (stages.after100ms) {
-                FloatingTaskbar(
-                    modifier = Modifier.align(Alignment.BottomCenter),
-                    navController = navController,
-                    cornerRadius = 34.dp,
-                    iconAlpha = 1f,
-                    uiState = uiState
-                )
-            }
-        }
-    }
-}
-
-
-@RequiresApi(Build.VERSION_CODES.S)
-@Composable
-private fun ProfileSectionCard(
-    title: String,
-    onClick: () -> Unit,
-    content: @Composable ColumnScope.() -> Unit,
-
-
-    ) {
-    val haptic = LocalHapticFeedback.current
-    val scope = rememberCoroutineScope()
-    val cardShape = RoundedCornerShape(24.dp)
-
-    val baseDark = Color(0xFF1A1A1A).copy(alpha = 0.25f)
-    val accentGlow = Color(0xFFFF3535)
-
-    var isPressed by remember { mutableStateOf(false) }
-    var rippleOffset by remember { mutableStateOf(Offset.Zero) }
-    var showRipple by remember { mutableStateOf(false) }
-    val rippleRadius = remember { Animatable(0f) }
-    val rippleAlpha = remember { Animatable(0.6f) }
-
-    val scale by animateFloatAsState(
-        targetValue = if (isPressed) 0.98f else 1f,
-        label = "scale"
+    val nameStyle = MaterialTheme.typography.headlineMedium.copy(
+        shadow = Shadow(color = Color.White.copy(alpha = 0.3f), blurRadius = 8f)
     )
-    val glowAlpha by animateFloatAsState(
-        targetValue = if (isPressed) 0.4f else 0.15f,
-        animationSpec = tween(400),
-        label = "glowAlpha"
-    )
+
+    val dateFormatter = remember { SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()) }
 
     Box(
         modifier = Modifier
-            .fillMaxWidth()
-            .graphicsLayer {
-                scaleX = scale
-                scaleY = scale
-            }
-            .pointerInput(Unit) {
-                detectTapGestures(
-                    onPress = { offset ->
-                        isPressed = true
-                        showRipple = true
-                        rippleOffset = offset
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-
-                        scope.launch {
-                            rippleRadius.snapTo(0f)
-                            rippleRadius.animateTo(
-                                size.width.toFloat(),
-                                tween(400)
-                            )
-                        }
-                        scope.launch {
-                            rippleAlpha.snapTo(0.6f)
-                            rippleAlpha.animateTo(0f, tween(400))
-                        }
-
-                        tryAwaitRelease()
-                        isPressed = false
-                        scope.launch {
-                            delay(400)
-                            showRipple = false
-                        }
-                    }
-                )
+            .fillMaxSize()
+            .drawWithCache {
+                onDrawBehind {
+                    drawRect(Color(0xFF060202))
+                    drawRect(staticGradientBrush)
+                    if (introProgress < 1f) drawRect(introBrush, alpha = 1f - introProgress)
+                }
             }
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(cardShape)
-                .clickable {
-                    onClick()
+        Scaffold(
+            containerColor = Color.Transparent,
+            topBar = {
+                TopAppBar(
+                    title = { Text("Profile", fontWeight = FontWeight.Bold) },
+                    navigationIcon = {
+                        IconButton(onClick = { navController.navigateUp() }) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Go back")
+                        }
+                    },
+                    actions = {
+                        IconButton(onClick = { navController.navigate("PersonaSettings") }) {
+                            Icon(Icons.Default.Settings, contentDescription = "Settings")
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = Color.Transparent,
+                        titleContentColor = Color.White,
+                        navigationIconContentColor = Color.White,
+                        actionIconContentColor = Color.White
+                    )
+                )
+            },
+            modifier = Modifier.fillMaxSize(),
+            contentWindowInsets = WindowInsets(0)
+        ) { paddingValues ->
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues),
+                contentPadding = PaddingValues(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(24.dp)
+            ) {
+                item {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        GlowingAvatar(icon = Icons.Default.Person)
+                        Text(
+                            userName,
+                            style = nameStyle,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                    }
                 }
-                .background(baseDark)
 
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White
-                )
-                HorizontalDivider(
-                    modifier = Modifier.padding(vertical = 8.dp),
-                    color = accentGlow.copy(alpha = 0.3f)
-                )
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    content()
+                if (stages.after200ms) {
+                    item {
+                        ProfileSectionCard(
+                            title = "Body Stats",
+                            action = {
+                                CardActionButton("Edit Profile") { navController.navigate("EditUserStats") }
+                            }
+                        ) {
+                            ProfileStatRow("Age", userAge, Icons.Default.Person)
+                            ProfileStatRow("Height", "$userHeight cm", Icons.Default.Height)
+                            ProfileStatRow("Weight", "$userWeight kg", Icons.Default.MonitorWeight)
+                            ProfileStatRow("Experience", prefsManager.getExperience(), Icons.Default.DataExploration)
+                        }
+                    }
                 }
+
+                if (stages.after600ms && personalRecords.isNotEmpty()) {
+                    item {
+                        ProfileSectionCard(
+                            title = "Personal Records",
+                            action = {
+                                CardActionButton("More") { navController.navigate("RepMax") }
+                            }
+                        ) {
+                            personalRecords.forEach { pr ->
+                                ProfileStatRow(
+                                    label = pr.exerciseName,
+                                    value = "${String.format("%.1f", pr.maxWeight)} kg",
+                                    icon = Icons.Default.Stars,
+                                    iconTint = Color(0xFFfce18a)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                if (stages.after200ms && recentWorkouts.isNotEmpty()) {
+                    item {
+                        ProfileSectionCard(
+                            title = "Recent Activity",
+                            action = {
+                                CardActionButton("View History") { navController.navigate("WorkoutHistory") }
+                            }
+                        ) {
+                            recentWorkouts.forEach { workout ->
+                                val date = remember(workout.date) { dateFormatter.format(Date(workout.date)) }
+                                ProfileStatRow(workout.name, date, Icons.Default.History)
+                            }
+                        }
+                    }
+                }
+                item { Spacer(modifier = Modifier.height(80.dp)) }
             }
         }
-
-        Canvas(modifier = Modifier.matchParentSize()) {
-            if (showRipple) {
-                drawCircle(
-                    color = accentGlow.copy(alpha = rippleAlpha.value),
-                    radius = rippleRadius.value,
-                    center = rippleOffset
-                )
-            }
+        if (stages.after100ms) {
+            FloatingTaskbar(
+                modifier = Modifier.align(Alignment.BottomCenter),
+                navController = navController,
+                cornerRadius = 34.dp,
+                iconAlpha = 1f,
+                uiState = uiState
+            )
         }
     }
 }
 
-/**
- * The ProfileStatRow does not need any changes. It will be rendered
- * on top of the shader effect from its parent ProfileSectionCard.
- */
+@Composable
+private fun GlowingAvatar(icon: ImageVector) {
+    Box(
+        modifier = Modifier
+            .size(120.dp)
+            .clip(CircleShape)
+            .drawWithCache {
+                val bgBrush = Brush.radialGradient(
+                    colors = listOf(Color(0xFF3A0E0E), Color(0xFF120707)),
+                    radius = size.minDimension / 2f * 1.5f
+                )
+                val borderBrush = Brush.linearGradient(
+                    colors = listOf(
+                        Color(0xFFFF5555).copy(alpha = 0.5f),
+                        Color(0xFF8B0000).copy(alpha = 0.3f)
+                    )
+                )
+                onDrawBehind {
+                    drawCircle(bgBrush)
+                    drawCircle(borderBrush, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.dp.toPx()))
+                }
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = "User Avatar",
+            tint = Color(0xFFFF3B30),
+            modifier = Modifier
+                .size(60.dp)
+                .drawWithCache {
+                    val glowBrush = Brush.radialGradient(
+                        colors = listOf(Color(0xFFFF3B30).copy(alpha = 0.4f), Color.Transparent),
+                        radius = size.minDimension
+                    )
+                    onDrawBehind {
+                        drawCircle(glowBrush)
+                    }
+                }
+        )
+    }
+}
+
+@Composable
+private fun ProfileSectionCard(
+    title: String,
+    action: @Composable (() -> Unit)? = null,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    val cornerRadius = 24.dp
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(cornerRadius))
+            .drawWithCache {
+                val cornerRpx = cornerRadius.toPx()
+                val bgBrush = Brush.radialGradient(
+                    colors = listOf(Color(0xFF180909).copy(alpha = 0.9f), Color(0xFF100404).copy(alpha = 0.95f)),
+                    center = Offset(size.width / 2f, size.height * 0.1f),
+                    radius = size.width * 1.5f
+                )
+                val borderBrush = Brush.linearGradient(
+                    colors = listOf(
+                        Color(0xFFFF5555).copy(alpha = 0.2f),
+                        Color(0xFF8B0000).copy(alpha = 0.1f)
+                    )
+                )
+                onDrawBehind {
+                    drawRoundRect(
+                        brush = bgBrush,
+                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(cornerRpx)
+                    )
+                    drawRoundRect(
+                        brush = borderBrush,
+                        style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.dp.toPx()),
+                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(cornerRpx)
+                    )
+                }
+            }
+            .padding(16.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                color = Color.White
+            )
+            action?.invoke()
+        }
+
+        HorizontalDivider(
+            modifier = Modifier.padding(vertical = 12.dp),
+            color = Color(0xFFFF3535).copy(alpha = 0.3f)
+        )
+
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            content()
+        }
+    }
+}
+
+@Composable
+private fun CardActionButton(text: String, onClick: () -> Unit) {
+    val haptic = LocalHapticFeedback.current
+    TextButton(
+        onClick = {
+            onClick()
+            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+        },
+        contentPadding = PaddingValues(horizontal = 8.dp)
+    ) {
+        Text(text, fontWeight = FontWeight.Bold, color = Color.White.copy(alpha = 0.8f))
+        Spacer(Modifier.width(4.dp))
+        Icon(Icons.Default.ArrowForward, contentDescription = null, tint = Color.White.copy(alpha = 0.8f), modifier = Modifier.size(18.dp))
+    }
+}
+
 @Composable
 private fun ProfileStatRow(
     label: String,
     value: String,
     icon: ImageVector? = null,
-    iconTint: Color = MaterialTheme.colorScheme.primary
+    iconTint: Color = Color(0xFFFF3B30)
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -471,7 +376,8 @@ private fun ProfileStatRow(
                 text = label,
                 style = MaterialTheme.typography.bodyLarge,
                 color = Color.White.copy(alpha = 0.9f),
-                maxLines = 1
+                maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
             )
         }
         Spacer(modifier = Modifier.width(8.dp))

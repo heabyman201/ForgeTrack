@@ -151,12 +151,16 @@ fun FloatingTaskbar(
                 val containerShape = RoundedCornerShape(radiusAnim)
                 val cornerRpx = with(density) { radiusAnim.toPx() }
 
-                val neonPhase by rememberInfiniteTransition(label = "neonPhase")
-                    .animateFloat(
-                        initialValue = 0f, targetValue = 1f,
-                        animationSpec = infiniteRepeatable(tween(2400, easing = LinearEasing)),
-                        label = "phase"
-                    )
+                var neonPhase by remember { mutableStateOf(0f) }
+                LaunchedEffect(Unit) {
+                    val frameMs = 16L
+                    val dur = 2400f
+                    while (true) {
+                        neonPhase += frameMs / dur
+                        if (neonPhase > 1f) neonPhase -= 1f
+                        delay(frameMs)
+                    }
+                }
 
                 Box(
                     modifier = Modifier
@@ -297,17 +301,19 @@ fun FloatingTaskbar(
 
                         val am = remember(ctx) { ctx.getSystemService(android.app.ActivityManager::class.java) }
                         val lowSpec = remember { (am?.isLowRamDevice == true)  }
-                        val idle = rememberInfiniteTransition(label = "idle")
-                        val idleBob by idle.animateFloat(
-                            initialValue = if (lowSpec) 0f else -0.6f, targetValue = if (lowSpec) 0f else 0.6f,
-                            animationSpec = infiniteRepeatable(tween(if (lowSpec) 4200 else 3200, easing = LinearEasing)),
-                            label = "idleBob"
-                        )
-                        val idleBreath by idle.animateFloat(
-                            initialValue = 0f, targetValue = if (lowSpec) 0f else 1f,
-                            animationSpec = infiniteRepeatable(tween(4200, easing = LinearEasing)),
-                            label = "idleBreath"
-                        )
+
+                        var idleBob by remember { mutableStateOf(0f) }
+                        var idleBreath by remember { mutableStateOf(0f) }
+                        LaunchedEffect(lowSpec) {
+                            val frameMs = 16L
+                            var t = 0f
+                            while (true) {
+                                t += frameMs / 1000f
+                                idleBob = if (lowSpec) 0f else (-0.6f + (1.2f * ((kotlin.math.sin(t * (2f * Math.PI / 3.2f)) + 1f) * 0.5f))).toFloat()
+                                idleBreath = if (lowSpec) 0f else ((kotlin.math.sin(t * (2f * Math.PI / 4.2f)) + 1f) * 0.5f).toFloat()
+                                delay(frameMs)
+                            }
+                        }
 
                         val routeOrder = remember { listOf("WorkoutHistory", "HomeScreen", "MuscleGroup", "UserProfile") }
                         fun routeIndex(r: String?) = routeOrder.indexOf(r).let { if (it >= 0) it else 1 }
@@ -321,7 +327,7 @@ fun FloatingTaskbar(
                             val spin = 0.07f * dir
                             pos.snapTo(Offset(-kick, 0f))
                             skew.snapTo(spin)
-                            squish.snapTo(1.06f - 0.02f * abs(dir.toFloat()))
+                            squish.snapTo(1.06f - 0.02f * kotlin.math.abs(dir.toFloat()))
                             launch {
                                 pos.animateTo(
                                     targetValue = Offset.Zero,
@@ -501,7 +507,7 @@ fun FloatingTaskbar(
                                                         ) { change, dragAmount ->
                                                             change.consume()
                                                             dragAccum += dragAmount.x
-                                                            val absAccum = abs(dragAccum)
+                                                            val absAccum = kotlin.math.abs(dragAccum)
                                                             val progress = (absAccum / dragThresholdPx).coerceIn(0f, 1f)
                                                             val dir = dragAccum.sign.toInt().coerceIn(-1, 1)
                                                             val idx = routeOrder.indexOf(route).let { if (it < 0) 1 else it }
@@ -573,7 +579,7 @@ fun FloatingTaskbar(
                                                             )
                                                     )
                                                     .border(
-                                                        width = 2.0.dp,
+                                                        width = 0.65.dp,
                                                         shape = RoundedCornerShape(pillRadius),
                                                         color = if (selected) Color(0xFF752626) else Color.Transparent
                                                     )

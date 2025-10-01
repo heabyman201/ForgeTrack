@@ -1,6 +1,7 @@
 package com.forgecompose.workouttracker
 
-
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.nativeCanvas
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Context
@@ -20,11 +21,13 @@ import android.util.Log
 import android.view.HapticFeedbackConstants
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.annotation.RequiresApi
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Animatable
@@ -41,10 +44,12 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
@@ -77,6 +82,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -85,6 +92,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material3.Button
@@ -113,6 +121,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -174,6 +183,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.geometry.toRect
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Paint
@@ -209,7 +219,12 @@ import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlin.random.Random
 import kotlin.system.exitProcess
+@Composable
+fun PreventBackGesture() {
+    BackHandler(enabled = true) {
 
+    }
+}
 class WorkoutActivity : ComponentActivity() {
     @RequiresApi(Build.VERSION_CODES.TIRAMISU)
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -232,7 +247,7 @@ fun MainScreen(viewModel: WorkoutListViewModel) {
     val navController = rememberNavController()
     val context = LocalContext.current
     val currentMode by ConnectedWorkout.currentMode
-
+PreventBackGesture()
     LaunchedEffect(currentMode) {
         when (currentMode) {
             WorkoutMode.ACTIVE, WorkoutMode.RESTING -> WorkoutForegroundService.start(context)
@@ -240,7 +255,8 @@ fun MainScreen(viewModel: WorkoutListViewModel) {
         }
     }
 
-    NavHost(navController = navController, startDestination = "GoalScreen") {
+    NavHost(navController = navController, startDestination = "GoalScreen",
+        modifier = Modifier.background(Color(0xFF0D0404))) {
         composable(
             route = "GoalScreen",
             enterTransition = {
@@ -397,7 +413,7 @@ fun AdviceSection(
         initialValue = 0.35f,
         targetValue = 0.9f,
         animationSpec = infiniteRepeatable(
-            animation = tween(2000, easing = FastOutSlowInEasing),
+            animation = tween(4000, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Reverse
         ),
         label = "glow"
@@ -407,7 +423,7 @@ fun AdviceSection(
         initialValue = 0f,
         targetValue = 360f,
         animationSpec = infiniteRepeatable(
-            animation = tween(4000, easing = LinearEasing),
+            animation = tween(6000, easing = LinearEasing),
             repeatMode = RepeatMode.Restart
         ),
         label = "starRotation"
@@ -729,7 +745,7 @@ private fun CountdownOverlay(countdownValue: Int) {
                     initialValue = 0.85f,
                     targetValue = 1.15f,
                     animationSpec = infiniteRepeatable(
-                        animation = tween(1600, easing = FastOutSlowInEasing),
+                        animation = tween(2700, easing = FastOutSlowInEasing),
                         repeatMode = RepeatMode.Reverse
                     ),
                     label = "glowPulseAnim"
@@ -921,6 +937,171 @@ private fun CountdownOverlay(countdownValue: Int) {
 }
 
 
+@Composable
+fun DistanceProgressTracker(
+    modifier: Modifier = Modifier,
+    currentDistance: Double,
+    goalDistance: Double,
+    hype: Float
+) {
+
+    val progress = remember(currentDistance, goalDistance) {
+        if (goalDistance > 0) (currentDistance / goalDistance).toFloat().coerceIn(0f, 1f) else 0f
+    }
+
+
+    val animatedProgress by animateFloatAsState(
+        targetValue = progress,
+        animationSpec = tween(durationMillis = 900, easing = FastOutSlowInEasing),
+        label = "distanceProgress"
+    )
+
+
+    val shimmerTransition = rememberInfiniteTransition(label = "shimmer")
+    val shimmerPosition by shimmerTransition.animateFloat(
+        initialValue = -0.2f,
+        targetValue = 1.2f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1500, easing = LinearEasing, delayMillis = 500),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "shimmerPosition"
+    )
+
+
+    val progressStartColor = lerp(Color(0xFFB71C1C), Color(0xFFFF5A5A), hype)
+    val progressEndColor = lerp(Color(0xFF8B0000), Color(0xFFD32F2F), hype)
+    val flagColor = Color(0xFFDC143C)
+
+    Surface(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp)),
+        color = Color.Black.copy(alpha = 0.25f),
+        shape = RoundedCornerShape(20.dp),
+
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+
+                Text(
+                    text = buildAnnotatedString {
+                        withStyle(style = SpanStyle(color = Color.White.copy(alpha = 0.7f), fontSize = 14.sp)) {
+                            append("DISTANCE\n")
+                        }
+                        withStyle(style = SpanStyle(color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold)) {
+                            append("%.2f km".format(currentDistance))
+                        }
+                    }
+                )
+
+
+                Text(
+                    text = buildAnnotatedString {
+                        withStyle(style = SpanStyle(color = Color.White.copy(alpha = 0.7f), fontSize = 14.sp)) {
+                            append("GOAL\n")
+                        }
+                        withStyle(style = SpanStyle(color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold)) {
+                            append("%.2f km".format(goalDistance))
+                        }
+                    },
+                    textAlign = TextAlign.End
+                )
+            }
+
+
+            Canvas(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(24.dp)
+            ) {
+                val trackCornerRadius = CornerRadius(size.height / 2f)
+                val flagPoleWidth = 2.dp.toPx()
+                val flagPoleX = size.width - flagPoleWidth / 2 - 8.dp.toPx()
+
+
+                drawRoundRect(
+                    color = Color.Black.copy(alpha = 0.3f),
+                    size = size,
+                    cornerRadius = trackCornerRadius
+                )
+
+
+                if (animatedProgress > 0f) {
+                    drawRoundRect(
+                        brush = Brush.horizontalGradient(
+                            colors = listOf(progressStartColor, progressEndColor)
+                        ),
+                        size = Size(width = size.width * animatedProgress, height = size.height),
+                        cornerRadius = trackCornerRadius
+                    )
+                }
+
+
+                val shimmerWidth = size.width * 0.3f
+                val shimmerRect = Rect(
+                    left = (size.width + shimmerWidth) * shimmerPosition - shimmerWidth,
+                    top = 0f,
+                    right = (size.width + shimmerWidth) * shimmerPosition,
+                    bottom = size.height
+                )
+
+                drawIntoCanvas { canvas ->
+                    canvas.saveLayer(size.toRect(), Paint())
+
+                    drawRoundRect(
+                        size = Size(width = size.width * animatedProgress, height = size.height),
+                        cornerRadius = trackCornerRadius,
+                        color = Color.Transparent
+                    )
+
+                    drawRect(
+                        brush = Brush.horizontalGradient(
+                            colors = listOf(
+                                Color.White.copy(alpha = 0.0f),
+                                Color.White.copy(alpha = 0.5f),
+                                Color.White.copy(alpha = 0.0f)
+                            ),
+                            startX = shimmerRect.left,
+                            endX = shimmerRect.right
+                        ),
+                        topLeft = shimmerRect.topLeft,
+                        size = shimmerRect.size,
+                        blendMode = BlendMode.SrcIn
+                    )
+                    canvas.restore()
+                }
+
+
+
+                drawLine(
+                    color = Color.White.copy(alpha = 0.5f),
+                    start = Offset(flagPoleX, 0f),
+                    end = Offset(flagPoleX, size.height),
+                    strokeWidth = flagPoleWidth,
+                    cap = StrokeCap.Round
+                )
+
+                val flagPath = Path().apply {
+                    moveTo(flagPoleX - flagPoleWidth / 2, 2.dp.toPx())
+                    lineTo(flagPoleX - 12.dp.toPx(), size.height / 2f)
+                    lineTo(flagPoleX - flagPoleWidth / 2, size.height - 2.dp.toPx())
+                    close()
+                }
+                drawPath(path = flagPath, color = flagColor)
+            }
+        }
+    }
+}
+
 @RequiresApi(Build.VERSION_CODES.TIRAMISU)
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -948,7 +1129,7 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
             isStepping = false
         }
     }
-
+    PreventBackGesture()
     val uiState by viewModel.uiState.collectAsState()
     val workouts: List<Workout> = (uiState as? WorkoutListUiState.Success)?.workouts.orEmpty()
 
@@ -1368,29 +1549,27 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
         onDispose { job?.cancel() }
     }
 
-    val basePhase = remember { Animatable(0f) }
-    val corePhase = remember { Animatable(0f) }
-    fun basePeriod(h: Float) = (10000 - (4200 * h)).toInt().coerceAtLeast(1200)
-    fun corePeriod(h: Float) = (5000 - (2600 * h)).toInt().coerceAtLeast(600)
+    var animationClock by remember { mutableStateOf(0f) }
 
     LaunchedEffect(Unit) {
+        var lastFrameTime = 0L
         while (isActive) {
-            basePhase.snapTo(0f)
-            basePhase.animateTo(1f, tween(durationMillis = basePeriod(hype), easing = LinearEasing))
-        }
-    }
-    LaunchedEffect(Unit) {
-        while (isActive) {
-            corePhase.snapTo(0f)
-            corePhase.animateTo(1f, tween(durationMillis = corePeriod(hype), easing = LinearEasing))
+            val currentTime = withFrameNanos { it }
+            if (lastFrameTime != 0L) {
+                val deltaTime = (currentTime - lastFrameTime) / 1_000_000_000f
+                animationClock += deltaTime
+            }
+            lastFrameTime = currentTime
+            delay(19)
         }
     }
 
-    fun sin01(t: Float) = ((sin(t * 2f * Math.PI).toFloat()) * 0.5f + 0.5f)
-    val basePulse = remember(hype, basePhase.value) { 0.55f + 0.45f * sin01(basePhase.value) * (0.6f + 0.4f * hype) }
-    val corePulse = remember(hype, corePhase.value) { 0.35f + 0.65f * sin01(corePhase.value) * (0.5f + 0.5f * hype) }
-    val centerX = 0.5f + (0.06f + 0.10f * hype) * sin(basePhase.value * 2f * Math.PI).toFloat()
-    val centerY = 0.55f + (0.05f + 0.08f * hype) * cos(basePhase.value * 2f * Math.PI).toFloat()
+    val basePulse = 0.77f + 0.23f * sin(animationClock * 2f * PI.toFloat() / (12f - 4.2f * hype))
+    val corePulse = 0.67f + 0.33f * sin(animationClock * 2f * PI.toFloat() / (7f - 2.6f * hype))
+    val shimmerPhase = (animationClock / (5f - 2.4f * hype)) % 1f
+
+    val centerX = 0.5f + (0.06f + 0.10f * hype) * sin(animationClock * 2f * PI.toFloat() / (12f - 4.2f * hype))
+    val centerY = 0.55f + (0.05f + 0.08f * hype) * cos(animationClock * 2f * PI.toFloat() / (12f - 4.2f * hype))
     val baseRadius = 1400f * (1.05f - 0.35f * basePulse)
     val coreRadius = 760f * (1.10f - 0.45f * corePulse)
     val deep = Color(0xFF0D0404)
@@ -1405,18 +1584,12 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
     val coreBrush = Brush.radialGradient(
         colors = listOf(whiteHot, flame, Color.Transparent),
         center = Offset(
-            0.5f + (0.10f + 0.12f * hype) * sin(corePhase.value * 4f * Math.PI).toFloat(),
-            0.60f + (0.08f + 0.10f * hype) * cos(corePhase.value * 4f * Math.PI).toFloat()
+            0.5f + (0.10f + 0.12f * hype) * sin(animationClock * 4f * PI.toFloat() / (7f - 2.6f * hype)),
+            0.60f + (0.08f + 0.10f * hype) * cos(animationClock * 4f * PI.toFloat() / (7f - 2.6f * hype))
         ),
         radius = coreRadius
     )
-    val shimmerPhase = remember { Animatable(0f) }
-    LaunchedEffect(Unit) {
-        while (isActive) {
-            shimmerPhase.snapTo(0f)
-            shimmerPhase.animateTo(1f, tween((5000 - 2400 * hype).toInt().coerceAtLeast(400), 300))
-        }
-    }
+
     val shimmerAlpha = 0.05f + 0.10f * hype
 
     val setCompletionProgress by remember {
@@ -1433,19 +1606,6 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
         animationSpec = tween(durationMillis = 1500, easing = LinearOutSlowInEasing),
         label = "purpleRise"
     )
-
-    var t by remember { mutableStateOf(0f) }
-    LaunchedEffect(Unit) {
-        var last = 0L
-        while (isActive) {
-            withFrameNanos { now ->
-                if (last == 0L) last = now
-                val dt = (now - last) / 1e9f
-                last = now
-                t += dt
-            }
-        }
-    }
 
     val hour = remember { java.time.LocalTime.now().hour }
     val introColors = remember(hour) {
@@ -1513,8 +1673,8 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                                     Color.White.copy(alpha = 0.14f + 0.10f * hype),
                                     Color.White.copy(alpha = 0.0f)
                                 ),
-                                start = Offset(shimmerPhase.value * -800f, 0f),
-                                end = Offset(800f - shimmerPhase.value * 800f, 1600f)
+                                start = Offset(shimmerPhase * -800f, 0f),
+                                end = Offset(800f - shimmerPhase * 800f, 1600f)
                             )
                         )
                 )
@@ -1551,10 +1711,10 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                         for (i in 0 until n) {
                             val s = (i * 37.123f) % 1000f
                             val speed = 0.25f + (s % 0.35f)
-                            val phase = (t * speed + (s * 0.013f)) % 1f
+                            val phase = (animationClock * speed + (s * 0.013f)) % 1f
                             val y = h * (1f - phase)
                             val baseX = (s % 1f) * w
-                            val wobble = sin((t * (0.8f + (s % 0.7f))) * 6.28318f + s) * (16f + 28f * (1f - phase))
+                            val wobble = sin((animationClock * (0.8f + (s % 0.7f))) * 6.28318f + s) * (16f + 28f * (1f - phase))
                             val x = (baseX + wobble).coerceIn(-40f, w + 40f)
                             val r = 6f + (s % 1f) * 18f * (0.4f + 0.6f * (1f - phase))
                             val a = (0.30f + 0.70f * (1f - phase)) * purpleRise
@@ -1594,7 +1754,7 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                                         CurrentWeight.value.toFloat()
                                     )
                                 }
-
+                                WorkoutLog.sets.clear()
                                 WorkoutForegroundService.stop(context)
                                 ConnectedWorkout.currentMode.value = WorkoutMode.INACTIVE
                                 context.startActivity(intent)
@@ -1653,23 +1813,10 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                             goalSets = GoalSets.intValue
                         )
                     } else if (GoalType == "Distance") {
-                        Text(
-                            text = "Distance: ${"%.2f".format(currentDistance.value)} / ${"%.2f".format(GoalDistance.value)} km",
-                            fontSize = 24.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            textAlign = TextAlign.Center,
-                        )
-                        Spacer(modifier = Modifier.height(16.dp))
-                        LinearProgressIndicator(
-                            progress = { animatedProgressDistance },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(16.dp)
-                                .clip(RoundedCornerShape(6.dp)),
-                            color = Color(0xFFFF5A5A).copy(alpha = 0.50f + 0.45f * hype),
-                            trackColor = Color.Black.copy(alpha = 0.22f),
-                            strokeCap = StrokeCap.Round,
+                        DistanceProgressTracker(
+                            currentDistance = currentDistance.value,
+                            goalDistance = GoalDistance.value,
+                            hype = hype
                         )
                     } else {
                         CircularTimerProgressBar(
@@ -1743,7 +1890,6 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                                 .height(70.dp)
                                 .graphicsLayer {
                                     scaleX = scale; scaleY = scale
-//                                    shadowElevation = shadow.toPx()
                                 }
                                 .clip(CircleShape)
                                 .border(
@@ -1810,6 +1956,7 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                                     )
                                 }
                                 WorkoutForegroundService.stop(context)
+                                WorkoutLog.sets.clear()
                                 CurrentTime.value = 0
                                 CurrentWeight.value = 0.0
                                 CurrentReps.intValue = 0
@@ -1941,15 +2088,25 @@ fun DetailedSetsProgressBar(currentSet: Int, goalSets: Int, modifier: Modifier =
         label = "SetProgressBarProgress",
         animationSpec = tween(600, easing = FastOutSlowInEasing)
     )
-    val shimmer = remember { Animatable(-0.2f) }
-    LaunchedEffect(Unit) { shimmer.animateTo(1.2f, tween(1800, 200, LinearEasing)) }
-    val pulseTrans = rememberInfiniteTransition(label = "dotPulse")
-    val pulse by pulseTrans.animateFloat(
-        initialValue = 0.9f,
-        targetValue = 1.2f,
-        animationSpec = infiniteRepeatable(tween(1000, easing = FastOutSlowInEasing), RepeatMode.Reverse),
-        label = "pulse"
-    )
+
+    var animationClock by remember { mutableStateOf(0f) }
+
+    LaunchedEffect(Unit) {
+        var lastFrameTime = 0L
+        while (isActive) {
+            val currentTime = withFrameNanos { it }
+            if (lastFrameTime != 0L) {
+                val deltaTime = (currentTime - lastFrameTime) / 1_000_000_000f
+                animationClock += deltaTime
+            }
+            lastFrameTime = currentTime
+            delay(42)
+        }
+    }
+
+    val shimmer = (animationClock / 1.8f) % 1.4f - 0.2f
+    val pulse = 1.05f + 0.15f * sin(animationClock * 2 * PI.toFloat())
+
     val accent = Color(0xFF8B0000)
     val accentBright = Color(0xFFFF6666).copy(alpha = 0.9f)
 
@@ -1983,7 +2140,7 @@ fun DetailedSetsProgressBar(currentSet: Int, goalSets: Int, modifier: Modifier =
                 cap = StrokeCap.Round
             )
         }
-        val shProg = shimmer.value
+        val shProg = shimmer
         val shWidth = w * 0.4f
         val shStart = (w + shWidth) * shProg - shWidth + startPad
         drawLine(
@@ -2027,34 +2184,29 @@ fun GoalScreen(navController: NavController, viewModel: WorkoutListViewModel) {
     val isPressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(if (isPressed) 0.98f else 1f, label = "buttonScale")
     GoalType = selectedGoalType
-    val infiniteTransition = rememberInfiniteTransition(label = "goalBackgroundAnimation")
-    val intensePulse by infiniteTransition.animateFloat(
-        initialValue = 0.3f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 2000, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "intensePulse"
-    )
-    val glowIntensity by infiniteTransition.animateFloat(
-        initialValue = 0.4f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1500, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "glowIntensity"
-    )
-    val gradientOffset by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 4000, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "gradientOffset"
-    )
+
+    var animationClock by remember { mutableStateOf(0f) }
+    PreventBackGesture()
+    LaunchedEffect(Unit) {
+        var lastFrameTime = 0L
+        while (true) {
+            val currentTime = withFrameNanos { it }
+            if (lastFrameTime != 0L) {
+                val deltaTime = (currentTime - lastFrameTime) / 1_000_000_000f
+                animationClock += deltaTime
+            }
+            lastFrameTime = currentTime
+            delay(42)
+        }
+    }
+
+    val period1 = 8f
+    val period2 = 6f
+    val period3 = 16f
+
+    val intensePulse = 0.65f + 0.35f * sin(animationClock * 2 * PI.toFloat() / period1)
+    val glowIntensity = 0.7f + 0.3f * sin(animationClock * 2 * PI.toFloat() / period2)
+    val gradientOffset = 0.5f + 0.5f * sin(animationClock * 2 * PI.toFloat() / period3)
 
     var repsPerSet by remember {
         mutableIntStateOf(GoalReps.intValue.takeIf { it > 0 } ?: 10)
@@ -2341,7 +2493,6 @@ fun GoalScreen(navController: NavController, viewModel: WorkoutListViewModel) {
         }
     }
 }
-
 @Composable
 fun DistanceSelector(
     label: String,
@@ -2928,10 +3079,19 @@ fun SetSelector() {
 }
 
 
+data class SetRecord(
+    val reps: MutableState<String>,
+    val weight: MutableState<String>
+)
+
+object WorkoutLog {
+    val sets = mutableStateListOf<SetRecord>()
+}
+
 @Composable
 fun RestScreen(
     navController: NavController,
-    vm: HrPhoneViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
+    vm: HrPhoneViewModel = viewModel()
 ) {
     val haptics = LocalHapticFeedback.current
     val bpm by vm.bpm.collectAsState()
@@ -2946,7 +3106,7 @@ fun RestScreen(
             remaining -= 1000
         }
         if (remaining <= 0) {
-            ConnectedWorkout.currentMode.value = WorkoutMode.ACTIVE
+            ConnectedWorkout.currentMode.value = ConnectedWorkout.WorkoutMode.ACTIVE
             navController.navigate("WorkoutScreen") { popUpTo("WorkoutScreen") { inclusive = true } }
         }
     }
@@ -2976,17 +3136,49 @@ fun RestScreen(
     val introProgress by animateFloatAsState(if (showIntro) 0f else 1f, tween(2000, easing = LinearEasing), label = "introFade")
     LaunchedEffect(Unit) { showIntro = false }
 
-    val bgTransition = rememberInfiniteTransition("rest_bg")
-    val gradientOffset by bgTransition.animateFloat(
-        0f, 1f,
-        animationSpec = infiniteRepeatable(tween(22000, easing = LinearEasing), RepeatMode.Reverse),
-        label = "grad"
-    )
-    val glow by bgTransition.animateFloat(
-        0.35f, 0.7f,
-        animationSpec = infiniteRepeatable(tween(16000, easing = FastOutSlowInEasing), RepeatMode.Reverse),
-        label = "glow"
-    )
+    var animationClock by remember { mutableStateOf(0f) }
+
+    LaunchedEffect(Unit) {
+        var lastFrameTime = 0L
+        while (isActive) {
+            val currentTime = withFrameNanos { it }
+            if (lastFrameTime != 0L) {
+                val deltaTime = (currentTime - lastFrameTime) / 1_000_000_000f
+                animationClock += deltaTime
+            }
+            lastFrameTime = currentTime
+            delay(42)
+        }
+    }
+
+    val gradientOffset = 0.5f + 0.5f * sin(animationClock * 2f * PI.toFloat() / 22f)
+    val glow = 0.525f + 0.175f * sin(animationClock * 2f * PI.toFloat() / 16f)
+
+    val currentSetCount = CurrentSets.intValue.coerceAtLeast(1)
+
+    LaunchedEffect(currentSetCount) {
+        val repsPerSet = (GoalReps.intValue / GoalSets.intValue.coerceAtLeast(1)).toString()
+        val weightPerSet = String.format("%.1f", CurrentWeight.value)
+        while (WorkoutLog.sets.size < currentSetCount) {
+            WorkoutLog.sets.add(
+                SetRecord(
+                    reps = mutableStateOf(repsPerSet),
+                    weight = mutableStateOf(weightPerSet)
+                )
+            )
+        }
+    }
+
+    val totalReps by remember {
+        derivedStateOf {
+            WorkoutLog.sets.sumOf { it.reps.value.toIntOrNull() ?: 0 }
+        }
+    }
+
+    LaunchedEffect(totalReps) {
+        CurrentReps.intValue = totalReps
+    }
+
 
     WorkoutTrackerTheme {
         Box(
@@ -3018,9 +3210,9 @@ fun RestScreen(
                 verticalArrangement = Arrangement.Center,
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Spacer(Modifier.weight(1f))
+                Spacer(Modifier.weight(0.5f))
 
-                val ringSize = 320.dp
+                val ringSize = 300.dp
 
                 Box(
                     modifier = Modifier.size(ringSize),
@@ -3043,27 +3235,6 @@ fun RestScreen(
                             radius = radius,
                             style = Stroke(width = stroke, cap = StrokeCap.Round)
                         )
-
-                        val tickCount = 60
-                        val majorEvery = 5
-                        repeat(tickCount) { i ->
-                            val ang = Math.toRadians((i * 6 - 90).toDouble()).toFloat()
-                            val isMajor = i % majorEvery == 0
-                            val tickLen = if (isMajor) 18f else 10f
-                            val tickW = if (isMajor) 3f else 2f
-                            val outer = radius + stroke * 0.2f
-                            val inner = outer - tickLen
-                            val sx = cx + cos(ang) * inner
-                            val sy = cy + sin(ang) * inner
-                            val ex = cx + cos(ang) * outer
-                            val ey = cy + sin(ang) * outer
-                            drawLine(
-                                color = Color.White.copy(alpha = if (isMajor) 0.18f else 0.10f),
-                                start = Offset(sx, sy),
-                                end = Offset(ex, ey),
-                                strokeWidth = tickW
-                            )
-                        }
 
                         val sweep = 360f * animatedProgress
                         val arcRect = Rect(
@@ -3117,14 +3288,6 @@ fun RestScreen(
                                 center = Offset(px, py)
                             )
                         }
-
-                        drawCircle(
-                            brush = Brush.verticalGradient(
-                                listOf(Color.White.copy(alpha = 0.10f), Color.Transparent)
-                            ),
-                            radius = radius - stroke * 0.65f,
-                            style = Stroke(width = 6f)
-                        )
                     }
 
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -3146,49 +3309,87 @@ fun RestScreen(
 
                 Spacer(Modifier.height(24.dp))
 
+                var isExpanded by remember { mutableStateOf(false) }
+                val rotation by animateFloatAsState(targetValue = if (isExpanded) 180f else 0f, label = "expand_icon")
+
                 Box(
                     modifier = Modifier
-                        .width(220.dp)
+                        .fillMaxWidth()
                         .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
-                        .clip(RoundedCornerShape(32.dp))
+                        .clip(RoundedCornerShape(28.dp))
                 ) {
                     Surface(
                         modifier = Modifier
                             .matchParentSize()
                             .blur(radius = 32.dp),
-                        shape = RoundedCornerShape(32.dp),
-                        color = Color.LightGray.copy(alpha = 0.02f),
+                        shape = RoundedCornerShape(28.dp),
+                        color = Color.LightGray.copy(alpha = 0.02f)
+                    ) {}
 
-                        ) {}
-
-                    OutlinedTextField(
-                        value = CurrentReps.intValue.toString(),
-                        onValueChange = { CurrentReps.intValue = it.toIntOrNull() ?: 0 },
-                        label = { Text("Enter Reps") },
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .heightIn(min = 64.dp)
-                            .padding(horizontal = 6.dp, vertical = 2.dp),
-                        shape = RoundedCornerShape(32.dp),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = Color.Transparent,
-                            unfocusedBorderColor = Color.Transparent,
-                            focusedContainerColor = Color.Transparent,
-                            unfocusedContainerColor = Color.Transparent,
-                            focusedLabelColor = Color.White.copy(alpha = 0.85f),
-                            unfocusedLabelColor = Color.White.copy(alpha = 0.55f),
-                            cursorColor = Color.White
-                        ),
-                        textStyle = TextStyle(
-                            fontSize = 28.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            textAlign = TextAlign.Center
-                        ),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        singleLine = true
-                    )
+                            .animateContentSize()
+                            .background(
+                                color = Color.White.copy(alpha = 0.05f),
+                                shape = RoundedCornerShape(28.dp)
+                            )
+                            .padding(vertical = 12.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .clickable { isExpanded = !isExpanded;
+                                    haptics.performHapticFeedback(HapticFeedbackType.ToggleOn)}
+                                .padding(horizontal = 20.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Workout Log",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White.copy(alpha = 0.9f),
+                                modifier = Modifier.weight(1f)
+                            )
+                            Icon(
+                                imageVector = Icons.Default.KeyboardArrowDown,
+                                contentDescription = if (isExpanded) "Collapse" else "Expand",
+                                tint = Color.White.copy(alpha = 0.7f),
+                                modifier = Modifier.rotate(rotation)
+                            )
+                        }
+
+                        AnimatedVisibility(
+                            visible = isExpanded,
+                            enter = fadeIn() + expandVertically(),
+                            exit = fadeOut() + shrinkVertically()
+                        ) {
+                            Column {
+                                HorizontalDivider(
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                                    color = Color.White.copy(alpha = 0.1f)
+                                )
+                                LazyColumn(
+                                    modifier = Modifier.heightIn(max = 200.dp)
+                                ) {
+                                    itemsIndexed(WorkoutLog.sets) { index, record ->
+                                        EditableSetRow(
+                                            setNumber = index + 1,
+                                            record = record
+                                        )
+                                        if (index < WorkoutLog.sets.lastIndex) {
+                                            HorizontalDivider(
+                                                modifier = Modifier.padding(horizontal = 24.dp),
+                                                thickness = (0.5).dp,
+                                                color = Color.White.copy(alpha = 0.08f)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
+
 
                 Spacer(Modifier.weight(1f))
 
@@ -3219,7 +3420,7 @@ fun RestScreen(
                     Button(
                         onClick = {
                             haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                            ConnectedWorkout.currentMode.value = WorkoutMode.ACTIVE
+                            ConnectedWorkout.currentMode.value = ConnectedWorkout.WorkoutMode.ACTIVE
                             navController.navigate("WorkoutScreen") {
                                 popUpTo("WorkoutScreen") { inclusive = true }
                             }
@@ -3238,15 +3439,84 @@ fun RestScreen(
                         Text("Skip Rest", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                     }
                 }
-
                 Spacer(Modifier.height(24.dp))
             }
         }
     }
 }
 
+@Composable
+private fun EditableSetRow(
+    setNumber: Int,
+    record: SetRecord
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(
+            text = "Set $setNumber",
+            style = MaterialTheme.typography.bodyLarge,
+            fontWeight = FontWeight.SemiBold,
+            color = Color.White.copy(alpha = 0.8f),
+            modifier = Modifier.weight(1f)
+        )
 
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            SetDetailTextField(
+                label = "Reps",
+                value = record.reps.value,
+                onValueChange = { record.reps.value = it },
+                modifier = Modifier.width(80.dp)
+            )
+            SetDetailTextField(
+                label = "Weight",
+                value = record.weight.value,
+                onValueChange = { record.weight.value = it },
+                modifier = Modifier.width(90.dp)
+            )
+        }
+    }
+}
 
+@Composable
+private fun SetDetailTextField(
+    label: String,
+    value: String,
+    onValueChange: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = { onValueChange(it.filter { char -> char.isDigit() || char == '.' }.take(5)) },
+        label = { Text(label, style = MaterialTheme.typography.labelSmall) },
+        modifier = modifier.height(58.dp),
+        shape = RoundedCornerShape(12.dp),
+        colors = OutlinedTextFieldDefaults.colors(
+            focusedBorderColor = Color.Transparent,
+            unfocusedBorderColor = Color.Transparent,
+            focusedContainerColor = Color.Black.copy(alpha = 0.2f),
+            unfocusedContainerColor = Color.Black.copy(alpha = 0.2f),
+            focusedLabelColor = Color.White.copy(alpha = 0.7f),
+            unfocusedLabelColor = Color.White.copy(alpha = 0.5f),
+            cursorColor = Color(0xFF9BE7FF)
+        ),
+        textStyle = TextStyle(
+            fontSize = 16.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface,
+            textAlign = TextAlign.Center
+        ),
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+        singleLine = true
+    )
+}
 
 
 private data class ConfettiParticle(
