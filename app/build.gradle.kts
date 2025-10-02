@@ -16,8 +16,8 @@ plugins {
     id("com.google.devtools.ksp")
     id("androidx.baselineprofile") version "1.4.1" // match latest
     id ("org.jetbrains.kotlin.plugin.serialization") version "1.9.10"
-
-
+    id("com.google.gms.google-services")
+    id("com.google.firebase.firebase-perf")
 }
 
 android {
@@ -74,13 +74,18 @@ dependencies {
     implementation(libs.androidx.animation.core)
     implementation(libs.androidx.compose.ui.ui)
     implementation(libs.androidx.compose.ui.ui.graphics3)
-    "baselineProfile"(project(":app:baselineprofile2"))
 
+    "baselineProfile"(project(":app:baselineprofile2"))
+    implementation("com.github.Kyant0:AndroidLiquidGlass:1.0.0-alpha15")
 
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
-
+    implementation(platform("com.google.firebase:firebase-bom:33.7.0")) // pick latest
+    implementation("com.google.firebase:firebase-analytics-ktx")
+    implementation("com.google.firebase:firebase-auth-ktx")
+    implementation("com.google.firebase:firebase-firestore-ktx")
+    implementation("com.google.firebase:firebase-perf")
     // Material 3
     implementation("androidx.compose.material:material-icons-extended:1.7.8")
     implementation(libs.material3)

@@ -6,11 +6,8 @@ import android.annotation.SuppressLint
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Paint
-import android.graphics.RenderEffect
-import android.graphics.Shader
 import android.os.Build
 import android.os.Bundle
-import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -22,9 +19,8 @@ import androidx.annotation.RequiresApi
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.FastOutLinearInEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.InfiniteTransition
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
@@ -40,6 +36,8 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -55,42 +53,33 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.navigationBars
-import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.FitnessCenter
 import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.MonitorWeight
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.outlined.ArrowDownward
 import androidx.compose.material.icons.outlined.ArrowUpward
 import androidx.compose.material.icons.outlined.HorizontalRule
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.AssistChip
-import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -118,18 +107,16 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.composed
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.shadow
@@ -144,7 +131,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
-import androidx.compose.ui.graphics.asComposeRenderEffect
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.nativeCanvas
@@ -159,7 +146,6 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -179,6 +165,8 @@ import androidx.navigation.navArgument
 import com.forgecompose.workouttracker.ConnectedWorkout.WorkoutMode
 import com.forgecompose.workouttracker.ConnectedWorkout.workout
 import com.forgecompose.workouttracker.PersonaPrefs.readPersona
+import com.forgecompose.workouttracker.blurAnim.intensity
+import com.forgecompose.workouttracker.blurAnim.length
 import com.forgecompose.workouttracker.ui.theme.WorkoutTrackerTheme
 import com.google.firebase.analytics.ktx.analytics
 import com.google.firebase.analytics.ktx.logEvent
@@ -215,7 +203,7 @@ private fun lastAndPrevSameName(workouts: List<Workout>): Pair<Workout?, Workout
 
 
 
-// use the MAX of this exercise for the bar scale (looks nicer than “max of whole dataset”)
+
 fun maxWeightForName(workouts: List<Workout>, exerciseName: String): Double {
     return workouts.asSequence()
         .filter { it.name == exerciseName }
@@ -223,127 +211,6 @@ fun maxWeightForName(workouts: List<Workout>, exerciseName: String): Double {
         .maxOrNull() ?: 0.0
 }
 
-@Composable
-private fun UnderlineGlow(
-    width: Dp,
-    thickness: Dp,
-    color: Color,
-    glowRadius: Dp,
-    modifier: Modifier = Modifier
-) {
-    // Solid core line
-    Box(
-        modifier = modifier
-            .size(width = width, height = thickness)
-            .clip(RoundedCornerShape(percent = 50))
-            .background(color)
-    )
-
-    // Glow bleed (blurred copy behind)
-    Box(
-        modifier = modifier
-
-            .graphicsLayer {
-                // Slightly bigger than the core line to let the glow spread
-                scaleX = 1.15f
-                scaleY = 1.8f
-                // Android 12L+/13+: RenderEffect blur gives a soft bleed
-                renderEffect = RenderEffect.createBlurEffect(
-                    glowRadius.toPx(), glowRadius.toPx(),
-                    Shader.TileMode.DECAL
-                ).asComposeRenderEffect()
-                alpha = 0.75f
-            }
-            .background(color.copy(alpha = 0.55f), RoundedCornerShape(percent = 50))
-    )
-}
-
-fun Modifier.pulsingBorder(pulse: Float, radius: Dp): Modifier = composed {
-    // Call rememberUpdatedState in the Composable scope
-    val currentPulse by rememberUpdatedState(pulse)
-
-    this.drawWithCache {
-        // Use the remembered state here
-        // val p by rememberUpdatedState(pulse) // <- INCORRECT: Remove this line
-        val r = radius.toPx()
-        onDrawWithContent {
-            drawContent()
-            val brush = Brush.linearGradient(
-                listOf(
-                    // Use currentPulse.value or just currentPulse if its type is already Float
-                    Color.White.copy(alpha = 0.2f + currentPulse),
-                    Color.White.copy(alpha = 0.1f + currentPulse * 0.3f)
-                )
-            )
-            drawRoundRect(
-                brush = brush,
-                style = Stroke(width = 1.dp.toPx()),
-                cornerRadius = CornerRadius(r, r)
-            )
-        }
-    }
-}
-@Composable
-private fun StraightUnderlineGlow(
-    width: Dp,
-    thickness: Dp,
-    color: Color,
-    glowRadius: Dp,
-    modifier: Modifier = Modifier
-) {
-    Box(modifier) {
-        // glow (behind)
-        Box(
-            Modifier
-                .align(Alignment.Center)
-                .size(width = width, height = thickness)
-                .graphicsLayer {
-                    // make the glow spread without changing the core line size
-                    scaleX = 1.25f
-                    scaleY = 2.2f
-                    renderEffect = RenderEffect.createBlurEffect(
-                        glowRadius.toPx(), glowRadius.toPx(),
-                        Shader.TileMode.DECAL
-                    ).asComposeRenderEffect()
-                    alpha = 0.7f
-                }
-                .background(color.copy(alpha = 0.6f), RoundedCornerShape(percent = 50))
-        )
-        // core straight line (on top)
-        Box(
-            Modifier
-                .align(Alignment.Center)
-                .size(width = width, height = thickness)
-                .clip(RoundedCornerShape(percent = 50))
-                .background(color)
-        )
-    }
-}
-
-
-// 1) Put this near the top of the file
-private object TaskbarMotion {
-    // Visibility + icon timings
-    const val EnterSlideMs = 900
-    const val EnterFadeMs  = 500
-    const val ExitSlideMs  = 1100
-    const val ExitFadeMs   = 900
-
-    const val IconGlowMs   = 420
-    const val IconScaleMs  = 360
-
-    // Wobble amounts (subtle = smoother)
-    const val RouteNudgePx = 10      // was 14
-    const val TapNudgePx   = 8       // was 10
-
-    // Springs: slow & smooth (no bounce, very low stiffness)
-    val PosSpring   = spring<Offset>(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessVeryLow)
-    val ScaleSpring = spring<Offset>(dampingRatio = Spring.DampingRatioNoBouncy,        stiffness = Spring.StiffnessVeryLow)
-    val SkewSpring  = spring<Offset>(dampingRatio = Spring.DampingRatioNoBouncy,        stiffness = Spring.StiffnessVeryLow)
-
-    // Easing that feels gentle
-    val Ease = CubicBezierEasing(0.2f, 0.0f, 0.0f, 1.0f) // slow-out
-}
 
 val LocalHazeState = staticCompositionLocalOf<HazeState> {
     error("LocalHazeState not provided. Wrap your screen in ProvideHaze.")
@@ -405,7 +272,7 @@ class MainActivity : ComponentActivity() {
                 val notifPermissionLauncher = rememberLauncherForActivityResult(
                     contract = ActivityResultContracts.RequestPermission()
                 ) {
-                    // no-op; we re-check below if you want to act on result
+
                 }
 
                 var showNotifDialog by remember { mutableStateOf(false) }
@@ -495,33 +362,37 @@ fun MainScreen(viewModel: WorkoutListViewModel, viewModel2: MainScreenViewModel)
             navController = navController,
             startDestination = startDestination,
             enterTransition = {
-                slideIntoContainer(
-                    AnimatedContentTransitionScope.SlideDirection.Left,
-                    animationSpec = slideSpec
-                ) + fadeIn(animationSpec = fadeInSpec) +
-                        scaleIn(initialScale = 0.98f, animationSpec = spring(dampingRatio = 0.9f, stiffness = 200f))
+                fadeIn(animationSpec = fadeInSpec) +
+                        scaleIn(
+                            initialScale = 0.92f,
+                            animationSpec = spring(dampingRatio = 0.78f, stiffness = 300f),
+                            transformOrigin = TransformOrigin.Center
+                        )
             },
             exitTransition = {
-                slideOutOfContainer(
-                    AnimatedContentTransitionScope.SlideDirection.Left,
-                    animationSpec = slideSpec
-                ) + fadeOut(animationSpec = fadeOutSpec)
+                fadeOut(animationSpec = fadeOutSpec) +
+                        scaleOut(
+                            targetScale = 1.04f,
+                            animationSpec = tween(500, easing = FastOutLinearInEasing),
+                            transformOrigin = TransformOrigin.Center
+                        )
             },
             popEnterTransition = {
-                slideIntoContainer(
-                    AnimatedContentTransitionScope.SlideDirection.Right,
-                    animationSpec = slideSpec
-                ) + fadeIn(animationSpec = fadeInSpec) +
-                        scaleIn(initialScale = 0.98f, animationSpec = spring(dampingRatio = 0.9f, stiffness = 200f))
+                fadeIn(animationSpec = fadeInSpec) +
+                        scaleIn(
+                            initialScale = 0.92f,
+                            animationSpec = spring(dampingRatio = 0.78f, stiffness = 300f),
+                            transformOrigin = TransformOrigin.Center
+                        )
             },
             popExitTransition = {
-                slideOutOfContainer(
-                    AnimatedContentTransitionScope.SlideDirection.Right,
-                    animationSpec = slideSpec
-                ) + fadeOut(animationSpec = fadeOutSpec)
+                fadeOut(animationSpec = fadeOutSpec) +
+                        scaleOut(
+                            targetScale = 0.96f,
+                            animationSpec = tween(500, easing = FastOutSlowInEasing),
+                            transformOrigin = TransformOrigin.Center
+                        )
             }
-
-
         ) {
             composable("HomeScreen") {
                 WorkoutListScreen(viewModel, navController = navController, viewModel2)
@@ -537,28 +408,97 @@ fun MainScreen(viewModel: WorkoutListViewModel, viewModel2: MainScreenViewModel)
                         experience = experience,
                         importantMuscles = importantMuscles,
                         preferredStyle = preferredStyle
-
                     )
                     navController.navigate("HomeScreen") {
                         popUpTo("onboarding") { inclusive = true }
                     }
                 }
             }
-
-            composable("WorkoutSelector") { WorkoutSelector(viewModel, navController) }
-            composable("WorkoutHistory") { WorkoutHistory(viewModel, navController) }
-            composable(Routes.DetailedWorkoutRoute, arguments = listOf(navArgument(Routes.ArgId) { type = NavType.LongType })) { WorkoutDetailScreen(navController, viewModel2, viewModel) }
+            composable(
+                route = "WorkoutSelector",
+                enterTransition = {
+                    if (initialState.destination.route == "HomeScreen") {
+                        slideInHorizontally(
+                            animationSpec = tween(300, easing = FastOutSlowInEasing),
+                            initialOffsetX = { it }
+                        )
+                    } else {
+                        fadeIn(animationSpec = fadeInSpec) +
+                                scaleIn(
+                                    initialScale = 0.92f,
+                                    animationSpec = spring(dampingRatio = 0.78f, stiffness = 300f),
+                                    transformOrigin = TransformOrigin.Center
+                                )
+                    }
+                }
+            ) {
+                WorkoutSelector(viewModel, navController)
+            }
+            composable("WorkoutHistory",
+                enterTransition = {
+                    if (initialState.destination.route == "UserProfile") {
+                        slideInHorizontally(
+                            animationSpec = tween(300, easing = FastOutSlowInEasing),
+                            initialOffsetX = { it }
+                        )
+                    } else {
+                        fadeIn(animationSpec = fadeInSpec) +
+                                scaleIn(
+                                    initialScale = 0.92f,
+                                    animationSpec = spring(dampingRatio = 0.78f, stiffness = 300f),
+                                    transformOrigin = TransformOrigin.Center
+                                )
+                    }
+                }) { WorkoutHistory(viewModel, navController) }
+            composable(
+                Routes.DetailedWorkoutRoute,
+                arguments = listOf(navArgument(Routes.ArgId) { type = NavType.LongType })
+            ) { WorkoutDetailScreen(navController, viewModel2, viewModel) }
             composable("UserProfile") { UserProfileScreen(navController, viewModel) }
             composable("PersonaSettings") { PersonaSettingsScreen(navController = navController) }
-            composable("EditUserStats") { EditUserStats(navController) }
-            composable("MuscleGroup") { ProfileMuscleStatusRoute(navController, viewModel2,viewModel) }
-            composable("RepMax"){
+            composable("EditUserStats",
+                enterTransition = {
+                    if (initialState.destination.route == "UserProfile") {
+                        slideInHorizontally(
+                            animationSpec = tween(300, easing = FastOutSlowInEasing),
+                            initialOffsetX = { it }
+                        )
+                    } else {
+                        fadeIn(animationSpec = fadeInSpec) +
+                                scaleIn(
+                                    initialScale = 0.92f,
+                                    animationSpec = spring(dampingRatio = 0.78f, stiffness = 300f),
+                                    transformOrigin = TransformOrigin.Center
+                                )
+                    }
+                }) { EditUserStats(navController) }
+            composable("MuscleGroup",
+
+
+                ) { ProfileMuscleStatusRoute(navController, viewModel2, viewModel) }
+            composable("RepMax",
+                enterTransition = {
+                    if (initialState.destination.route == "UserProfile") {
+                        slideInHorizontally(
+                            animationSpec = tween(300, easing = FastOutSlowInEasing),
+                            initialOffsetX = { it }
+                        )
+                    } else {
+                        fadeIn(animationSpec = fadeInSpec) +
+                                scaleIn(
+                                    initialScale = 0.92f,
+                                    animationSpec = spring(dampingRatio = 0.78f, stiffness = 300f),
+                                    transformOrigin = TransformOrigin.Center
+                                )
+                    }
+                }) {
                 OneRepMaxEstimator(
                     personalRecords = personalRecords,
                     navController = navController
                 )
             }
         }
+
     }
 }
 
@@ -1008,13 +948,18 @@ fun WorkoutListScreen(
     val onSurface = MaterialTheme.colorScheme.onSurface
     val surface = MaterialTheme.colorScheme.surface
     val dividerColorBase = remember(onSurface) { onSurface.copy(alpha = 0.2f) }
-
+    val blurAnim by animateDpAsState(
+        if (showIntro) intensity.value else 0.dp,
+        animationSpec = tween(length.value.toInt()),
+        label = "blur"
+    )
     WorkoutTrackerTheme {
         CompositionLocalProvider(LocalHazeState provides haze) {
             Scaffold(
                 containerColor = Color.Transparent,
                 modifier = Modifier
                     .fillMaxSize()
+                    .blur(blurAnim)
                     .hazeSource(state = haze)
             ) { paddingValues ->
                 Box(modifier = Modifier.fillMaxSize()) {
@@ -1515,7 +1460,11 @@ fun WorkoutHistory(
     var showIntro by remember { mutableStateOf(true) }
     val introProgress by animateFloatAsState(targetValue = if (showIntro) 0f else 1f, animationSpec = tween(650, easing = LinearEasing), label = "introFade")
     LaunchedEffect(Unit) { showIntro = false }
-
+    val blurAnim by animateDpAsState(
+        if (showIntro) intensity.value else 0.dp,
+        animationSpec = tween(length.value.toInt()),
+        label = "blur"
+    )
     val staticGradientBrush = remember {
         Brush.radialGradient(
             colors = listOf(Color(0xFF2A0F0F), Color(0xFF3D0000), Color(0xFF060202)),
@@ -1571,6 +1520,7 @@ fun WorkoutHistory(
         containerColor = Color.Transparent,
         modifier = Modifier
             .fillMaxSize()
+            .blur(blurAnim)
             .drawWithCache {
                 onDrawBehind {
                     drawRect(Color(0xFF060202))
@@ -1579,44 +1529,49 @@ fun WorkoutHistory(
                 }
             }
     ) { paddingValues ->
-        Box(
-            modifier = Modifier
-                .padding(paddingValues)
-                .fillMaxSize()
-        ) {
-            when (val state = uiState) {
-                is WorkoutListUiState.Loading -> {
-                    CircularProgressIndicator(modifier = Modifier.align(Alignment.Center), color = Color(0xFFFF3B30))
-                }
-                is WorkoutListUiState.Error -> {
-                    Text(
-                        text = "Error: ${state.message}",
-                        modifier = Modifier.align(Alignment.Center),
-                        color = MaterialTheme.colorScheme.error
-                    )
-                }
-                is WorkoutListUiState.Success -> {
-                    if (state.workouts.isEmpty()) {
-                        EmptyState()
-                    } else {
-                        WorkoutHistoryList(
-                            workouts = state.workouts,
-                            onWorkoutClicked = { workout ->
-                                navController.currentBackStackEntry
-                                    ?.savedStateHandle
-                                    ?.set("selectedWorkoutId", workout.id)
-                                navController.openWorkout(workout.id.toLong())
-                            },
-                            onDeleteClicked = { workout ->
-                                scope.launch(Dispatchers.IO) { viewModel.deleteWorkout(workout) }
-                            }
+        Box(modifier = Modifier.fillMaxSize()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues)
+            ) {
+                when (val state = uiState) {
+                    is WorkoutListUiState.Loading -> {
+                        CircularProgressIndicator(modifier = Modifier.align(Alignment.Center), color = Color(0xFFFF3B30))
+                    }
+                    is WorkoutListUiState.Error -> {
+                        Text(
+                            text = "Error: ${state.message}",
+                            modifier = Modifier.align(Alignment.Center),
+                            color = MaterialTheme.colorScheme.error
                         )
+                    }
+                    is WorkoutListUiState.Success -> {
+                        if (state.workouts.isEmpty()) {
+                            EmptyState()
+                        } else {
+                            WorkoutHistoryList(
+                                workouts = state.workouts,
+                                onWorkoutClicked = { workout ->
+                                    navController.currentBackStackEntry
+                                        ?.savedStateHandle
+                                        ?.set("selectedWorkoutId", workout.id)
+                                    navController.openWorkout(workout.id.toLong())
+                                },
+                                onDeleteClicked = { workout ->
+                                    scope.launch(Dispatchers.IO) { viewModel.deleteWorkout(workout) }
+                                }
+                            )
+                        }
                     }
                 }
             }
 
             FloatingTaskbar(
-                modifier = Modifier.align(Alignment.BottomCenter),
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding(),
+
                 navController = navController,
                 cornerRadius = 34.dp,
                 iconAlpha = 1f,
@@ -1642,6 +1597,7 @@ fun WorkoutHistory(
         )
     }
 }
+
 
 @Composable
 private fun WorkoutHistoryList(
@@ -2323,10 +2279,15 @@ fun ProfileMuscleStatusRoute(
                 )
             }
     }
-
+    val blurAnim by animateDpAsState(
+        if (showIntro) intensity.value else 0.dp,
+        animationSpec = tween(length.value.toInt()),
+        label = "blur"
+    )
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .blur(blurAnim)
             .drawWithCache {
                 onDrawBehind {
                     drawRect(Color(0xFF060202))

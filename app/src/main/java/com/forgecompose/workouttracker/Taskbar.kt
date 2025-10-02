@@ -49,6 +49,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AddCircle
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.FitnessCenter
 import androidx.compose.material.icons.filled.History
@@ -539,6 +540,7 @@ fun FloatingTaskbar(
                                                     indication = null,
                                                     interactionSource = sharedInteraction
                                                 ) {
+                                                    if (selected) return@clickable
                                                     navController.navigate(route) {
                                                         popUpTo(navController.graph.startDestinationId)
                                                         launchSingleTop = true
@@ -559,6 +561,7 @@ fun FloatingTaskbar(
                                                     }
                                                 }
                                                 .size(buttonSize),
+
                                             contentAlignment = Alignment.Center
                                         ) {
                                             val pillRadius = 32.dp

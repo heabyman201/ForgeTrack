@@ -1,7 +1,7 @@
 [versions]
 accompanistNavigationAnimation = "<latest_version>"
 accompanistNavigationAnimationVersion = "<latest>"
-agp = "8.11.0"
+agp = "8.12.3"
 aicore = "0.0.1-exp02"
 connectClient = "1.1.0-rc02"
 connectClientVersion = "1.1.0"
@@ -45,6 +45,7 @@ profileinstaller = "1.4.1"
 animationCore = "1.9.1"
 ui = "1.9.1"
 uiGraphics = "1.9.1"
+firebaseCommonKtx = "22.0.1"
 [libraries]
 accompanist-navigation-animation = { module = "com.google.accompanist:accompanist-navigation-animation", version.ref = "accompanistNavigationAnimation" }
 accompanist-navigation-animation-vlatest = { module = "com.google.accompanist:accompanist-navigation-animation", version.ref = "accompanistNavigationAnimationVersion" }
@@ -100,6 +101,7 @@ androidx-profileinstaller = { group = "androidx.profileinstaller", name = "profi
 androidx-animation-core = { group = "androidx.compose.animation", name = "animation-core", version.ref = "animationCore" }
 androidx-compose-ui-ui = { group = "androidx.compose.ui", name = "ui", version.ref = "ui" }
 androidx-compose-ui-ui-graphics3 = { group = "androidx.compose.ui", name = "ui-graphics", version.ref = "uiGraphics" }
+firebase-common-ktx = { group = "com.google.firebase", name = "firebase-common-ktx", version.ref = "firebaseCommonKtx" }
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
 kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }

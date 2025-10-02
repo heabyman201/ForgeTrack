@@ -3,6 +3,7 @@ package com.forgecompose.workouttracker
 import android.os.Build
 import androidx.annotation.RequiresApi
 import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -16,8 +17,10 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
@@ -32,6 +35,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
+import com.forgecompose.workouttracker.blurAnim.intensity
+import com.forgecompose.workouttracker.blurAnim.length
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -98,10 +103,15 @@ fun UserProfileScreen(
     )
 
     val dateFormatter = remember { SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()) }
-
+    val blurAnim by animateDpAsState(
+        if (showIntro) intensity.value else 0.dp,
+        animationSpec = tween(length.value.toInt()),
+        label = "blur"
+    )
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .blur(blurAnim)
             .drawWithCache {
                 onDrawBehind {
                     drawRect(Color(0xFF060202))
@@ -158,23 +168,6 @@ fun UserProfileScreen(
                         )
                     }
                 }
-
-                if (stages.after200ms) {
-                    item {
-                        ProfileSectionCard(
-                            title = "Body Stats",
-                            action = {
-                                CardActionButton("Edit Profile") { navController.navigate("EditUserStats") }
-                            }
-                        ) {
-                            ProfileStatRow("Age", userAge, Icons.Default.Person)
-                            ProfileStatRow("Height", "$userHeight cm", Icons.Default.Height)
-                            ProfileStatRow("Weight", "$userWeight kg", Icons.Default.MonitorWeight)
-                            ProfileStatRow("Experience", prefsManager.getExperience(), Icons.Default.DataExploration)
-                        }
-                    }
-                }
-
                 if (stages.after600ms && personalRecords.isNotEmpty()) {
                     item {
                         ProfileSectionCard(
@@ -194,6 +187,23 @@ fun UserProfileScreen(
                         }
                     }
                 }
+                if (stages.after200ms) {
+                    item {
+                        ProfileSectionCard(
+                            title = "Body Stats",
+                            action = {
+                                CardActionButton("Edit Profile") { navController.navigate("EditUserStats") }
+                            }
+                        ) {
+                            ProfileStatRow("Age", userAge, Icons.Default.Person)
+                            ProfileStatRow("Height", "$userHeight cm", Icons.Default.Height)
+                            ProfileStatRow("Weight", "$userWeight kg", Icons.Default.MonitorWeight)
+                            ProfileStatRow("Experience", prefsManager.getExperience(), Icons.Default.DataExploration)
+                        }
+                    }
+                }
+
+
 
                 if (stages.after200ms && recentWorkouts.isNotEmpty()) {
                     item {

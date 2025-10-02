@@ -61,7 +61,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -211,6 +214,15 @@ import com.forgecompose.workouttracker.ConnectedWorkout.interHour
 import com.forgecompose.workouttracker.ConnectedWorkout.interMinute
 import com.forgecompose.workouttracker.ConnectedWorkout.interSecond
 import com.forgecompose.workouttracker.ConnectedWorkout.restTimeRemaining
+import com.forgecompose.workouttracker.blurAnim.intensity
+import com.forgecompose.workouttracker.blurAnim.length
+import com.kyant.backdrop.backdrops.rememberLayerBackdrop
+import com.kyant.backdrop.drawBackdrop
+import com.kyant.backdrop.effects.blur
+import com.kyant.backdrop.effects.refraction
+import com.kyant.backdrop.effects.vibrancy
+import com.kyant.backdrop.highlight.Highlight
+import com.kyant.backdrop.highlight.HighlightStyle
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.isActive
 import kotlin.math.abs
@@ -666,7 +678,7 @@ fun CircularTimerProgressBar(
 }
 
 
-private fun lerp(start: Float, stop: Float, fraction: Float): Float {
+fun lerp(start: Float, stop: Float, fraction: Float): Float {
     return start + (stop - start) * fraction
 }
 
@@ -1247,7 +1259,15 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
         var lastPushMs = 0L
         var lastHwStepNs = 0L
         val pm = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
-        val wakeLock = try { pm?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "wt:step")?.apply { setReferenceCounted(false); acquire() } } catch (_: Throwable) { null }
+        val wakeLock = try {
+            if (stepDetector == null) pm?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "wt:step")?.apply { setReferenceCounted(false); acquire() } else null
+        } catch (_: Throwable) { null }
+        var idleSinceMs = SystemClock.uptimeMillis()
+        var lowMotion = false
+        var accelLatencyUs = 200_000
+        var accelRateUs = 20_000
+        var updateThrottleMs = 600L
+        var reRegisterAccel: ((Int, Int) -> Unit)? = null
         fun fastRound3(x: Double): Double {
             if (!x.isFinite()) return Double.NaN
             val t = x * 1000.0
@@ -1264,7 +1284,7 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
             val rounded = fastRound3(km)
             val now = SystemClock.uptimeMillis()
             if (!rounded.isFinite()) return
-            if (force || rounded != lastPushValue || now - lastPushMs >= 300L) {
+            if (force || rounded != lastPushValue || now - lastPushMs >= updateThrottleMs) {
                 lastPushValue = rounded
                 lastPushMs = now
                 mainHandler.post {
@@ -1302,7 +1322,7 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                     sampleCount++
                     val variance = (meanSq - mean * mean).let { if (it.isFinite() && it >= 0.0) it else 0.0 }
                     val sigma = kotlin.math.sqrt(variance).let { if (it.isFinite()) it else 0.0 }
-                    val dynamicThreshold = max(1.05, (mean + 1.15 * sigma).coerceIn(0.8, 20.0))
+                    val dynamicThreshold = max(1.05, (mean + 1.10 * sigma).coerceIn(0.8, 20.0))
                     val curr = mag
                     if (curr < prev1) lastValley = min(lastValley, curr)
                     val isPeak = (sampleCount > 25) && prev1 > prev2 && prev1 > curr && prev1 > dynamicThreshold
@@ -1316,8 +1336,8 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                             if (!suppressByHw) {
                                 mainHandler.post(onStepDetected)
                                 val amplitude = (prev1 - lastValley).coerceAtLeast(0.0)
-                                val k = 0.52
-                                val stepLen = (k * (min(amplitude, 12.0).pow(0.25))).coerceIn(0.45, 0.9)
+                                val k = 0.54
+                                val stepLen = (k * (min(amplitude, 12.0).pow(0.25))).coerceIn(0.45, 0.95)
                                 safeInc(stepLen)
                                 lastStepTimeNs = ts
                                 lastValley = curr
@@ -1333,9 +1353,38 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                     }
                     prev2 = prev1
                     prev1 = curr
+                    val now = SystemClock.uptimeMillis()
+                    val motionScore = sigma
+                    val wasLow = lowMotion
+                    lowMotion = motionScore < 0.08
+                    if (lowMotion && now - idleSinceMs > 10_000L && (accelRateUs != 33_000 || accelLatencyUs != 400_000)) {
+                        accelRateUs = 33_000
+                        accelLatencyUs = 400_000
+                        updateThrottleMs = 900L
+                        reRegisterAccel?.invoke(accelRateUs, accelLatencyUs)
+                    } else if (!lowMotion && (wasLow || accelRateUs != 20_000 || accelLatencyUs != 200_000)) {
+                        idleSinceMs = now
+                        accelRateUs = 20_000
+                        accelLatencyUs = 200_000
+                        updateThrottleMs = 600L
+                        reRegisterAccel?.invoke(accelRateUs, accelLatencyUs)
+                    }
+                    if (!lowMotion) idleSinceMs = now
                 } catch (_: Throwable) {}
             }
             override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+        }
+        reRegisterAccel = { newRateUs: Int, newLatencyUs: Int ->
+            try { sensorManager.unregisterListener(accelListener) } catch (_: Throwable) {}
+            try {
+                isAccelRegistered = sensorManager.registerListener(
+                    accelListener,
+                    accel,
+                    newRateUs,
+                    newLatencyUs,
+                    sensorHandler
+                )
+            } catch (_: Throwable) { isAccelRegistered = false }
         }
         val stepListener = object : SensorEventListener {
             override fun onSensorChanged(e: SensorEvent?) {
@@ -1360,8 +1409,8 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                 isAccelRegistered = sensorManager.registerListener(
                     accelListener,
                     accel,
-                    SensorManager.SENSOR_DELAY_GAME,
-                    0,
+                    accelRateUs,
+                    accelLatencyUs,
                     sensorHandler
                 )
             } catch (_: Throwable) { isAccelRegistered = false }
@@ -1371,7 +1420,7 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                         stepListener,
                         it,
                         SensorManager.SENSOR_DELAY_NORMAL,
-                        0,
+                        1_000_000,
                         sensorHandler
                     )
                 } ?: false
@@ -1387,7 +1436,7 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
             override fun run() {
                 try {
                     val now = SystemClock.uptimeMillis()
-                    if (now - lastEventUptimeMs > 5_000L) {
+                    if (now - lastEventUptimeMs > 12_000L) {
                         unregisterAll()
                         registerAll()
                         lastEventUptimeMs = now
@@ -1395,13 +1444,13 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                     }
                 } catch (_: Throwable) {
                 } finally {
-                    try { sensorHandler.postDelayed(this, 5_000L) } catch (_: Throwable) {}
+                    try { sensorHandler.postDelayed(this, 12_000L) } catch (_: Throwable) {}
                 }
             }
         }
         try {
             registerAll()
-            try { sensorHandler.postDelayed(watchdog, 5_000L) } catch (_: Throwable) {}
+            try { sensorHandler.postDelayed(watchdog, 12_000L) } catch (_: Throwable) {}
             if (!isAccelRegistered && !isStepRegistered) {
                 try { sensorThread.quitSafely() } catch (_: Throwable) {}
                 try { wakeLock?.release() } catch (_: Throwable) {}
@@ -1416,6 +1465,9 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
             try { wakeLock?.release() } catch (_: Throwable) {}
         }
     }
+
+
+
 
     fun SetsGoalSafetyCheck() {
         when (GoalType) {
@@ -1630,7 +1682,11 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
         label = "introFade"
     )
     LaunchedEffect(Unit) { showIntro = false }
-
+    val blurAnim by animateDpAsState(
+        if (showIntro) intensity.value else 0.dp,
+        animationSpec = tween(length.value.toInt()),
+        label = "blur"
+    )
     WorkoutTrackerTheme {
         Scaffold(
             topBar = {
@@ -1651,6 +1707,7 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
             },
             containerColor = Color.Transparent,
             modifier = Modifier.fillMaxSize()
+                .blur(blurAnim)
         ) { paddingValues ->
             Box(
                 modifier = Modifier
@@ -1876,21 +1933,41 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                             }
                         }
 
-                        Button(
-                            onClick = {
-                                timeToMillis()
-                                haptics.performHapticFeedback(HapticFeedbackType.ToggleOn)
-                                CurrentReps.intValue += 10
-                                CurrentSets.intValue += 1
-                                EnterRestMode()
-                            },
-                            interactionSource = interactionSource,
+                        val backdrop = rememberLayerBackdrop()
+                        val progressAnimation = remember { Animatable(0f) }
+                        val uiSensor = rememberUISensor()
+                        LaunchedEffect(isPressed) {
+                            val spec = spring<Float>(
+                                dampingRatio = Spring.DampingRatioLowBouncy
+                            )
+                            progressAnimation.animateTo(if (isPressed) 1f else 0f, spec)
+                        }
+
+                        Box(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(70.dp)
                                 .graphicsLayer {
-                                    scaleX = scale; scaleY = scale
+                                    val liquidScale = lerp(1f, 1.1f, progressAnimation.value)
+                                    scaleX = scale * liquidScale
+                                    scaleY = scale * liquidScale
                                 }
+                                .drawBackdrop(
+                                    backdrop = backdrop,
+                                    shape = { CircleShape },
+                                    effects = {
+                                        vibrancy()
+                                        blur(4f.dp.toPx())
+                                        refraction(
+                                            height = 24f.dp.toPx(),
+                                            amount = 48f.dp.toPx(),
+                                            hasDepthEffect = true
+                                        )
+                                    },
+
+                                    highlight = { Highlight(style = HighlightStyle.Default(angle = uiSensor.gravityAngle)) }
+
+                                )
                                 .clip(CircleShape)
                                 .border(
                                     2.dp,
@@ -1903,13 +1980,29 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                                         )
                                     ),
                                     CircleShape
-                                ),
-                            shape = CircleShape,
-                            colors = ButtonDefaults.buttonColors(containerColor = animatedBg, contentColor = Color.White),
-                            elevation = null
+                                )
+                                .background(animatedBg, CircleShape)
+                                .clickable(
+                                    interactionSource = interactionSource,
+                                    indication = null
+                                ) {
+                                    timeToMillis()
+                                    haptics.performHapticFeedback(HapticFeedbackType.ToggleOn)
+                                    CurrentReps.intValue += 10
+                                    CurrentSets.intValue += 1
+                                    EnterRestMode()
+                                },
+                            contentAlignment = Alignment.Center
                         ) {
-                            Text("Finish Set", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                            Text(
+                                "Finish Set",
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
                         }
+
+
                     }
 
                     Spacer(modifier = Modifier.height(24.dp))
@@ -2186,7 +2279,7 @@ fun GoalScreen(navController: NavController, viewModel: WorkoutListViewModel) {
     GoalType = selectedGoalType
 
     var animationClock by remember { mutableStateOf(0f) }
-    PreventBackGesture()
+
     LaunchedEffect(Unit) {
         var lastFrameTime = 0L
         while (true) {
@@ -2257,7 +2350,11 @@ fun GoalScreen(navController: NavController, viewModel: WorkoutListViewModel) {
         label = "introFade"
     )
     LaunchedEffect(Unit) { showIntro = false }
-
+    val blurAnim by animateDpAsState(
+        if (showIntro) intensity.value else 0.dp,
+        animationSpec = tween(length.value.toInt()),
+        label = "blur"
+    )
     WorkoutTrackerTheme {
         val aggressiveGradientBrush = remember(gradientOffset, glowIntensity, intensePulse) {
             Brush.radialGradient(
@@ -2292,6 +2389,7 @@ fun GoalScreen(navController: NavController, viewModel: WorkoutListViewModel) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                .blur(blurAnim)
                 .drawWithCache {
                     onDrawBehind {
                         drawRect(brush = aggressiveGradientBrush)
@@ -2622,6 +2720,7 @@ fun DraggableTimeComponent(
                         change.consume()
                         val newOffset = offsetY.value + dragAmount
                         scope.launch {  offsetY.snapTo(newOffset)}
+                        haptic.performHapticFeedback(HapticFeedbackType.GestureThresholdActivate)
                     },
                     onDragEnd = {
                         val steps = (offsetY.value / itemHeightPx).roundToInt()
@@ -2631,7 +2730,7 @@ fun DraggableTimeComponent(
                             val newValue = getWrappedValue(value, -steps, range)
                             if (newValue != value) onValueChange(newValue)
                             offsetY.snapTo(0f)
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            haptic.performHapticFeedback(HapticFeedbackType.GestureEnd)
                         }
                     },
                     onDragCancel = {
@@ -3179,11 +3278,18 @@ fun RestScreen(
         CurrentReps.intValue = totalReps
     }
 
-
+    val blurAnim by animateDpAsState(
+        if (showIntro) intensity.value else 0.dp,
+        animationSpec = tween(length.value.toInt()),
+        label = "blur"
+    )
     WorkoutTrackerTheme {
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                .blur(
+                    blurAnim
+                )
                 .drawWithContent {
                     val bg = Brush.radialGradient(
                         colors = listOf(
@@ -3398,25 +3504,42 @@ fun RestScreen(
                 val scale by animateFloatAsState(if (pressed) 0.98f else 1f, label = "btnScale")
                 val elevation by animateDpAsState(if (pressed) 2.dp else 8.dp, label = "btnElev")
 
+                val backdrop = rememberLayerBackdrop()
+                val uiSensor = rememberUISensor()
+                val progressAnimation = remember { Animatable(0f) }
+                val isPressed by interactionSource.collectIsPressedAsState()
+                LaunchedEffect(isPressed) {
+                    val spec = spring<Float>(dampingRatio = Spring.DampingRatioLowBouncy)
+                    progressAnimation.animateTo(if (isPressed) 1f else 0f, spec)
+                }
+
+                val buttonShape = RoundedCornerShape(32.dp)
+
                 Box(
                     modifier = Modifier
                         .padding(horizontal = 32.dp, vertical = 24.dp)
-                        .clip(RoundedCornerShape(32.dp))
-                        .graphicsLayer { scaleX = scale; scaleY = scale },
+                        .clip(buttonShape)
+                        .graphicsLayer {
+                            val liquidScale = lerp(1f, 1.1f, progressAnimation.value)
+                            scaleX = scale * liquidScale
+                            scaleY = scale * liquidScale
+                        }
+                        .drawBackdrop(
+                            backdrop = backdrop,
+                            shape = { buttonShape },
+                            effects = {
+                                vibrancy()
+                                blur(4f.dp.toPx())
+                                refraction(height = 24f.dp.toPx(), amount = 48f.dp.toPx(), hasDepthEffect = true)
+                            },
+
+                            highlight = { Highlight(style = HighlightStyle.Default(angle = uiSensor.gravityAngle)) }
+                        ),
+
+
+
                     contentAlignment = Alignment.Center
                 ) {
-                    val buttonShape = RoundedCornerShape(32.dp)
-
-                    Surface(
-                        modifier = Modifier
-                            .matchParentSize()
-                            .blur(radius = 32.dp),
-                        shape = buttonShape,
-                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.1f),
-                        tonalElevation = elevation,
-                        shadowElevation = elevation
-                    ) {}
-
                     Button(
                         onClick = {
                             haptics.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -3430,7 +3553,7 @@ fun RestScreen(
                             .height(64.dp),
                         shape = buttonShape,
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = Color.Transparent,
+                            containerColor = Color.Black.copy(alpha = 0.15f),
                             contentColor = MaterialTheme.colorScheme.onSurface
                         ),
                         elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp, pressedElevation = 0.dp),
@@ -3439,6 +3562,7 @@ fun RestScreen(
                         Text("Skip Rest", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                     }
                 }
+
                 Spacer(Modifier.height(24.dp))
             }
         }

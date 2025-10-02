@@ -306,8 +306,8 @@ fun PersonaSettingsScreen(
                                 }
                                 Divider(color = Color.White.copy(alpha = 0.06f))
                                 PersonaOptionRowThemed(
-                                    title = "Warm Companion",
-                                    subtitle = "Playful, gentle, PG-13",
+                                    title = "102",
+                                    subtitle = "",
                                     value = "companion",
                                     selected = localConfig.mode,
                                     enabled = listClickable
@@ -317,18 +317,18 @@ fun PersonaSettingsScreen(
                                     PersonaPrefs.writeConfig(updated)
                                 }
                                 Divider(color = Color.White.copy(alpha = 0.06f))
-//                                PersonaOptionRowThemed(
-//                                    title = "Spicy Companion",
-//                                    subtitle = "Flirty, cheeky",
-//                                    value = "companion_plus",
-//                                    selected = localConfig.mode,
-//                                    enabled = listClickable
-//                                ) { select ->
-//                                    val updated = localConfig.copy(mode = select.sanitizePersona())
-//                                    localConfig = updated
-//                                    PersonaPrefs.writeConfig(updated)
-//                                }
-//                                Divider(color = Color.White.copy(alpha = 0.06f))
+                                PersonaOptionRowThemed(
+                                    title = "103",
+                                    subtitle = "103",
+                                    value = "companion_plus",
+                                    selected = localConfig.mode,
+                                    enabled = listClickable
+                                ) { select ->
+                                    val updated = localConfig.copy(mode = select.sanitizePersona())
+                                    localConfig = updated
+                                    PersonaPrefs.writeConfig(updated)
+                                }
+                                Divider(color = Color.White.copy(alpha = 0.06f))
                                 PersonaOptionRowThemed(
                                     title = "Hype Master",
                                     subtitle = "High energy, short punchy lines",

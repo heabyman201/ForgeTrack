@@ -19,7 +19,7 @@ class MyApplication : Application() {
     SecureGeminiStore.init(this)
         PersonaPrefs.init(this)
         PDE.init(applicationContext)
-
+        blurAnim.init(applicationContext)
         AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_YES)
         PersonaPrefs.bootstrapInto(dynamicModel.personaConfig)
 

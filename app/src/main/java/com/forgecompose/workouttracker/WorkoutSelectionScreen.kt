@@ -3,6 +3,8 @@ package com.forgecompose.workouttracker
 import android.content.Context
 import android.content.Intent
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -50,6 +52,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -59,6 +62,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -76,6 +81,8 @@ import androidx.datastore.preferences.preferencesDataStore
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
 import com.forgecompose.workouttracker.ConnectedWorkout.workout
+import com.forgecompose.workouttracker.blurAnim.intensity
+import com.forgecompose.workouttracker.blurAnim.length
 import com.forgecompose.workouttracker.ui.theme.WorkoutTrackerTheme
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeEffect
@@ -134,10 +141,10 @@ public class PresetUsageTracker(private val context: Context) {
         entries.map { "${it.key}::${it.value}" }.toSet()
 }
 
-// ---------- Tiny UI bits ----------
+
 @Composable
 private fun MostUsedPill(count: Int, modifier: Modifier = Modifier) {
-    // Show only if meaningful
+
     if (count < 3) return
 
     val pillShape = remember { RoundedCornerShape(12.dp) }
@@ -182,7 +189,6 @@ fun WorkoutSelector(
     viewModel: WorkoutListViewModel,
     navController: NavController
 ) {
-    // Theming from WorkoutDetailScreen
     val staticGradientBrush = remember {
         Brush.radialGradient(
             colors = listOf(
@@ -207,49 +213,106 @@ fun WorkoutSelector(
         )
     }
     val haze = remember { HazeState() }
-
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val haptics = LocalHapticFeedback.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val stages = rememberColdStartStages()
-
     val usageTracker = remember { PresetUsageTracker(context) }
     val usageMap by usageTracker.usageFlow.collectAsState(initial = emptyMap())
+
+    val hour = remember { java.time.LocalTime.now().hour }
+    val introColors = remember(hour) {
+        when (hour) {
+            in 5..10 -> listOf(
+                Color(0xFF2B1A00),
+                Color(0xFF3C2405),
+                Color(0xFF5A360A),
+                Color(0xFF7A4A12)
+            )
+
+            in 11..16 -> listOf(
+                Color(0xFF332300),
+                Color(0xFF4A3408),
+                Color(0xFF6B4B0F),
+                Color(0xFF8C6217)
+            )
+
+            in 17..20 -> listOf(
+                Color(0xFF1A0614),
+                Color(0xFF2A0A20),
+                Color(0xFF3D0F2D),
+                Color(0xFF52153A)
+            )
+
+            else -> listOf(
+                Color(0xFF02040A),
+                Color(0xFF0A1324),
+                Color(0xFF15243D),
+                Color(0xFF1E3352)
+            )
+        }
+    }
+    val introBrush = remember(introColors) { Brush.linearGradient(colors = introColors) }
+    var showIntro by remember { mutableStateOf(true) }
+    val introProgress by animateFloatAsState(
+        targetValue = if (showIntro) 0f else 1f,
+        animationSpec = tween(650, easing = LinearEasing),
+        label = "introFade"
+    )
+    LaunchedEffect(Unit) { showIntro = false }
+    val blurAnim by animateDpAsState(
+        if (showIntro) intensity.value else 0.dp,
+        animationSpec = tween(length.value.toInt()),
+        label = "blur"
+    )
 
     WorkoutTrackerTheme {
         val intent = remember { Intent(context, WorkoutActivity::class.java) }
         var searchText by remember { mutableStateOf("") }
         var selectedCategory by remember { mutableStateOf("All") }
-
-        val workoutCategories = listOf("All", "Bodyweight", "Dumbbell/Kettlebell", "Barbell", "Cardio", "Machines/Cables")
+        val workoutCategories = listOf(
+            "All",
+            "Bodyweight",
+            "Dumbbell/Kettlebell",
+            "Barbell",
+            "Cardio",
+            "Machines/Cables"
+        )
 
         val filteredWorkoutsBase by remember(searchText, selectedCategory) {
             derivedStateOf {
-                val base = if (selectedCategory == "All") workoutPresets
-                else workoutPresets.filter { it.category == selectedCategory }
-                if (searchText.isBlank()) base
-                else base.filter { it.name.contains(searchText, ignoreCase = true) }
+                val base =
+                    if (selectedCategory == "All") workoutPresets else workoutPresets.filter { it.category == selectedCategory }
+                if (searchText.isBlank()) base else base.filter {
+                    it.name.contains(
+                        searchText,
+                        ignoreCase = true
+                    )
+                }
             }
         }
-
         val filteredWorkouts by remember(filteredWorkoutsBase, usageMap) {
             derivedStateOf {
-                filteredWorkoutsBase.sortedWith(
-                    compareByDescending<WorkoutPreset> { usageMap[it.name] ?: 0 }
-                        .thenBy { it.name.lowercase() }
-                )
+                filteredWorkoutsBase.sortedWith(compareByDescending<WorkoutPreset> {
+                    usageMap[it.name] ?: 0
+                }.thenBy { it.name.lowercase() })
             }
         }
-
         val cardShape16 = remember { RoundedCornerShape(16.dp) }
 
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color(0xFF060202))
-                .background(staticGradientBrush)
-                .background(secondaryStaticBrush)
+                .blur(blurAnim)
+                .drawWithCache {
+                    onDrawBehind {
+                        drawRect(Color(0xFF060202))
+                        drawRect(staticGradientBrush)
+                        drawRect(secondaryStaticBrush)
+                        if (introProgress < 1f) drawRect(introBrush, alpha = 1f - introProgress)
+                    }
+                }
         ) {
             Scaffold(
                 topBar = {
@@ -287,9 +350,18 @@ fun WorkoutSelector(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 16.dp, vertical = 8.dp),
-                        placeholder = { Text("Search workouts...", color = Color.White.copy(alpha = 0.6f)) },
+                        placeholder = {
+                            Text(
+                                "Search workouts...",
+                                color = Color.White.copy(alpha = 0.6f)
+                            )
+                        },
                         leadingIcon = {
-                            Icon(imageVector = Icons.Default.Search, contentDescription = "Search", tint = Color.White.copy(alpha = 0.7f))
+                            Icon(
+                                imageVector = Icons.Default.Search,
+                                contentDescription = "Search",
+                                tint = Color.White.copy(alpha = 0.7f)
+                            )
                         },
                         shape = RoundedCornerShape(24.dp),
                         colors = OutlinedTextFieldDefaults.colors(
@@ -305,18 +377,26 @@ fun WorkoutSelector(
                         keyboardOptions = KeyboardOptions.Default.copy(imeAction = ImeAction.Search),
                         keyboardActions = KeyboardActions(
                             onSearch = {
-                                val exact = workoutPresets.firstOrNull { it.name.equals(searchText, ignoreCase = true) }
+                                val exact = workoutPresets.firstOrNull {
+                                    it.name.equals(
+                                        searchText,
+                                        ignoreCase = true
+                                    )
+                                }
                                 if (exact != null) scope.launch { usageTracker.increment(exact.name) }
                             }
                         )
                     )
 
-                    if (stages.after200ms) {
+                    if (stages.afterFirstFrame) {
                         LazyRow(
                             contentPadding = PaddingValues(horizontal = 16.dp),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            items(workoutCategories, key = { it }, contentType = { "cat" }) { category ->
+                            items(
+                                workoutCategories,
+                                key = { it },
+                                contentType = { "cat" }) { category ->
                                 val isSelected = category == selectedCategory
                                 FilterChip(
                                     selected = isSelected,
@@ -331,7 +411,13 @@ fun WorkoutSelector(
                                         )
                                     },
                                     leadingIcon = if (isSelected) {
-                                        { Icon(Icons.Filled.Done, contentDescription = "Selected", tint = Color.Black) }
+                                        {
+                                            Icon(
+                                                Icons.Filled.Done,
+                                                contentDescription = "Selected",
+                                                tint = Color.Black
+                                            )
+                                        }
                                     } else null,
                                     shape = RoundedCornerShape(16.dp),
                                     colors = FilterChipDefaults.filterChipColors(
@@ -354,30 +440,47 @@ fun WorkoutSelector(
 
                     Spacer(modifier = Modifier.height(8.dp))
 
-                    if (stages.after600ms) {
-
+                    if (stages.after200ms) {
                         LazyColumn(
                             modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 90.dp),
+                            contentPadding = PaddingValues(
+                                start = 16.dp,
+                                end = 16.dp,
+                                top = 8.dp,
+                                bottom = 90.dp
+                            ),
                             verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            items(filteredWorkouts, key = { it.name }, contentType = { "preset" }) { preset ->
+                            items(
+                                filteredWorkouts,
+                                key = { it.name },
+                                contentType = { "preset" }) { preset ->
                                 val interactionSource = remember { MutableInteractionSource() }
                                 val isPressed by interactionSource.collectIsPressedAsState()
-                                val scale by animateFloatAsState(targetValue = if (isPressed) 0.98f else 1f, animationSpec = tween(100), label = "cardScale")
+                                val scale by animateFloatAsState(
+                                    targetValue = if (isPressed) 0.98f else 1f,
+                                    animationSpec = tween(100),
+                                    label = "cardScale"
+                                )
                                 val count = usageMap[preset.name] ?: 0
 
                                 Card(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .graphicsLayer { scaleX = scale; scaleY = scale }
-                                        .hazeEffect(state = haze, style = HazeMaterials.ultraThick())
+                                        .hazeEffect(
+                                            state = haze,
+                                            style = HazeMaterials.ultraThick()
+                                        )
                                         .border(
                                             width = 1.dp,
                                             color = Color.White.copy(alpha = 0.1f),
                                             shape = cardShape16
                                         )
-                                        .clickable(interactionSource = interactionSource, indication = null) {
+                                        .clickable(
+                                            interactionSource = interactionSource,
+                                            indication = null
+                                        ) {
                                             if (ConnectedWorkout.currentMode.value == ConnectedWorkout.WorkoutMode.INACTIVE) {
                                                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                                                 scope.launch { usageTracker.increment(preset.name) }
@@ -386,8 +489,10 @@ fun WorkoutSelector(
                                             }
                                         },
                                     shape = cardShape16,
-                                    colors = CardDefaults.cardColors(containerColor = if (ConnectedWorkout.currentMode.value == ConnectedWorkout.WorkoutMode.INACTIVE)
-                                        Color(0xFF3D0000).copy(alpha = 0.3f) else Color.DarkGray)
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = if (ConnectedWorkout.currentMode.value == ConnectedWorkout.WorkoutMode.INACTIVE)
+                                            Color(0xFF3D0000).copy(alpha = 0.3f) else Color.DarkGray
+                                    )
                                 ) {
                                     Row(
                                         modifier = Modifier
@@ -403,9 +508,16 @@ fun WorkoutSelector(
                                                 color = Color.White,
                                                 fontWeight = FontWeight.Medium
                                             )
-                                            MostUsedPill(count = count, modifier = Modifier.padding(top = 6.dp))
+                                            MostUsedPill(
+                                                count = count,
+                                                modifier = Modifier.padding(top = 6.dp)
+                                            )
                                         }
-                                        Icon(imageVector = Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, tint = Color.White.copy(alpha = 0.7f))
+                                        Icon(
+                                            imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                                            contentDescription = null,
+                                            tint = Color.White.copy(alpha = 0.7f)
+                                        )
                                     }
                                 }
                             }
@@ -425,4 +537,6 @@ fun WorkoutSelector(
             )
         }
     }
+
+
 }
