@@ -39,7 +39,11 @@ data class Workout(
     var startTime: Long,
     var endTime: Long?,
     var status: WorkoutStatus,
-    var weight: Double?
+    var weight: Double?,
+    var sets: Int?,
+    var reps: Int?,
+    var distance: Double?,
+    var notes: String?
 )
 enum class WorkoutStatus {
     PLANNED,
@@ -101,7 +105,7 @@ class MuscleGroupConverter {
         ExerciseSet::class
 
     ],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 @TypeConverters(
@@ -130,7 +134,7 @@ abstract class AppDatabase : RoomDatabase() {
                 val instance = Room.databaseBuilder(
                     context.applicationContext,
                     AppDatabase::class.java,
-                    "workout_tracker" // Name of your database file
+                    "workout_tracker"
                 )
                     // If you change the version or add/remove TypeConverters that affect
                     // how existing data is stored/read, you might need a migration.
@@ -199,7 +203,7 @@ interface ExerciseDao {
     @Query("SELECT * FROM exercises ORDER BY name ASC")
     fun getAllExercises(): Flow<List<Exercise>>
 
-    // Example: Search exercises by name (case-insensitive)
+
     @Query("SELECT * FROM exercises WHERE name LIKE '%' || :searchQuery || '%' ORDER BY name ASC")
     fun searchExercisesByName(searchQuery: String): Flow<List<Exercise>>
 
@@ -384,7 +388,7 @@ class WorkoutListViewModel(
 
     // Example action: Add a new dummy workout
     fun addSampleWorkout(name: String, status: WorkoutStatus, durationMillis: Long? = null
-    ,weight: Double?) {
+    ,weight: Double?,sets: Int?,reps: Int?,distance: Double?,notes: String?) {
 
         viewModelScope.launch(Dispatchers.IO) {
             try {
@@ -396,7 +400,11 @@ class WorkoutListViewModel(
                     endTime = null, // Not ended yet
                     durationMillis = durationMillis,
                     status = WorkoutStatus.COMPLETED,
-weight = weight
+weight = weight,
+                    sets = sets,
+                    reps = reps,
+                    distance = distance,
+                    notes = notes
                     )
                 workoutRepository.insertWorkout(newWorkout)
 

@@ -47,7 +47,7 @@ object PerfTuning {
 }
 
 object blurAnim {
-    var length = mutableLongStateOf(500L)
+    var length = mutableLongStateOf(700L)
     var intensity = mutableStateOf(14.dp)
 
     @Volatile private var initialized = false
@@ -60,10 +60,10 @@ object blurAnim {
 
 
         length.longValue = when {
-            snap.mediaPerfClass >= 13 -> 450L
-            snap.mediaPerfClass >= 12 -> 500L
+            snap.mediaPerfClass >= 13 -> 750L
+            snap.mediaPerfClass >= 12 -> 700L
             snap.isLowRam || snap.memClassMb < 256 || snap.cpuCores <= 4 -> 650L
-            else -> 560L
+            else -> 700L
         }
 
         initialized = true

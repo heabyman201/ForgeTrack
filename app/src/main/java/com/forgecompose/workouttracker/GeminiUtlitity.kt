@@ -105,7 +105,7 @@ class GeminiUtilityViewModel(application: Application) : AndroidViewModel(applic
             return
         }
 
-        if (isLoading) return
+        if (dynamicModel.personaConfig.value.enabled) return
         val now = System.currentTimeMillis()
         if (now - lastCallMs < MIN_INTERVAL_MS) return
         lastCallMs = now
@@ -348,7 +348,7 @@ object dynamicModel {
     }
 
     val personaConfig: MutableState<PersonaConfig> =
-        mutableStateOf(PersonaConfig("coach", true))
+        mutableStateOf(PersonaConfig("coach", false))
 
     val personaMode: MutableState<String> = object : MutableState<String> {
         override var value: String

@@ -2,31 +2,47 @@ package com.forgecompose.workouttracker
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.LinearOutSlowInEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.FitnessCenter
 import androidx.compose.material.icons.outlined.KeyboardArrowDown
 import androidx.compose.material.icons.outlined.Warning
-import androidx.compose.material3.FilterChip
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -39,7 +55,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -57,6 +72,8 @@ import kotlin.math.exp
 import kotlin.math.floor
 import kotlin.math.ln
 import kotlin.math.max
+import kotlin.math.pow
+import kotlin.math.round
 import kotlin.math.sqrt
 
 data class UserProfile(
@@ -75,7 +92,6 @@ fun buildUserProfile(prefs: UserPreferencesManager): UserProfile {
         s?.flatMap { it.split(",", ";") }?.mapNotNull { t ->
             MuscleGroups.entries.firstOrNull { it.name.equals(t.trim(), true) }
         } ?: emptyList()
-
     return UserProfile(
         name = prefs.getName(),
         weightKg = toIntSafe(prefs.getWeight(), 70),
@@ -88,8 +104,7 @@ fun buildUserProfile(prefs: UserPreferencesManager): UserProfile {
 }
 
 enum class MuscleGroups {
-    Pecs, Delts, Biceps, Triceps, Lats, Traps, Abs, Forearms,
-    Quads, Hamstrings, Glutes, Calves, LowerBack, UpperBack
+    Pecs, Delts, Biceps, Triceps, Lats, Traps, Abs, Forearms, Quads, Hamstrings, Glutes, Calves, LowerBack, UpperBack
 }
 
 enum class LoadBand { Lacking, Balanced, Overtrained }
@@ -118,8 +133,8 @@ private fun friendlyAgo(now: Instant, then: Instant): String {
     return when {
         days <= 0 -> "today"
         days == 1L -> "1d ago"
-        days < 7   -> "${days}d ago"
-        else       -> "${days / 7}w ago"
+        days < 7 -> "${days}d ago"
+        else -> "${days / 7}w ago"
     }
 }
 
@@ -134,43 +149,80 @@ private fun bmi(weightKg: Int, heightCm: Int): Float {
     return if (h <= 0f) 0f else weightKg / (h * h)
 }
 
-private fun computeTargets(profile: UserProfile, muscle: MuscleGroups): Targets {
-    var tgt = 12f
-    tgt *= when {
-        "beginner" in profile.experience -> 0.90f
-        "advanced" in profile.experience -> 1.15f
+private fun expMultFrom(experience: String): Float {
+    val e = experience.trim().lowercase(Locale.US)
+    val num = e.toFloatOrNull()
+    return when {
+        num != null && num >= 8f -> 1.18f
+        num != null && num >= 5f -> 1.12f
+        num != null && num >= 3f -> 1.06f
+        num != null && num >= 1f -> 1.02f
+        "elite" in e -> 1.18f
+        "advanced" in e -> 1.12f
+        "intermediate" in e -> 1.06f
+        "novice" in e -> 1.02f
+        "beginner" in e -> 0.96f
         else -> 1.00f
     }
+}
+
+private fun computeTargets(profile: UserProfile, muscle: MuscleGroups): Targets {
+    var tgt = 13.5f
+    tgt *= expMultFrom(profile.experience)
     tgt *= when (profile.preferredStyle) {
-        "Weights"    -> 0.90f
-        "Both" -> 1.10f
-        "Cardio"   -> 0.85f
-        else          -> 1.00f
+        "weights" -> 0.93f
+        "both" -> 1.07f
+        "cardio" -> 0.88f
+        else -> 1.00f
     }
     val age = profile.age
     val ageVolMult = when {
-        age < 20 -> 1.00f
+        age < 18 -> 1.05f
+        age < 30 -> 1.03f
         age < 40 -> 1.00f
-        age < 50 -> 0.95f
-        age < 60 -> 0.90f
-        else     -> 0.85f
+        age < 50 -> 0.97f
+        age < 60 -> 0.94f
+        age < 70 -> 0.90f
+        else -> 0.85f
     }
     tgt *= ageVolMult
-    val b = bmi(profile.weightKg, profile.heightCm)
+    val hCm = profile.heightCm
+    val wKg = profile.weightKg
+    val b = bmi(wKg, hCm)
     val bmiVolMult = when {
-        b < 18.5f -> 0.95f
-        b < 25f   -> 1.00f
-        b < 30f   -> 0.98f
-        else      -> 0.92f
+        b < 18.5f -> 0.98f
+        b < 22f -> 1.03f
+        b < 27f -> 1.00f
+        b < 32f -> 0.97f
+        else -> 0.93f
     }
     tgt *= bmiVolMult
+    val heightBias = when {
+        hCm >= 195 -> 1.08f
+        hCm >= 185 -> 1.04f
+        hCm <= 165 -> 0.98f
+        else -> 1.00f
+    }
+    val weightBias = when {
+        wKg >= 100 -> 1.04f
+        wKg >= 85 -> 1.02f
+        wKg <= 55 -> 0.97f
+        else -> 1.00f
+    }
+    val regional = when (muscle) {
+        MuscleGroups.Quads, MuscleGroups.Hamstrings, MuscleGroups.Glutes, MuscleGroups.LowerBack -> heightBias * weightBias
+        MuscleGroups.Lats, MuscleGroups.UpperBack, MuscleGroups.Traps -> 1.02f
+        else -> heightBias
+    }
+    tgt *= regional
     val isImportant = muscle in profile.importantMuscles
-    if (isImportant) tgt *= 1.10f
-    tgt = tgt.coerceIn(6f, 18f)
-    val lackingFrac = if (isImportant) 0.60f else 0.50f
-    val overFrac    = if (isImportant) 1.35f else 1.30f
+    if (isImportant) tgt *= 1.12f
+    tgt *= 1.05f
+    tgt = tgt.coerceIn(8f, 22f)
+    val lackingFrac = if (isImportant) 0.54f else 0.50f
+    val overFrac = if (isImportant) 1.46f else 1.40f
     val lacking = floor(tgt * lackingFrac).toInt().coerceAtLeast(0)
-    val over    = ceil(tgt * overFrac).toInt()
+    val over = ceil(tgt * overFrac).toInt()
     return Targets(target = tgt, lackingCutoff = lacking, overtrainedCutoff = over)
 }
 
@@ -214,54 +266,66 @@ private val nameToMusclesWeighted: List<Pair<Regex, List<Pair<MuscleGroups, Floa
     "leg raise|hanging leg raise|reverse crunch" to listOf(MuscleGroups.Abs to 0.45f),
     "ab rollout|ab wheel" to listOf(MuscleGroups.Abs to 0.5f, MuscleGroups.LowerBack to 0.3f),
     "russian twist|woodchop|pallof press" to listOf(MuscleGroups.Abs to 0.4f),
-    "back extension|hyperextension" to listOf(MuscleGroups.LowerBack to 0.6f, MuscleGroups.Glutes to 0.4f, MuscleGroups.Hamstrings to 0.4f),
+    "back extension|hyperextension" to listOf(MuscleGroups.LowerBack to 0.6f, MuscleGroups.Glutes to 0.4f, MuscleGroups.Hamstrings to 0.4f)
 ).map { (pat, gs) -> pat.toRegex(RegexOption.IGNORE_CASE) to gs }
 
 private val nameToMuscles: List<Pair<Regex, List<MuscleGroups>>> =
     nameToMusclesWeighted.map { (rx, pairs) -> rx to pairs.map { it.first } }
 
-fun computeWeeklyLoads(
-    now: Instant,
-    recent: List<WorkoutSummary>
-): List<MuscleWeeklyLoad> {
-    val start = now.minus(Duration.ofDays(7))
-    val counters = mutableMapOf<MuscleGroups, Int>()
+private data class ParsedVolume(val sets: Int?, val reps: Int?, val weightKg: Float?)
 
-    fun bump(group: MuscleGroups, sets: Int) {
-        counters[group] = (counters[group] ?: 0) + sets
+private val tripletRx = Regex("""(?:(\d+)\s*[xX]\s*(\d+))(?:\s*@\s*([0-9]*\.?[0-9]+|bw|bodyweight))?""")
+private val kvRx = Regex("""(?:\bsets\s*=\s*(\d+))?|(?:\breps\s*=\s*(\d+))?|(?:\bweight\s*=\s*([0-9]*\.?[0-9]+|bw|bodyweight))?""", RegexOption.IGNORE_CASE)
+
+private fun parseVolumeFromText(s: String): ParsedVolume {
+    val lower = s.lowercase()
+    tripletRx.find(lower)?.let { m ->
+        val sets = m.groupValues[1].toIntOrNull()
+        val reps = m.groupValues[2].toIntOrNull()
+        val wtStr = m.groupValues.getOrNull(3)?.trim().orEmpty()
+        val weight = when {
+            wtStr.isEmpty() -> null
+            wtStr == "bw" || wtStr == "bodyweight" -> null
+            else -> wtStr.toFloatOrNull()
+        }
+        return ParsedVolume(sets, reps, weight)
     }
-
-    for (w in recent) {
-        if (w.date.isBefore(start)) continue
-        val tokens = if (w.exercises.isNotEmpty()) w.exercises else listOf(w.name)
-        val hit = buildSet<MuscleGroups> {
-            tokens.forEach { token ->
-                val lower = token.lowercase()
-                nameToMuscles.forEach { (rx, groups) ->
-                    if (rx.containsMatchIn(lower)) addAll(groups)
-                }
+    var sets: Int? = null
+    var reps: Int? = null
+    var weight: Float? = null
+    kvRx.findAll(lower).forEach { m ->
+        val g1 = m.groups[1]?.value?.toIntOrNull()
+        val g2 = m.groups[2]?.value?.toIntOrNull()
+        val g3raw = m.groups[3]?.value?.trim()
+        if (g1 != null) sets = g1
+        if (g2 != null) reps = g2
+        if (g3raw != null) {
+            weight = when (g3raw) {
+                "bw", "bodyweight" -> null
+                else -> g3raw.toFloatOrNull()
             }
         }
-        hit.forEach { bump(it, 1) }
     }
+    return ParsedVolume(sets, reps, weight)
+}
 
-    fun bandOf(sets: Int): LoadBand = when {
-        sets < 6    -> LoadBand.Lacking
-        sets <= 20  -> LoadBand.Balanced
-        else        -> LoadBand.Overtrained
+private fun effectiveSetsFromToken(token: String, profile: UserProfile): Float {
+    val p = parseVolumeFromText(token)
+    val baseSets = (p.sets ?: 1).coerceAtLeast(1)
+    val reps = (p.reps ?: 8).coerceAtLeast(1)
+    val repsFactor = when {
+        reps <= 4 -> 0.82f
+        reps <= 8 -> 1.00f
+        reps <= 12 -> 0.95f
+        reps <= 20 -> 0.85f
+        else -> 0.72f
     }
-
-    val order = listOf(
-        MuscleGroups.Pecs, MuscleGroups.Delts, MuscleGroups.Biceps, MuscleGroups.Triceps,
-        MuscleGroups.Lats, MuscleGroups.UpperBack, MuscleGroups.Traps, MuscleGroups.Abs,
-        MuscleGroups.Quads, MuscleGroups.Hamstrings, MuscleGroups.Glutes, MuscleGroups.Calves,
-        MuscleGroups.LowerBack
-    )
-
-    return order.map { g ->
-        val s = counters[g] ?: 0
-        MuscleWeeklyLoad(g, s, bandOf(s))
-    }
+    val loadFactor = p.weightKg?.let { w ->
+        val bw = profile.weightKg.coerceAtLeast(50).toFloat()
+        val ratio = (w / bw).coerceIn(0.2f, 2.0f)
+        0.70f + 0.30f * ratio.pow(0.5f)
+    } ?: 0.82f
+    return baseSets * repsFactor * loadFactor
 }
 
 suspend fun deriveMuscleLoads(
@@ -270,64 +334,59 @@ suspend fun deriveMuscleLoads(
     profile: UserProfile,
     aiText: String?
 ): List<MuscleLoad> = withContext(Dispatchers.Default) {
-    val horizonDays = 21L
+    val horizonDays = 28L
     val start = now.minus(Duration.ofDays(horizonDays))
-    val halfLifeDays = 5f
+    val halfLifeDays = 7f
     val k = ln(2.0).toFloat() / halfLifeDays
     val lastTime = mutableMapOf<MuscleGroups, Instant>()
     val decayed = mutableMapOf<MuscleGroups, Float>()
-
     recent.forEach { w ->
         if (w.date.isBefore(start)) return@forEach
-        val tokens = w.exercises.ifEmpty { listOf(w.name) }
-
-        val sessionWeights = mutableMapOf<MuscleGroups, Float>()
+        val tokens = if (w.exercises.isNotEmpty()) w.exercises else listOf(w.name)
+        val sessionMuscleStimulus = mutableMapOf<MuscleGroups, Float>()
         tokens.forEach { raw ->
             val token = raw.lowercase(Locale.US)
+            val eff = effectiveSetsFromToken(token, profile)
             nameToMusclesWeighted.forEach { (rx, pairs) ->
                 if (rx.containsMatchIn(token)) {
                     pairs.forEach { (m, wt) ->
-                        sessionWeights[m] = (sessionWeights[m] ?: 0f) + wt
+                        sessionMuscleStimulus[m] = (sessionMuscleStimulus[m] ?: 0f) + eff * wt
                     }
                 }
             }
         }
-
-        if (sessionWeights.isEmpty()) return@forEach
-
-        sessionWeights.replaceAll { _, v -> v.coerceIn(0f, 1f) }
+        if (sessionMuscleStimulus.isEmpty()) return@forEach
         val ageDays = max(0f, ChronoUnit.HOURS.between(w.date, now).toFloat() / 24f)
         val decay = exp(-k * ageDays)
-
-        sessionWeights.forEach { (m, unit) ->
-            decayed[m] = (decayed[m] ?: 0f) + unit * decay
+        sessionMuscleStimulus.forEach { (m, stim) ->
+            decayed[m] = (decayed[m] ?: 0f) + stim * decay
             val prev = lastTime[m]
             if (prev == null || w.date.isAfter(prev)) lastTime[m] = w.date
         }
     }
-
     val order = listOf(
         MuscleGroups.Pecs, MuscleGroups.Delts, MuscleGroups.Biceps, MuscleGroups.Triceps,
         MuscleGroups.Lats, MuscleGroups.UpperBack, MuscleGroups.Traps, MuscleGroups.Abs,
         MuscleGroups.Quads, MuscleGroups.Hamstrings, MuscleGroups.Glutes, MuscleGroups.Calves,
         MuscleGroups.LowerBack
     )
-
     order.map { g ->
         val t = computeTargets(profile, g)
-        val effWeekly = (decayed[g] ?: 0f) * (1f - exp(-k)) * 7f
+        var effWeekly = (decayed[g] ?: 0f) * (1f - exp(-k)) * 7f
+        val last = lastTime[g]
+        if (last != null && ChronoUnit.DAYS.between(last, now) <= 14) effWeekly *= 1.05f
         val band = when {
             effWeekly > t.overtrainedCutoff.toFloat() -> LoadBand.Overtrained
-            effWeekly < t.lackingCutoff.toFloat()     -> LoadBand.Lacking
-            else                                      -> LoadBand.Balanced
+            effWeekly < t.lackingCutoff.toFloat() -> LoadBand.Lacking
+            else -> LoadBand.Balanced
         }
         val ratio = (effWeekly / t.target).coerceIn(0f, 1f)
-        val score = sqrt(ratio)
+        val score = ratio.toDouble().pow(0.45).toFloat()
         MuscleLoad(
             group = g,
             score = score,
             band = band,
-            lastTrainedAgo = lastTime[g]?.let { friendlyAgo(now, it) }
+            lastTrainedAgo = last?.let { friendlyAgo(now, it) }
         )
     }
 }
@@ -354,9 +413,9 @@ enum class BodyCategory { All, UpperBody, Arms, Core, LowerBody }
 
 private fun categoryOf(name: String): BodyCategory {
     return when (name.lowercase()) {
-        "pecs", "delts", "lats", "traps", "upper back" -> BodyCategory.UpperBody
+        "pecs", "delts", "lats", "traps", "upperback", "upper back" -> BodyCategory.UpperBody
         "biceps", "triceps", "forearms" -> BodyCategory.Arms
-        "abs", "lower back" -> BodyCategory.Core
+        "abs", "lowerback", "lower back" -> BodyCategory.Core
         "quads", "hamstrings", "glutes", "calves" -> BodyCategory.LowerBody
         else -> BodyCategory.UpperBody
     }
@@ -367,7 +426,9 @@ fun MuscleStatusSection(
     recentWorkouts: List<WorkoutSummary>,
     advicePayload: String?,
     nowEpochMillis: Long,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    weeklySummaryAvailable: Boolean = false,
+    onOpenWeeklySummary: () -> Unit = {}
 ) {
     val context = LocalContext.current
     var loads by remember { mutableStateOf<List<MuscleLoad>>(emptyList()) }
@@ -375,13 +436,11 @@ fun MuscleStatusSection(
     var progress by remember { mutableStateOf(0f) }
     val prefsManager = remember { UserPreferencesManager(context) }
     val profile = remember { buildUserProfile(prefsManager) }
-
     val recomputeKey = remember(recentWorkouts, advicePayload, profile) {
         val w = recentWorkouts.joinToString("|") { "${it.date.toEpochMilli()}#${it.name}#${it.exercises.joinToString(",")}" }
         val p = "${profile.age}-${profile.heightCm}-${profile.weightKg}-${profile.experience}-${profile.preferredStyle}-${profile.importantMuscles.joinToString(",")}"
         (w + "@" + (advicePayload ?: "") + "@" + p).hashCode()
     }
-
     LaunchedEffect(recomputeKey) {
         computing = true
         progress = 0f
@@ -399,14 +458,12 @@ fun MuscleStatusSection(
         delay(120)
         computing = false
     }
-
     var selected by remember { mutableStateOf(BodyCategory.All) }
-
     if (computing) {
         LoadingScreen(progress = progress, modifier = modifier.fillMaxWidth())
         return
     }
-
+    val haptics = LocalHapticFeedback.current
     Column(
         modifier = modifier.padding(horizontal = 16.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -419,21 +476,31 @@ fun MuscleStatusSection(
             Text(
                 "Muscle Status",
                 style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface
+                color = Color.White,
+                fontWeight = FontWeight.Bold
             )
-        }
-val haptics = LocalHapticFeedback.current
-        CategoryFilterBar(selected = selected, onSelect = { selected = it;
-            haptics.performHapticFeedback(HapticFeedbackType.KeyboardTap)})
 
-        val filtered = remember(loads, selected) {
-            if (selected == BodyCategory.All) loads
-            else loads.filter { categoryOf(it.group.name) == selected }
-        }
+                val borderBrush = Brush.horizontalGradient(
+                    colors = listOf(Color(0xFF8B0000), Color.LightGray)
+                )
+                FilledTonalButton(
+                    onClick = onOpenWeeklySummary,
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                    shape = CircleShape,
+                    colors = ButtonDefaults.filledTonalButtonColors(
+                        containerColor = Color(0xFF4A0000).copy(alpha = 0.4f),
+                        contentColor = Color(0xFFF48A8A)
+                    ),
+                    border = BorderStroke(width = 1.dp, brush = borderBrush)
+                ) {
+                    Icon(Icons.Outlined.FitnessCenter, contentDescription = null, modifier = Modifier.padding(2.dp))
+                    Text("Weekly Summary")
+                }
 
+        }
+        CategoryFilterBar(selected = selected, onSelect = { selected = it; haptics.performHapticFeedback(HapticFeedbackType.KeyboardTap) })
+        val filtered = remember(loads, selected) { if (selected == BodyCategory.All) loads else loads.filter { categoryOf(it.group.name) == selected } }
         OverviewRow(loads = filtered)
-
         val sortedLoads = remember(filtered) {
             filtered.sortedWith(
                 compareByDescending<MuscleLoad> { it.band == LoadBand.Overtrained }
@@ -442,9 +509,7 @@ val haptics = LocalHapticFeedback.current
             )
         }
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            sortedLoads.forEach { item ->
-                MuscleBarRow(item)
-            }
+            sortedLoads.forEach { item -> MuscleBarRow(item) }
         }
     }
 }
@@ -454,16 +519,12 @@ private fun LoadingScreen(progress: Float, modifier: Modifier = Modifier) {
     val cornerRadius = 22.dp
     val density = LocalDensity.current
     val cornerRpx = with(density) { cornerRadius.toPx() }
-
     var neonPhase by remember { mutableStateOf(0f) }
     LaunchedEffect(Unit) {
         while (true) {
-            withFrameNanos { time ->
-                neonPhase = (time / 4_000_000_000F) % 1f
-            }
+            withFrameNanos { time -> neonPhase = (time / 4_000_000_000F) % 1f }
         }
     }
-
     Column(
         modifier = modifier
             .padding(16.dp)
@@ -471,49 +532,29 @@ private fun LoadingScreen(progress: Float, modifier: Modifier = Modifier) {
             .clip(RoundedCornerShape(cornerRadius))
             .drawWithCache {
                 val bgBrush = Brush.radialGradient(
-                    listOf(
-                        Color(0xFF3A0E0E),
-                        Color(0xFF120707)
-                    ),
+                    listOf(Color(0xFF3A0E0E), Color(0xFF120707)),
                     center = Offset(size.width / 2f, size.height / 2f),
                     radius = size.minDimension * 1.1f
                 )
                 val sweepX = size.width * (neonPhase * 2f - 0.5f)
                 val neonCore = Brush.linearGradient(
-                    colors = listOf(
-                        Color(0xFFFF3B30).copy(alpha = 0f),
-                        Color(0xFFFF3B30),
-                        Color(0xFFFF3B30).copy(alpha = 0f)
-                    ),
+                    colors = listOf(Color(0xFFFF3B30).copy(alpha = 0f), Color(0xFFFF3B30), Color(0xFFFF3B30).copy(alpha = 0f)),
                     start = Offset(sweepX, 0f),
                     end = Offset(sweepX + size.width * 0.6f, size.height)
                 )
-
                 onDrawBehind {
-                    drawRoundRect(
-                        brush = bgBrush,
-                        cornerRadius = CornerRadius(cornerRpx, cornerRpx)
-                    )
-                    drawRoundRect(
-                        brush = neonCore,
-                        style = Stroke(width = 2.dp.toPx()),
-                        cornerRadius = CornerRadius(cornerRpx, cornerRpx)
-                    )
+                    drawRoundRect(brush = bgBrush, cornerRadius = CornerRadius(cornerRpx, cornerRpx))
+                    drawRoundRect(brush = neonCore, style = Stroke(width = 2.dp.toPx()), cornerRadius = CornerRadius(cornerRpx, cornerRpx))
                 }
             }
             .padding(20.dp),
         verticalArrangement = Arrangement.SpaceAround,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Text(
-            "Analyzing muscle status...",
-            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-            color = Color.White
-        )
+        Text("Analyzing muscle status...", style = MaterialTheme.typography.titleMedium, color = Color.White,
 
-        val barBrush = Brush.horizontalGradient(
-            listOf(Color(0xFFFF3B30).copy(alpha = 0.7f), Color(0xFFFF7A59))
-        )
+            fontWeight = FontWeight.Bold)
+        val barBrush = Brush.horizontalGradient(listOf(Color(0xFFFF3B30).copy(alpha = 0.7f), Color(0xFFFF7A59)))
         Box(
             Modifier
                 .fillMaxWidth()
@@ -527,13 +568,18 @@ private fun LoadingScreen(progress: Float, modifier: Modifier = Modifier) {
                     .fillMaxWidth(progress.coerceIn(0f, 1f))
                     .clip(RoundedCornerShape(10.dp))
                     .background(barBrush)
+                    .drawWithCache {
+                        val glowBrush = Brush.radialGradient(
+                            colors = listOf(Color.White.copy(alpha = 0.4f), Color.Transparent),
+                            center = Offset(size.width * 0.9f, size.height / 2f),
+                            radius = size.height * 2.5f
+                        )
+                        onDrawBehind { drawRoundRect(brush = glowBrush, cornerRadius = CornerRadius(10.dp.toPx())) }
+                    }
             )
         }
-        Text(
-            "${(progress * 100f).coerceIn(0f, 100f).toInt()}%",
-            style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Black),
-            color = Color.White.copy(alpha = 0.8f)
-        )
+        Text("${(progress * 100f).coerceIn(0f, 100f).toInt()}%", style = MaterialTheme.typography.headlineSmall, color = Color.White.copy(alpha = 0.8f),
+            fontWeight = FontWeight.Bold)
     }
 }
 
@@ -557,47 +603,30 @@ private fun CategoryFilterBar(selected: BodyCategory, onSelect: (BodyCategory) -
             val isSelected = selected == cat
             val interactionSource = remember { MutableInteractionSource() }
             val isPressed by interactionSource.collectIsPressedAsState()
-            val scale by animateFloatAsState(if (isPressed) 0.95f else 1f)
+            val scale by animateFloatAsState(if (isPressed) 0.95f else 1f, label = "")
             val pillRadius = 32.dp
-
             Box(
                 modifier = Modifier
-                    .graphicsLayer {
-                        scaleX = scale
-                        scaleY = scale
-                    }
+                    .graphicsLayer { scaleX = scale; scaleY = scale }
                     .clip(RoundedCornerShape(pillRadius))
-                    .clickable(
-                        interactionSource = interactionSource,
-                        indication = null,
-                        onClick = { onSelect(cat) }
-                    )
+                    .clickable(interactionSource = interactionSource, indication = null) { onSelect(cat) }
                     .drawWithCache {
                         val bgBrush = if (isSelected) Brush.radialGradient(
                             listOf(Color(0xFF3A0E0E), Color(0xFF120707)),
                             radius = size.minDimension * 2f
                         ) else Brush.radialGradient(
-                            listOf(Color(0x00171717), Color(0xFF525252)),
+                            listOf(Color.White.copy(alpha = 0.1f), Color.Transparent),
                             radius = size.minDimension * 2f
                         )
-
                         val borderBrush = if (isSelected) Brush.linearGradient(
                             listOf(Color(0xFFFF5555).copy(alpha = 0.6f), Color(0xFF8B0000).copy(alpha = 0.45f))
                         ) else Brush.radialGradient(
                             listOf(Color(0x00171717), Color(0xFF525252)),
                             radius = size.minDimension * 2f
                         )
-
                         onDrawBehind {
-                            drawRoundRect(
-                                brush = bgBrush,
-                                cornerRadius = CornerRadius(pillRadius.toPx())
-                            )
-                            drawRoundRect(
-                                brush = borderBrush,
-                                style = Stroke(width = 1.dp.toPx()),
-                                cornerRadius = CornerRadius(pillRadius.toPx())
-                            )
+                            drawRoundRect(brush = bgBrush, cornerRadius = CornerRadius(pillRadius.toPx()))
+                            drawRoundRect(brush = borderBrush, style = Stroke(width = 1.dp.toPx()), cornerRadius = CornerRadius(pillRadius.toPx()))
                         }
                     }
                     .padding(horizontal = 16.dp, vertical = 8.dp),
@@ -605,8 +634,7 @@ private fun CategoryFilterBar(selected: BodyCategory, onSelect: (BodyCategory) -
             ) {
                 Text(
                     label,
-                    color = if (isSelected) Color(0xFFFF3B30) else Color.White.copy(alpha = 0.7f),
-                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                    color = if (isSelected) Color(0xFFFF3B30) else Color.White.copy(alpha = 0.7f)
                 )
             }
         }
@@ -619,7 +647,6 @@ private fun OverviewRow(loads: List<MuscleLoad>) {
     val overCount = remember(loads) { loads.count { it.band == LoadBand.Overtrained } }
     val balCount = remember(loads) { loads.count { it.band == LoadBand.Balanced } }
     val lacCount = remember(loads) { loads.count { it.band == LoadBand.Lacking } }
-
     val cornerRadius = 18.dp
     Box(
         modifier = Modifier
@@ -653,7 +680,7 @@ private fun MiniStatPill(label: String, value: String, tint: Color) {
     ) {
         Box(
             Modifier
-                .size(8.dp)
+                .height(8.dp)
                 .clip(CircleShape)
                 .background(tint)
                 .drawBehind {
@@ -699,7 +726,6 @@ private fun MuscleBarRow(load: MuscleLoad) {
     val cornerRadius = 22.dp
     val density = LocalDensity.current
     val cornerRpx = with(density) { cornerRadius.toPx() }
-
     Column(
         verticalArrangement = Arrangement.spacedBy(14.dp),
         modifier = Modifier
@@ -715,15 +741,8 @@ private fun MuscleBarRow(load: MuscleLoad) {
                     listOf(animatedColor.copy(alpha = 0.3f), animatedColor.copy(alpha = 0.1f))
                 )
                 onDrawBehind {
-                    drawRoundRect(
-                        brush = bgBrush,
-                        cornerRadius = CornerRadius(cornerRpx, cornerRpx)
-                    )
-                    drawRoundRect(
-                        brush = borderBrush,
-                        style = Stroke(width = 1.dp.toPx()),
-                        cornerRadius = CornerRadius(cornerRpx, cornerRpx)
-                    )
+                    drawRoundRect(brush = bgBrush, cornerRadius = CornerRadius(cornerRpx, cornerRpx))
+                    drawRoundRect(brush = borderBrush, style = Stroke(width = 1.dp.toPx()), cornerRadius = CornerRadius(cornerRpx, cornerRpx))
                 }
             }
             .padding(16.dp)
@@ -735,7 +754,7 @@ private fun MuscleBarRow(load: MuscleLoad) {
         ) {
             Text(
                 load.group.name,
-                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                style = MaterialTheme.typography.titleMedium,
                 color = Color.White,
                 modifier = Modifier.drawBehind {
                     drawCircle(
@@ -754,15 +773,11 @@ private fun MuscleBarRow(load: MuscleLoad) {
                     .background(Color.White.copy(alpha = 0.08f))
                     .padding(horizontal = 10.dp, vertical = 6.dp)
             ) {
-                Icon(bandIcon, contentDescription = null, tint = animatedColor, modifier = Modifier.size(18.dp))
-                Text(
-                    bandLabel,
-                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
-                    color = Color.White
-                )
+                Icon(bandIcon, contentDescription = null, tint = animatedColor, modifier = Modifier)
+                Text(bandLabel, style = MaterialTheme.typography.bodySmall, color = Color.White,
+                    fontWeight = FontWeight.Bold)
             }
         }
-
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -771,35 +786,35 @@ private fun MuscleBarRow(load: MuscleLoad) {
                 .background(Color.White.copy(alpha = 0.1f))
         ) {
             val barBrush = remember(animatedColor) {
-                Brush.horizontalGradient(
-                    listOf(animatedColor.copy(alpha = 0.6f), animatedColor)
-                )
+                Brush.horizontalGradient(listOf(animatedColor.copy(alpha = 0.6f), animatedColor))
             }
             Box(
                 modifier = Modifier
                     .fillMaxWidth(fill)
-                    .fillMaxHeight()
+                    .height(16.dp)
                     .clip(RoundedCornerShape(10.dp))
                     .background(barBrush)
                     .drawWithCache {
                         val glowBrush = Brush.radialGradient(
-                            colors = listOf(
-                                Color.White.copy(alpha = 0.4f),
-                                Color.Transparent
-                            ),
+                            colors = listOf(Color.White.copy(alpha = 0.4f), Color.Transparent),
                             center = Offset(size.width * 0.9f, size.height / 2f),
                             radius = size.height * 2.5f
                         )
-                        onDrawBehind {
-                            drawRoundRect(
-                                brush = glowBrush,
-                                cornerRadius = CornerRadius(10.dp.toPx())
-                            )
-                        }
+                        onDrawBehind { drawRoundRect(brush = glowBrush, cornerRadius = CornerRadius(10.dp.toPx())) }
                     }
             )
         }
-
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 6.dp),
+            horizontalArrangement = Arrangement.End,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            val percentText = String.format(Locale.US, "%.0f%%", fill * 100f)
+            Text(percentText, style = MaterialTheme.typography.labelLarge, color = animatedColor,
+                fontWeight = FontWeight.Bold)
+        }
         Row(
             Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -810,19 +825,13 @@ private fun MuscleBarRow(load: MuscleLoad) {
                 LoadBand.Balanced -> "Maintain or focus light"
                 LoadBand.Overtrained -> "Prioritize recovery"
             }
-            Text(
-                readiness,
-                style = MaterialTheme.typography.bodyMedium,
-                color = Color.White.copy(alpha = 0.8f)
-            )
+            Text(readiness, style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.8f),
+                fontWeight = FontWeight.Bold)
             if (load.lastTrainedAgo != null) {
-                Text(
-                    "Last: ${load.lastTrainedAgo}",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = Color.White.copy(alpha = 0.5f)
-                )
+                Text("Last: ${load.lastTrainedAgo}", style = MaterialTheme.typography.labelMedium, color = Color.White.copy(alpha = 0.5f))
             }
         }
     }
 }
 
+private fun Float.roundToInt(): Int = round(this).toInt()

@@ -216,6 +216,7 @@ import com.forgecompose.workouttracker.ConnectedWorkout.interSecond
 import com.forgecompose.workouttracker.ConnectedWorkout.restTimeRemaining
 import com.forgecompose.workouttracker.blurAnim.intensity
 import com.forgecompose.workouttracker.blurAnim.length
+import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
@@ -1687,6 +1688,7 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
         animationSpec = tween(length.value.toInt()),
         label = "blur"
     )
+    val backdrop = rememberLayerBackdrop()
     WorkoutTrackerTheme {
         Scaffold(
             topBar = {
@@ -1790,6 +1792,7 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
+                        .layerBackdrop(backdrop)
                         .padding(paddingValues)
                         .padding(horizontal = 24.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
@@ -1799,10 +1802,11 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                             onAnimationFinished = {
                                 scope.launch (Dispatchers.IO){
                                     viewModel.addSampleWorkout(
-                                        workout.value,
-                                        WorkoutStatus.COMPLETED,
-                                        timeMillis,
-                                        CurrentWeight.value
+                                        workout.value, WorkoutStatus.COMPLETED,
+                                        CurrentTime.value, CurrentWeight.value,
+                                        CurrentSets.intValue, CurrentReps.intValue,
+                                        currentDistance.value,
+                                        ""
                                     )
 
                                     PDE.logWorkout(
@@ -1957,7 +1961,7 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                                     shape = { CircleShape },
                                     effects = {
                                         vibrancy()
-                                        blur(4f.dp.toPx())
+                                        blur(12f.dp.toPx())
                                         refraction(
                                             height = 24f.dp.toPx(),
                                             amount = 48f.dp.toPx(),
@@ -1965,7 +1969,7 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                                         )
                                     },
 
-                                    highlight = { Highlight(style = HighlightStyle.Default(angle = uiSensor.gravityAngle)) }
+
 
                                 )
                                 .clip(CircleShape)
@@ -2040,7 +2044,10 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                                 scope.launch(Dispatchers.IO) {
                                     viewModel.addSampleWorkout(
                                         workout.value, WorkoutStatus.SKIPPED,
-                                        CurrentTime.value, CurrentWeight.value
+                                        CurrentTime.value, CurrentWeight.value,
+                                        CurrentSets.intValue, CurrentReps.intValue,
+                                        currentDistance.value,
+                                        ""
                                     )
                                     PDE.logWorkout(
                                         workout.toString(),

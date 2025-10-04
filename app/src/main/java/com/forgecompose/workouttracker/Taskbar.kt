@@ -1,5 +1,5 @@
-package com.forgecompose.workouttracker
 
+package com.forgecompose.workouttracker
 import android.content.Intent
 import android.graphics.RenderEffect
 import android.graphics.Shader
@@ -76,6 +76,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.asComposeRenderEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
@@ -98,7 +99,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.sign
-
 @RequiresApi(Build.VERSION_CODES.TIRAMISU)
 @Composable
 fun FloatingTaskbar(
@@ -111,7 +111,6 @@ fun FloatingTaskbar(
     val isWorkoutInProgress = ConnectedWorkout.currentMode.value != ConnectedWorkout.WorkoutMode.INACTIVE
     val ctx = LocalContext.current
     val glow = 1f
-
     Box(modifier = modifier.fillMaxWidth(), contentAlignment = Alignment.BottomCenter) {
         AnimatedContent(
             targetState = isWorkoutInProgress,
@@ -125,7 +124,6 @@ fun FloatingTaskbar(
                 val haptics = LocalHapticFeedback.current
                 val expand = remember { Animatable(0f) }
                 var expanding by remember { mutableStateOf(false) }
-
                 val pressSource = remember { MutableInteractionSource() }
                 val isPressed by pressSource.collectIsPressedAsState()
                 val pressScale by animateFloatAsState(
@@ -133,7 +131,6 @@ fun FloatingTaskbar(
                     animationSpec = tween(200, easing = FastOutSlowInEasing),
                     label = "pressScale"
                 )
-
                 LaunchedEffect(expanding) {
                     if (expanding) {
                         haptics.performHapticFeedback(HapticFeedbackType.VirtualKey)
@@ -145,13 +142,11 @@ fun FloatingTaskbar(
                         expanding = false
                     }
                 }
-
                 val t = expand.value
                 val heightAnim = 80.dp * (1f - t) + 260.dp * t
                 val radiusAnim = cornerRadius * (1f - 0.6f * t)
                 val containerShape = RoundedCornerShape(radiusAnim)
                 val cornerRpx = with(density) { radiusAnim.toPx() }
-
                 var neonPhase by remember { mutableStateOf(0f) }
                 LaunchedEffect(Unit) {
                     val frameMs = 16L
@@ -162,7 +157,6 @@ fun FloatingTaskbar(
                         delay(frameMs)
                     }
                 }
-
                 Box(
                     modifier = Modifier
                         .padding(horizontal = 16.dp, vertical = 10.dp)
@@ -173,6 +167,7 @@ fun FloatingTaskbar(
                 ) {
                     Box(
                         modifier = Modifier
+
                             .matchParentSize()
                             .clip(containerShape)
                             .clickable(
@@ -196,11 +191,9 @@ fun FloatingTaskbar(
                                     center = Offset(size.width / 2f, size.height / 2f),
                                     radius = size.minDimension * (0.95f + 0.25f * t)
                                 )
-
                                 val sweepX = size.width * (neonPhase * 2f - 0.5f)
                                 val start = Offset(sweepX, 0f)
                                 val end = Offset(sweepX + size.width * 0.6f, size.height)
-
                                 val neonCore = Brush.linearGradient(
                                     colors = listOf(
                                         Color(0xFFFF3B30).copy(alpha = 0f),
@@ -219,7 +212,6 @@ fun FloatingTaskbar(
                                     start = start,
                                     end = end
                                 )
-
                                 onDrawBehind {
                                     drawRoundRect(
                                         brush = bgBrush,
@@ -271,7 +263,6 @@ fun FloatingTaskbar(
                 val navBackStackEntry by navController.currentBackStackEntryAsState()
                 val currentRoute = navBackStackEntry?.destination?.route
                 val haptic = LocalHapticFeedback.current
-
                 Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.BottomCenter) {
                     AnimatedVisibility(
                         visible = baseIsVisible && !isDismissedByUser,
@@ -289,20 +280,15 @@ fun FloatingTaskbar(
                                 "UserProfile" to Icons.Filled.Person
                             )
                         }
-
                         val containerShape = remember(cornerRadius) { RoundedCornerShape(cornerRadius) }
                         val accentGlow = remember { Color(0xFFFF3535) }
-
                         val pos = remember { Animatable(Offset.Zero, Offset.VectorConverter) }
                         val squish = remember { Animatable(1f) }
                         val skew = remember { Animatable(0f) }
-
                         val sharedInteraction = remember { MutableInteractionSource() }
                         val isPressed by sharedInteraction.collectIsPressedAsState()
-
                         val am = remember(ctx) { ctx.getSystemService(android.app.ActivityManager::class.java) }
                         val lowSpec = remember { (am?.isLowRamDevice == true)  }
-
                         var idleBob by remember { mutableStateOf(0f) }
                         var idleBreath by remember { mutableStateOf(0f) }
                         LaunchedEffect(lowSpec) {
@@ -315,11 +301,9 @@ fun FloatingTaskbar(
                                 delay(frameMs)
                             }
                         }
-
                         val routeOrder = remember { listOf("WorkoutHistory", "HomeScreen", "MuscleGroup", "UserProfile") }
                         fun routeIndex(r: String?) = routeOrder.indexOf(r).let { if (it >= 0) it else 1 }
                         var prevRoute by remember { mutableStateOf(currentRoute) }
-
                         LaunchedEffect(currentRoute) {
                             val from = routeIndex(prevRoute)
                             val to = routeIndex(currentRoute)
@@ -350,21 +334,26 @@ fun FloatingTaskbar(
                             }
                             prevRoute = currentRoute
                         }
-
+                        val animationScope = rememberCoroutineScope()
+                        val progressAnimation = remember { Animatable(0f) }
                         LaunchedEffect(isPressed) {
-                            if (isPressed) squish.animateTo(1.035f, spring(dampingRatio = 0.55f, stiffness = Spring.StiffnessMedium))
-                            else squish.animateTo(1f, spring(dampingRatio = 0.75f, stiffness = Spring.StiffnessLow))
+                            if (isPressed) {
+                                animationScope.launch {
+                                    progressAnimation.animateTo(1f, spring(0.5f, 300f, 0.001f))
+                                }
+                            } else {
+                                animationScope.launch {
+                                    progressAnimation.animateTo(0f, spring(0.5f, 300f, 0.001f))
+                                }
+                            }
                         }
-
                         var boxSize by remember { mutableStateOf(IntSize.Zero) }
                         val density2 = LocalDensity.current
                         val cornerRpx2 = with(density2) { cornerRadius.toPx() }
-
                         val borderShape = remember { RoundedCornerShape(32.dp) }
                         val borderColor = remember { Color.White.copy(alpha = 0.11f) }
                         var dragPreviewIndex by remember { mutableStateOf<Int?>(null) }
                         var dragProgress by remember { mutableStateOf(0f) }
-
                         Box(
                             modifier = Modifier
                                 .padding(horizontal = 16.dp, vertical = 10.dp)
@@ -415,6 +404,10 @@ fun FloatingTaskbar(
                                         scaleX = (1f + (s - 1f) * 1.1f) * breath
                                         scaleY = (1f - (s - 1f) * 0.55f) * (2f - breath)
                                         rotationZ = skew.value * 6f
+                                        val progress = progressAnimation.value
+                                        val scale = lerp(1f, 1.1f, progress)
+                                        scaleX = scaleX * scale
+                                        scaleY = scaleY * scale
                                         compositingStrategy = CompositingStrategy.Offscreen
                                         clip = true
                                         shadowElevation = 0f
@@ -479,13 +472,11 @@ fun FloatingTaskbar(
                                         val densityLocal = LocalDensity.current
                                         val dragThresholdPx = with(densityLocal) { 36.dp.toPx() }
                                         var dragAccum by remember(route) { mutableStateOf(0f) }
-
                                         val isTargetPreview = dragPreviewIndex == index
                                         val isCurrentSelectedPreviewing = selected && dragPreviewIndex != null
                                         val extraScaleTarget = if (isTargetPreview) 1f + 0.18f * dragProgress else 1f
                                         val extraScaleSelected = if (isCurrentSelectedPreviewing && selected) 1f + 0.08f * dragProgress else 1f
                                         val extraScale = extraScaleTarget * extraScaleSelected
-
                                         Box(
                                             modifier = Modifier
                                                 .weight(1f)
@@ -561,7 +552,6 @@ fun FloatingTaskbar(
                                                     }
                                                 }
                                                 .size(buttonSize),
-
                                             contentAlignment = Alignment.Center
                                         ) {
                                             val pillRadius = 32.dp
@@ -607,7 +597,6 @@ fun FloatingTaskbar(
                                                         }
                                                     }
                                             )
-
                                             Icon(
                                                 imageVector = icon,
                                                 contentDescription = null,
@@ -620,7 +609,6 @@ fun FloatingTaskbar(
                             }
                         }
                     }
-
                     AnimatedVisibility(
                         visible = baseIsVisible && isDismissedByUser && currentRoute == "HomeScreen",
                         enter = fadeIn(animationSpec = tween(200, delayMillis = 200)) + scaleIn(animationSpec = tween(400, delayMillis = 200)),
@@ -682,7 +670,6 @@ fun FloatingTaskbar(
                             )
                         }
                     }
-
                     AnimatedVisibility(
                         visible = baseIsVisible && isDismissedByUser && currentRoute != "HomeScreen",
                         enter = fadeIn(animationSpec = tween(600)),

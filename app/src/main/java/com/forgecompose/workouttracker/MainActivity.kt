@@ -2,6 +2,7 @@ package com.forgecompose.workouttracker
 
 
 
+import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -39,6 +40,7 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -49,6 +51,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -115,7 +118,9 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.BlurredEdgeTreatment
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
@@ -181,6 +186,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
+import java.time.DayOfWeek
 import java.time.Instant
 import java.time.LocalTime
 import java.util.Calendar
@@ -188,7 +194,9 @@ import java.util.Date
 import java.util.Locale
 import java.util.concurrent.TimeUnit
 import kotlin.math.PI
+import kotlin.math.abs
 import kotlin.math.cos
+import kotlin.math.round
 import kotlin.math.sin
 import kotlin.random.Random
 private fun lastAndPrevSameName(workouts: List<Workout>): Pair<Workout?, Workout?> {
@@ -281,7 +289,7 @@ class MainActivity : ComponentActivity() {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                         val missing = ContextCompat.checkSelfPermission(
                             context,
-                            android.Manifest.permission.POST_NOTIFICATIONS
+                            Manifest.permission.POST_NOTIFICATIONS
                         ) != PackageManager.PERMISSION_GRANTED
                         showNotifDialog = missing
                     } else {
@@ -297,7 +305,7 @@ class MainActivity : ComponentActivity() {
                         confirmButton = {
                             TextButton(onClick = {
                                 showNotifDialog = false
-                                notifPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                                notifPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                             }) { Text("Allow") }
                         },
                         dismissButton = {
@@ -373,7 +381,7 @@ fun MainScreen(viewModel: WorkoutListViewModel, viewModel2: MainScreenViewModel)
                 fadeOut(animationSpec = fadeOutSpec) +
                         scaleOut(
                             targetScale = 1.04f,
-                            animationSpec = tween(500, easing = FastOutLinearInEasing),
+                            animationSpec = tween(800, easing = LinearEasing),
                             transformOrigin = TransformOrigin.Center
                         )
             },
@@ -389,7 +397,7 @@ fun MainScreen(viewModel: WorkoutListViewModel, viewModel2: MainScreenViewModel)
                 fadeOut(animationSpec = fadeOutSpec) +
                         scaleOut(
                             targetScale = 0.96f,
-                            animationSpec = tween(500, easing = FastOutSlowInEasing),
+                            animationSpec = tween(800, easing = LinearEasing),
                             transformOrigin = TransformOrigin.Center
                         )
             }
@@ -417,9 +425,10 @@ fun MainScreen(viewModel: WorkoutListViewModel, viewModel2: MainScreenViewModel)
             composable(
                 route = "WorkoutSelector",
                 enterTransition = {
+
                     if (initialState.destination.route == "HomeScreen") {
                         slideInHorizontally(
-                            animationSpec = tween(300, easing = FastOutSlowInEasing),
+                            animationSpec = tween(200, easing = LinearEasing),
                             initialOffsetX = { it }
                         )
                     } else {
@@ -430,25 +439,21 @@ fun MainScreen(viewModel: WorkoutListViewModel, viewModel2: MainScreenViewModel)
                                     transformOrigin = TransformOrigin.Center
                                 )
                     }
-                }
+                },
+
             ) {
                 WorkoutSelector(viewModel, navController)
             }
             composable("WorkoutHistory",
                 enterTransition = {
-                    if (initialState.destination.route == "UserProfile") {
-                        slideInHorizontally(
-                            animationSpec = tween(300, easing = FastOutSlowInEasing),
-                            initialOffsetX = { it }
-                        )
-                    } else {
+
                         fadeIn(animationSpec = fadeInSpec) +
                                 scaleIn(
                                     initialScale = 0.92f,
                                     animationSpec = spring(dampingRatio = 0.78f, stiffness = 300f),
                                     transformOrigin = TransformOrigin.Center
                                 )
-                    }
+
                 }) { WorkoutHistory(viewModel, navController) }
             composable(
                 Routes.DetailedWorkoutRoute,
@@ -497,6 +502,12 @@ fun MainScreen(viewModel: WorkoutListViewModel, viewModel2: MainScreenViewModel)
                     navController = navController
                 )
             }
+            composable("WeeklySummary") { WeeklySummaryScreen(
+                navController = navController,
+                tapeFlow = SummaryPDE.tapeFlow(),
+                firstDayOfWeek = DayOfWeek.SUNDAY,
+                zoneId = java.time.ZoneId.systemDefault()
+            ) }
         }
 
     }
@@ -1445,7 +1456,7 @@ fun WorkoutHistory(
     var showDeleteConfirmation by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
-    val hour = remember { java.time.LocalTime.now().hour }
+    val hour = remember { LocalTime.now().hour }
     val introColors = remember(hour) {
         when (hour) {
             in 5..10 -> listOf(Color(0xFF2B1A00), Color(0xFF3C2405), Color(0xFF5A360A), Color(0xFF7A4A12))
@@ -1636,7 +1647,7 @@ private fun WorkoutHistoryItem(
     onClick: () -> Unit,
     onDelete: () -> Unit
 ) {
-    val cornerRadius = 24.dp
+    val cornerRadius = 34.dp
     var isPressed by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(targetValue = if (isPressed) 0.98f else 1f, label = "scale")
 
@@ -1659,7 +1670,7 @@ private fun WorkoutHistoryItem(
             .drawWithCache {
                 val cornerRpx = cornerRadius.toPx()
                 val bgBrush = Brush.radialGradient(
-                    colors = listOf(Color(0xFF130606).copy(alpha = 0.9f), Color(0xFF100404).copy(alpha = 0.95f)),
+                    colors = listOf(Color(0xFF130606).copy(alpha = 0.75f), Color(0xFF100404).copy(alpha = 0.75f)),
                     center = Offset(size.width / 2f, size.height * 0.1f),
                     radius = size.width
                 )
@@ -1770,7 +1781,7 @@ private fun ThemedConfirmationDialog(
                     Button(
                         onClick = onConfirm,
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.error,
+                            containerColor = Color(0xFF802121),
                             contentColor = Color.White
                         )
                     ) {
@@ -2002,10 +2013,25 @@ fun WorkoutDetailScreen(
                                                 label = dateFormat.format(Date(selectedWorkout!!.date)),
                                                 icon = Icons.Default.DateRange
                                             )
-                                            InfoChip(
-                                                label = selectedWorkout!!.weight?.let { "${it} kg" } ?: "Bodyweight",
-                                                icon = Icons.Default.FitnessCenter
-                                            )
+                                            Row(
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                            ) {
+                                                InfoChip(
+                                                    label = selectedWorkout!!.weight?.let { "${it} kg" }
+                                                        ?: "Bodyweight",
+                                                    icon = Icons.Default.FitnessCenter
+                                                )
+                                                InfoChip(
+                                                    label = selectedWorkout!!.sets?.let { "${it} Sets" }
+                                                        ?: "No Sets ",
+                                                    icon = Icons.Default.FitnessCenter
+                                                )
+                                                InfoChip(
+                                                    label = selectedWorkout!!.reps?.let { "${it} Reps " }
+                                                        ?: "No Reps",
+                                                    icon = Icons.Default.FitnessCenter
+                                                )
+                                            }
                                         }
                                     }
                                 }
@@ -2067,6 +2093,41 @@ fun WorkoutDetailScreen(
                                     }
                                 }
                             }
+                            if (cachedAllWorkouts.isNotEmpty()) {
+                                item {
+                                    AnimatedVisibility(visible = cold.after400ms, enter = fadeIn()) {
+                                        GlassCard {
+                                            Column(Modifier.padding(20.dp)) {
+                                                SectionTitle("Sets Progression")
+                                                key(selectedWorkout!!.name, chartSeriesSig) {
+                                                    ExerciseSetProgressionGraph(
+                                                        exerciseName = selectedWorkout!!.name,
+                                                        workouts = cachedAllWorkouts
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            if (cachedAllWorkouts.isNotEmpty()) {
+                                item {
+                                    AnimatedVisibility(visible = cold.after800ms, enter = fadeIn()) {
+                                        GlassCard {
+                                            Column(Modifier.padding(20.dp)) {
+                                                SectionTitle("Reps Progression")
+                                                key(selectedWorkout!!.name, chartSeriesSig) {
+                                                    ExerciseRepProgressionGraph(
+                                                        exerciseName = selectedWorkout!!.name,
+                                                        workouts = cachedAllWorkouts
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
                             if (sameNameWorkouts.size > 1) {
                                 item {
                                     AnimatedVisibility(visible = cold.after400ms, enter = fadeIn()) {
@@ -2129,30 +2190,45 @@ fun WorkoutDetailScreen(
 /* ======= UI helpers (reusable, lightweight) ======= */
 
 @Composable
-private fun GlassCard(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+fun GlassCard(
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit
+) {
     val cornerRadius = 24.dp
+    val borderWidth = 1.dp
+
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(cornerRadius))
+            .background(
+                brush = Brush.linearGradient(
+                    colors = listOf(
+                        Color(0xFF130000).copy(alpha = 0.75f),
+                        Color(0xFF100404).copy(alpha = 0.75f)
+                    )
+                ),
+                shape = RoundedCornerShape(cornerRadius)
+            )
+
             .drawWithCache {
-                val cornerRpx = cornerRadius.toPx()
-                val bgBrush = Brush.radialGradient(
-                    colors = listOf(Color(0xFF150707).copy(alpha = 0.9f), Color(0xFF100404).copy(alpha = 0.95f)),
-                    center = Offset(size.width / 2f, size.height * 0.1f),
-                    radius = size.width * 1.5f
-                )
+                val cornerPx = cornerRadius.toPx()
+                val borderPx = borderWidth.toPx()
                 val borderBrush = Brush.linearGradient(
                     colors = listOf(
                         Color(0xFFFF5555).copy(alpha = 0.2f),
                         Color(0xFF8B0000).copy(alpha = 0.1f)
                     )
                 )
-                onDrawBehind {
-                    drawRoundRect(brush = bgBrush, cornerRadius = CornerRadius(cornerRpx))
-                    drawRoundRect(brush = borderBrush, style = Stroke(width = 1.dp.toPx()), cornerRadius = CornerRadius(cornerRpx))
+                onDrawWithContent {
+                    drawContent()
+                    drawRoundRect(
+                        brush = borderBrush,
+                        style = Stroke(width = borderPx),
+                        cornerRadius = CornerRadius(cornerPx)
+                    )
                 }
             }
+            .padding(16.dp)
     ) {
         content()
     }
@@ -2224,7 +2300,7 @@ fun ProfileMuscleStatusRoute(
 ) {
     val cold = rememberColdStartStages()
 
-    val hour = remember { java.time.LocalTime.now().hour }
+    val hour = remember { LocalTime.now().hour }
     val introColors = remember(hour) {
         when (hour) {
             in 5..10 -> listOf(Color(0xFF2B1A00), Color(0xFF3C2405), Color(0xFF5A360A), Color(0xFF7A4A12))
@@ -2381,16 +2457,22 @@ fun ProfileMuscleStatusRoute(
                                 ) {
                                     GlowingCard {
                                         Column(Modifier.padding(vertical = 16.dp)) {
-                                            MuscleStatusSection(
-                                                recentWorkouts = recent,
-                                                advicePayload = "",
-                                                nowEpochMillis = System.currentTimeMillis(),
-                                                modifier = Modifier.fillMaxWidth()
-                                            )
+                                            BoxWithConstraints(Modifier.fillMaxWidth()) {
+                                                val hasRoomForButton = maxWidth >= 360.dp
+                                                MuscleStatusSection(
+                                                    recentWorkouts = recent,
+                                                    advicePayload = "",
+                                                    nowEpochMillis = System.currentTimeMillis(),
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    weeklySummaryAvailable = hasRoomForButton,
+                                                    onOpenWeeklySummary = { navController.navigate("WeeklySummary") }
+                                                )
+                                            }
                                         }
                                     }
                                 }
                             }
+
                             item { Spacer(Modifier.height(32.dp)) }
                         }
                     }
@@ -2446,7 +2528,7 @@ private fun GlowingCard(modifier: Modifier = Modifier, content: @Composable () -
 }
 
 @Composable
-private fun SectionTitle(title: String) {
+fun SectionTitle(title: String) {
     Text(
         text = title,
         style = MaterialTheme.typography.titleLarge,
@@ -2673,7 +2755,7 @@ private fun GraphBar(
         (current / safeMax).toFloat().coerceIn(0f, 1f)
     }
 
-    val anim = remember { androidx.compose.animation.core.Animatable(0f) }
+    val anim = remember { Animatable(0f) }
     var fill by remember { mutableStateOf(0f) }
     var introDone by remember { mutableStateOf(false) }
 
@@ -2687,13 +2769,13 @@ private fun GraphBar(
         snapshotFlow { anim.value }.collect { v -> fill = v }
     }
 
-    fun snap01(x: Double) = kotlin.math.round(x * 10.0) / 10.0
+    fun snap01(x: Double) = round(x * 10.0) / 10.0
     val basis: Double? = prevSameNameWeight ?: baselineWeight
     val deltaRaw: Double? = basis?.let { current - it }
     val deltaSnapped: Double? = deltaRaw?.let { snap01(it) }
     val trend = when {
         deltaSnapped == null -> Trend.NONE
-        kotlin.math.abs(deltaSnapped) < epsilonKg -> Trend.FLAT
+        abs(deltaSnapped) < epsilonKg -> Trend.FLAT
         deltaSnapped > 0 -> Trend.UP
         else -> Trend.DOWN
     }
@@ -2715,7 +2797,7 @@ private fun GraphBar(
     }
     val deltaText = deltaSnapped?.let {
         val sign = if (it > 0) "+" else if (it < 0) "−" else ""
-        "$sign${"%.1f".format(kotlin.math.abs(it))} kg"
+        "$sign${"%.1f".format(abs(it))} kg"
     } ?: "—"
 
     val glow = Color(0xFFA43434)
@@ -2891,6 +2973,112 @@ private fun GraphBar(
         }
     }
 @Composable
+fun ExerciseSetProgressionGraph(
+    exerciseName: String,
+    workouts: List<Workout>
+) {
+    val exerciseData = remember(workouts, exerciseName) {
+        workouts
+            .filter { it.name == exerciseName && (it.sets ?: 0) > 0 }
+            .sortedBy { it.date }
+    }
+
+    val maxSets = remember(exerciseData) { exerciseData.maxOfOrNull { it.sets ?: 0 } ?: 0 }
+    val minSets = remember(exerciseData) { exerciseData.minOfOrNull { it.sets ?: 0 } ?: 0 }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.1f)
+        )
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                "Progression for $exerciseName",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                color = Color.White
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+
+            if (exerciseData.size < 2) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(200.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        "Not enough data to show a progression.",
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                    )
+                }
+            } else {
+                LineChartSets(
+                    data = exerciseData,
+                    maxValue = maxSets.toDouble(),
+                    minValue = minSets.toDouble()
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun ExerciseRepProgressionGraph(
+    exerciseName: String,
+    workouts: List<Workout>
+) {
+    val exerciseData = remember(workouts, exerciseName) {
+        workouts
+            .filter { it.name == exerciseName && (it.reps ?: 0) > 0 }
+            .sortedBy { it.date }
+    }
+
+    val maxReps = remember(exerciseData) { exerciseData.maxOfOrNull { it.reps ?: 0 } ?: 0 }
+    val minReps = remember(exerciseData) { exerciseData.minOfOrNull { it.reps ?: 0 } ?: 0 }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.1f)
+        )
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                "Progression for $exerciseName",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                color = Color.White
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+
+            if (exerciseData.size < 2) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(200.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        "Not enough data to show a progression.",
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                    )
+                }
+            } else {
+                LineChartReps(
+                    data = exerciseData,
+                    maxValue = maxReps.toDouble(),
+                    minValue = minReps.toDouble()
+                )
+            }
+        }
+    }
+}
+
+@Composable
 fun QuickStartWorkout(navController: NavController){
     val haptics = LocalHapticFeedback.current
     val context = LocalContext.current
@@ -3054,6 +3242,254 @@ fun QuickStartWorkout(navController: NavController){
             }
         }
     }
+@Composable
+private fun LineChartSets(
+    data: List<Workout>,
+    maxValue: Double,
+    minValue: Double
+) {
+    var selectedIndex by remember { mutableStateOf<Int?>(null) }
+    val density = LocalDensity.current
+
+    val textPaint = remember {
+        Paint().apply {
+            color = android.graphics.Color.argb(200, 255, 255, 255)
+            textSize = with(density) { 12.sp.toPx() }
+            textAlign = Paint.Align.CENTER
+        }
+    }
+    val tooltipTextPaint = remember {
+        Paint().apply {
+            color = android.graphics.Color.WHITE
+            textSize = with(density) { 14.sp.toPx() }
+            textAlign = Paint.Align.CENTER
+            isFakeBoldText = true
+        }
+    }
+
+    val lineBrush = remember { Brush.verticalGradient(colors = listOf(Color(0xFF00E676), Color(0xFF1B8E4B))) }
+    val areaBrush = remember { Brush.verticalGradient(colors = listOf(Color(0xFF00E676).copy(alpha = 0.35f), Color.Transparent)) }
+
+    Canvas(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(250.dp)
+            .padding(top = 16.dp, bottom = 24.dp, start = 8.dp, end = 8.dp)
+            .pointerInput(data) {
+                detectTapGestures { tapOffset ->
+                    val pointRadius = with(density) { 15.dp.toPx() }
+                    val closestIndex = data
+                        .mapIndexed { index, workout ->
+                            val yAxisRange = (maxValue - minValue).coerceAtLeast(1.0)
+                            val xAxisSpacing = size.width / (data.size - 1).coerceAtLeast(1)
+                            val pointX = index * xAxisSpacing
+                            val pointY = size.height - (((((workout.sets ?: 0).toDouble()) - minValue) / yAxisRange * size.height).toFloat())
+                            val distance = (tapOffset - Offset(pointX.toFloat(), pointY)).getDistance()
+                            index to distance
+                        }
+                        .minByOrNull { it.second }
+                        ?.takeIf { it.second < pointRadius }
+                        ?.first
+                    selectedIndex = closestIndex
+                }
+            }
+    ) {
+        if (data.size < 2) return@Canvas
+
+        val yAxisRange = (maxValue - minValue).coerceAtLeast(1.0)
+        val xAxisSpacing = size.width / (data.size - 1)
+        val points = data.mapIndexed { index, workout ->
+            val x = index * xAxisSpacing
+            val v = (workout.sets ?: 0).toDouble()
+            val y = size.height - (((v - minValue) / yAxisRange * size.height).toFloat())
+            Offset(x.toFloat(), y)
+        }
+
+        val areaPath = Path().apply {
+            moveTo(points.first().x, size.height)
+            points.forEach { lineTo(it.x, it.y) }
+            lineTo(points.last().x, size.height)
+            close()
+        }
+        drawPath(path = areaPath, brush = areaBrush)
+
+        val linePath = Path().apply {
+            moveTo(points.first().x, points.first().y)
+            points.drop(1).forEach { lineTo(it.x, it.y) }
+        }
+        drawPath(
+            path = linePath,
+            brush = lineBrush,
+            style = Stroke(width = 8f, cap = StrokeCap.Round, join = StrokeJoin.Round, pathEffect = PathEffect.cornerPathEffect(16f))
+        )
+
+        points.forEachIndexed { index, point ->
+            val isSelected = selectedIndex == index
+            val radius = if (isSelected) 12f else 7f
+            drawCircle(color = Color.White.copy(alpha = if (isSelected) 0.9f else 0.5f), radius = radius + 3f, center = point)
+            drawCircle(brush = lineBrush, radius = radius, center = point)
+        }
+
+        val maxLabels = (size.width / with(density) { 70.dp.toPx() }).toInt().coerceAtMost(data.size)
+        val step = (data.size - 1) / (maxLabels - 1).coerceAtLeast(1)
+        val indicesToLabel = (0 until maxLabels).map { (it * step).coerceAtMost(data.size - 1) }.distinct()
+
+        val dateFormat = SimpleDateFormat("MMM dd", Locale.getDefault())
+        indicesToLabel.forEach { index ->
+            val x = points[index].x
+            drawContext.canvas.nativeCanvas.drawText(dateFormat.format(Date(data[index].date)), x, size.height + 60f, textPaint)
+        }
+
+        selectedIndex?.let { index ->
+            val selectedPoint = points[index]
+            val selectedWorkout = data[index]
+            val tooltipText = "${selectedWorkout.sets ?: 0} sets"
+
+            val tooltipWidth = tooltipTextPaint.measureText(tooltipText) + 24.dp.toPx()
+            val tooltipHeight = 40.dp.toPx()
+            val tooltipRect = RoundRect(
+                left = (selectedPoint.x - tooltipWidth / 2).coerceIn(0f, size.width - tooltipWidth),
+                top = selectedPoint.y - tooltipHeight - 12.dp.toPx(),
+                right = (selectedPoint.x + tooltipWidth / 2).coerceIn(tooltipWidth, size.width),
+                bottom = selectedPoint.y - 12.dp.toPx(),
+                cornerRadius = CornerRadius(8.dp.toPx())
+            )
+            drawRoundRect(
+                color = Color(0xFF081A12),
+                topLeft = Offset(tooltipRect.left, tooltipRect.top),
+                size = Size(tooltipRect.width, tooltipRect.height),
+                cornerRadius = tooltipRect.topLeftCornerRadius,
+                alpha = 0.9f
+            )
+            drawContext.canvas.nativeCanvas.drawText(tooltipText, tooltipRect.center.x, tooltipRect.center.y + 10.dp.toPx() / 2, tooltipTextPaint)
+        }
+    }
+}
+
+@Composable
+private fun LineChartReps(
+    data: List<Workout>,
+    maxValue: Double,
+    minValue: Double
+) {
+    var selectedIndex by remember { mutableStateOf<Int?>(null) }
+    val density = LocalDensity.current
+
+    val textPaint = remember {
+        Paint().apply {
+            color = android.graphics.Color.argb(200, 255, 255, 255)
+            textSize = with(density) { 12.sp.toPx() }
+            textAlign = Paint.Align.CENTER
+        }
+    }
+    val tooltipTextPaint = remember {
+        Paint().apply {
+            color = android.graphics.Color.WHITE
+            textSize = with(density) { 14.sp.toPx() }
+            textAlign = Paint.Align.CENTER
+            isFakeBoldText = true
+        }
+    }
+
+    val lineBrush = remember { Brush.verticalGradient(colors = listOf(Color(0xFFFF3B30), Color(0xFFD32F2F))) }
+    val areaBrush = remember { Brush.verticalGradient(colors = listOf(Color(0xFFFF3B30).copy(alpha = 0.35f), Color.Transparent)) }
+
+    Canvas(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(250.dp)
+            .padding(top = 16.dp, bottom = 24.dp, start = 8.dp, end = 8.dp)
+            .pointerInput(data) {
+                detectTapGestures { tapOffset ->
+                    val pointRadius = with(density) { 15.dp.toPx() }
+                    val closestIndex = data
+                        .mapIndexed { index, workout ->
+                            val yAxisRange = (maxValue - minValue).coerceAtLeast(1.0)
+                            val xAxisSpacing = size.width / (data.size - 1).coerceAtLeast(1)
+                            val pointX = index * xAxisSpacing
+                            val pointY = size.height - (((((workout.reps ?: 0).toDouble()) - minValue) / yAxisRange * size.height).toFloat())
+                            val distance = (tapOffset - Offset(pointX.toFloat(), pointY)).getDistance()
+                            index to distance
+                        }
+                        .minByOrNull { it.second }
+                        ?.takeIf { it.second < pointRadius }
+                        ?.first
+                    selectedIndex = closestIndex
+                }
+            }
+    ) {
+        if (data.size < 2) return@Canvas
+
+        val yAxisRange = (maxValue - minValue).coerceAtLeast(1.0)
+        val xAxisSpacing = size.width / (data.size - 1)
+        val points = data.mapIndexed { index, workout ->
+            val x = index * xAxisSpacing
+            val v = (workout.reps ?: 0).toDouble()
+            val y = size.height - (((v - minValue) / yAxisRange * size.height).toFloat())
+            Offset(x.toFloat(), y)
+        }
+
+        val areaPath = Path().apply {
+            moveTo(points.first().x, size.height)
+            points.forEach { lineTo(it.x, it.y) }
+            lineTo(points.last().x, size.height)
+            close()
+        }
+        drawPath(path = areaPath, brush = areaBrush)
+
+        val linePath = Path().apply {
+            moveTo(points.first().x, points.first().y)
+            points.drop(1).forEach { lineTo(it.x, it.y) }
+        }
+        drawPath(
+            path = linePath,
+            brush = lineBrush,
+            style = Stroke(width = 8f, cap = StrokeCap.Round, join = StrokeJoin.Round, pathEffect = PathEffect.cornerPathEffect(16f))
+        )
+
+        points.forEachIndexed { index, point ->
+            val isSelected = selectedIndex == index
+            val radius = if (isSelected) 12f else 7f
+            drawCircle(color = Color.White.copy(alpha = if (isSelected) 0.9f else 0.5f), radius = radius + 3f, center = point)
+            drawCircle(brush = lineBrush, radius = radius, center = point)
+        }
+
+        val maxLabels = (size.width / with(density) { 70.dp.toPx() }).toInt().coerceAtMost(data.size)
+        val step = (data.size - 1) / (maxLabels - 1).coerceAtLeast(1)
+        val indicesToLabel = (0 until maxLabels).map { (it * step).coerceAtMost(data.size - 1) }.distinct()
+
+        val dateFormat = SimpleDateFormat("MMM dd", Locale.getDefault())
+        indicesToLabel.forEach { index ->
+            val x = points[index].x
+            drawContext.canvas.nativeCanvas.drawText(dateFormat.format(Date(data[index].date)), x, size.height + 60f, textPaint)
+        }
+
+        selectedIndex?.let { index ->
+            val selectedPoint = points[index]
+            val selectedWorkout = data[index]
+            val tooltipText = "${selectedWorkout.reps ?: 0} reps"
+
+            val tooltipWidth = tooltipTextPaint.measureText(tooltipText) + 24.dp.toPx()
+            val tooltipHeight = 40.dp.toPx()
+            val tooltipRect = RoundRect(
+                left = (selectedPoint.x - tooltipWidth / 2).coerceIn(0f, size.width - tooltipWidth),
+                top = selectedPoint.y - tooltipHeight - 12.dp.toPx(),
+                right = (selectedPoint.x + tooltipWidth / 2).coerceIn(tooltipWidth, size.width),
+                bottom = selectedPoint.y - 12.dp.toPx(),
+                cornerRadius = CornerRadius(8.dp.toPx())
+            )
+            drawRoundRect(
+                color = Color(0xFF1A0808),
+                topLeft = Offset(tooltipRect.left, tooltipRect.top),
+                size = Size(tooltipRect.width, tooltipRect.height),
+                cornerRadius = tooltipRect.topLeftCornerRadius,
+                alpha = 0.9f
+            )
+            drawContext.canvas.nativeCanvas.drawText(tooltipText, tooltipRect.center.x, tooltipRect.center.y + 10.dp.toPx() / 2, tooltipTextPaint)
+        }
+    }
+}
+
 
 object taskbarOverride {
         var shouldOverrideVisiblity = mutableStateOf(
