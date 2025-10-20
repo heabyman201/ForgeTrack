@@ -22,7 +22,7 @@ class MyApplication : Application() {
         blurAnim.init(applicationContext)
         AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_YES)
         PersonaPrefs.bootstrapInto(dynamicModel.personaConfig)
-
+        PerformanceOptionsManager.initialize(this)
 
     }
 }

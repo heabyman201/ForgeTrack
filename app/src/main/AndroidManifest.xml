@@ -1,16 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <uses-permission android:name="android.permission.health.READ_STEPS" />
+
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_HEALTH"/><!-- If you target 34+, be explicit: -->
-    <uses-permission android:name="android.permission.POST_PROMOTED_NOTIFICATIONS" />
-
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
-
+    <uses-permission android:name="android.permission.POST_PROMOTED_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.health.READ_EXERCISE" />
+    <uses-permission android:name="android.permission.health.WRITE_EXERCISE" />
+    <queries>
+        <package android:name="com.google.android.apps.healthdata" />
+    </queries>
     <application
         android:name=".MyApplication"
         android:allowBackup="true"
@@ -20,41 +21,52 @@
         android:label="ForgeTrack"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
-
         android:theme="@style/Theme.WorkoutTracker"
-        android:hardwareAccelerated="true"
-        >
+        android:hardwareAccelerated="true">
 
-
-
+        <meta-data
+            android:name="health_permissions"
+            android:resource="@array/health_permissions" />
 
         <activity
             android:name=".WorkoutActivity"
             android:exported="false"
-            android:launchMode="singleInstance"
-          />
+            android:launchMode="singleInstance" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true"
-
             android:theme="@style/Theme.WorkoutTracker">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
-
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW_PERMISSION_USAGE" />
+                <category android:name="android.intent.category.HEALTH_PERMISSIONS" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="androidx.health.ACTION_REQUEST_PERMISSIONS" />
+            </intent-filter>
+
         </activity>
+
         <activity
             android:name=".NotificationDispatcherActivity"
             android:exported="false"
             android:taskAffinity=""
             android:excludeFromRecents="true"
             android:theme="@android:style/Theme.NoDisplay" />
+        <activity android:name=".ExerciseAnalyticsActivity"/>
 
         <service
             android:name=".WorkoutForegroundService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
+
         <service
             android:name=".HrDataListenerService"
             android:exported="true">
@@ -63,6 +75,18 @@
                 <data android:scheme="wear" android:host="*" android:pathPrefix="/hr" />
             </intent-filter>
         </service>
+        <service
+            android:name=".DataLayerListenerService"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.google.android.gms.wearable.MESSAGE_RECEIVED" />
+                <data
+                    android:host="*"
+                    android:pathPrefix="/workout_state"
+                    android:scheme="wear" />
+            </intent-filter>
+        </service>
+
     </application>
 
 </manifest>

@@ -46,6 +46,7 @@ animationCore = "1.9.1"
 ui = "1.9.1"
 uiGraphics = "1.9.1"
 firebaseCommonKtx = "22.0.1"
+composeNavigation = "1.5.3"
 [libraries]
 accompanist-navigation-animation = { module = "com.google.accompanist:accompanist-navigation-animation", version.ref = "accompanistNavigationAnimation" }
 accompanist-navigation-animation-vlatest = { module = "com.google.accompanist:accompanist-navigation-animation", version.ref = "accompanistNavigationAnimationVersion" }
@@ -102,6 +103,7 @@ androidx-animation-core = { group = "androidx.compose.animation", name = "animat
 androidx-compose-ui-ui = { group = "androidx.compose.ui", name = "ui", version.ref = "ui" }
 androidx-compose-ui-ui-graphics3 = { group = "androidx.compose.ui", name = "ui-graphics", version.ref = "uiGraphics" }
 firebase-common-ktx = { group = "com.google.firebase", name = "firebase-common-ktx", version.ref = "firebaseCommonKtx" }
+androidx-compose-navigation = { group = "androidx.wear.compose", name = "compose-navigation", version.ref = "composeNavigation" }
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
 kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }

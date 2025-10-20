@@ -34,16 +34,34 @@ object PDE {
      * @param workoutName e.g., "Bench Press"
      * @param timeMillis  duration in milliseconds (non-negative)
      * @param weightKg    null => bodyweight; otherwise kg (e.g., 60f)
+     * @param reps        (optional) number of repetitions
+     * @param sets        (optional) number of sets
+     * @param distanceM   (optional) distance in meters
      */
-    suspend fun logWorkout(workoutName: String, timeMillis: Long, weightKg: Float?) {
+    suspend fun logWorkout(
+        workoutName: String,
+        timeMillis: Long,
+        weightKg: Float?,
+        reps: Int? = null,
+        sets: Int? = null,
+        distanceM: Float? = null
+    ) {
         ensureInit()
 
         val ts = nowStamp()
         val name = normText(workoutName).take(48).ifBlank { "Unnamed" }
-        val timeStr = formatDuration(timeMillis.coerceAtLeast(0))
-        val weightStr = weightKg?.let { formatWeight(it) } ?: "BW"
 
-        val line = "[$ts] workout: name=$name | time=$timeStr | weight=$weightStr\n"
+        val details = mutableListOf(
+            "name=$name",
+            "time=${formatDuration(timeMillis.coerceAtLeast(0))}",
+            "weight=${weightKg?.let { formatWeight(it) } ?: "BW"}"
+        )
+
+        reps?.takeIf { it > 0 }?.let { details.add("reps=$it") }
+        sets?.takeIf { it > 0 }?.let { details.add("sets=$it") }
+        distanceM?.takeIf { it > 0 }?.let { details.add("dist=${formatDistance(it)}") }
+
+        val line = "[$ts] workout: ${details.joinToString(" | ")}\n"
 
         app.pdeStore.edit { prefs ->
             val current = prefs[KEY_TAPE].orEmpty()
@@ -82,6 +100,23 @@ object PDE {
         else "${"%.1f".format(Locale.US, v)}kg"
     }
 
+    private fun formatDistance(m: Float): String {
+        val v = if (m.isNaN() || m.isInfinite()) 0f else m.coerceAtLeast(0f)
+        return when {
+            v >= 1000f -> {
+                val km = v / 1000f
+                val asInt = km.toInt()
+                if (abs(km % 1f) == 0f) "${asInt}km"
+                else "${"%.2f".format(Locale.US, km)}km"
+            }
+            else -> {
+                val asInt = v.toInt()
+                if (abs(v % 1f) == 0f) "${asInt}m"
+                else "${"%.1f".format(Locale.US, v)}m"
+            }
+        }
+    }
+
     private fun formatDuration(ms: Long): String {
         val totalSec = ms / 1000
         val h = totalSec / 3600
@@ -91,7 +126,7 @@ object PDE {
             if (h > 0) append("${h}h ")
             if (m > 0) append("${m}m ")
             append("${s}s")
-        }.trim()
+        }.trim().ifEmpty { "0s" }
     }
 
     private fun trimToLimit(s: String, limit: Int): String {

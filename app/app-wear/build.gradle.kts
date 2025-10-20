@@ -2,7 +2,6 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
-    id("com.google.gms.google-services")
 }
 
 android {
@@ -34,7 +33,6 @@ android {
     kotlinOptions {
         jvmTarget = "11"
     }
-    useLibrary("wear-sdk")
     buildFeatures {
         compose = true
     }
@@ -53,6 +51,7 @@ dependencies {
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.core.splashscreen)
     implementation(libs.androidx.compose.material3.material3)
+    implementation(libs.androidx.compose.navigation)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.ui.test.junit4)
     debugImplementation(libs.androidx.ui.tooling)

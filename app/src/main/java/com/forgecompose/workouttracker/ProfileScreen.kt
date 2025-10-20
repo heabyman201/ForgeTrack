@@ -26,6 +26,7 @@ import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -37,8 +38,14 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
 import com.forgecompose.workouttracker.blurAnim.intensity
 import com.forgecompose.workouttracker.blurAnim.length
+
 import java.text.SimpleDateFormat
 import java.util.*
+import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.sin
+import kotlin.random.Random
+import kotlinx.coroutines.delay
 
 data class PersonalRecord(val exerciseName: String, val maxWeight: Double)
 
@@ -90,12 +97,47 @@ fun UserProfileScreen(
     val introProgress by animateFloatAsState(targetValue = if (showIntro) 0f else 1f, animationSpec = tween(650, easing = LinearEasing), label = "introFade")
     LaunchedEffect(Unit) { showIntro = false }
 
-    val staticGradientBrush = remember {
-        Brush.radialGradient(
-            colors = listOf(Color(0xFF2A0F0F), Color(0xFF3D0000), Color(0xFF060202)),
-            radius = 1200f,
-            center = Offset(0.5f, 0.4f)
-        )
+    val performanceOptions by PerformanceOptionsManager.flow(context)
+        .collectAsState(initial = PerformanceOptions.Defaults)
+    val movingEffectsEnabled = performanceOptions.movingGradientAndParticles
+    val shouldAnimate = stages.afterFirstFrame
+    var animationClock by remember { mutableStateOf(0f) }
+
+    LaunchedEffect(shouldAnimate, movingEffectsEnabled) {
+        if (shouldAnimate && movingEffectsEnabled) {
+            var lastFrameTime = 0L
+            while (true) {
+                val currentTime = withFrameNanos { it }
+                if (lastFrameTime != 0L) {
+                    val deltaTime = (currentTime - lastFrameTime) / 1_000_000_000f
+                    animationClock += deltaTime
+                }
+                lastFrameTime = currentTime
+                delay(42)
+            }
+        }
+    }
+
+    val fullPi = 2f * PI.toFloat()
+    val waveOffset = (animationClock * fullPi / 22f) % fullPi
+    val pulseAlpha = 0.25f + 0.10f * sin(animationClock * fullPi / 8f)
+    val glowIntensity = 0.4f + 0.2f * sin(animationClock * fullPi / 6f)
+    val gradientProgress = (animationClock / 15f) % 2f
+    val gradientOffset = if (gradientProgress > 1f) 2f - gradientProgress else gradientProgress
+
+    val clampedGlow by remember { derivedStateOf { glowIntensity.coerceIn(0f, 1f) } }
+    val clampedPulse by remember { derivedStateOf { pulseAlpha.coerceIn(0f, 1f) } }
+    val clampedGrad by remember { derivedStateOf { gradientOffset.coerceIn(0f, 1f) } }
+
+    val wavePath = remember { Path() }
+    val particleSeed = remember { Random(42) }
+    val particles = remember {
+        List(12) { i ->
+            val baseX = i / 12f
+            val yOff = 0.15f + particleSeed.nextFloat() * 0.25f
+            val r = 1.8f + particleSeed.nextFloat() * 2.0f
+            Triple(baseX, yOff, r)
+        }
     }
 
     val nameStyle = MaterialTheme.typography.headlineMedium.copy(
@@ -113,10 +155,60 @@ fun UserProfileScreen(
             .fillMaxSize()
             .blur(blurAnim)
             .drawWithCache {
+                val bgBrush = Brush.radialGradient(
+                    colors = listOf(
+                        Color(0xFF702727).copy(alpha = 0.85f + clampedGrad * 0.45f),
+                        Color(0xFF3A1515).copy(alpha = 0.7f + clampedGrad * 0.3f),
+                        Color(0xFF2A0D0D).copy(alpha = 0.8f + clampedGrad * 0.2f),
+                        Color(0xFF1A0808).copy(alpha = 0.9f + clampedGrad * 0.1f),
+                        Color(0xFF0D0404)
+                    ),
+                    radius = 1200f + (clampedGrad * 400f),
+                    center = Offset(0.3f + clampedGrad * 0.4f, 0.2f + clampedGrad * 0.3f)
+                )
                 onDrawBehind {
-                    drawRect(Color(0xFF060202))
-                    drawRect(staticGradientBrush)
-                    if (introProgress < 1f) drawRect(introBrush, alpha = 1f - introProgress)
+                    drawRect(bgBrush)
+                    if (stages.after600ms && shouldAnimate && movingEffectsEnabled) {
+                        val baseAlpha = clampedPulse
+                        val g = clampedGlow
+                        val w = size.width
+                        val h = size.height
+                        for (layer in 0..2) {
+                            val layerOffset = waveOffset + (layer * PI.toFloat() / 4)
+                            val layerAlpha = baseAlpha * (0.25f + layer * 0.12f) * g
+                            val layerColor = when (layer) {
+                                0 -> Color(0xFF4A1A1A).copy(alpha = layerAlpha)
+                                1 -> Color(0xFF3A1515).copy(alpha = layerAlpha * 0.8f)
+                                else -> Color(0xFF2A0D0D).copy(alpha = layerAlpha * 0.6f)
+                            }
+                            wavePath.reset()
+                            val baseY = h * (0.22f + layer * 0.16f)
+                            val step = (w / 36f).coerceAtLeast(10f)
+                            var x = 0f
+                            val waveHeight = 90f
+                            while (x <= w) {
+                                val t = x / w
+                                val phase = t * 3f * PI.toFloat() + layerOffset
+                                val y =
+                                    baseY + sin(phase) * waveHeight * (0.55f + layer * 0.22f) * g
+                                wavePath.lineTo(x, y)
+                                x += step
+                            }
+                            wavePath.lineTo(w, h)
+                            wavePath.lineTo(0f, h)
+                            wavePath.close()
+                            drawPath(path = wavePath, color = layerColor)
+                        }
+                        particles.forEachIndexed { i, (baseX, yOff, r) ->
+                            val px = w * baseX + sin(waveOffset * 0.7f + i) * 60f * g
+                            val py = h * yOff + cos(waveOffset * 0.5f + i * 0.3f) * 60f
+                            val alpha = baseAlpha * (0.35f + sin(waveOffset + i) * 0.25f) * g
+                            drawCircle(Color.White.copy(alpha = alpha), r, Offset(px, py))
+                        }
+                    }
+                    if (introProgress < 1f) {
+                        drawRect(introBrush, alpha = 1f - introProgress)
+                    }
                 }
             }
     ) {
@@ -131,7 +223,7 @@ fun UserProfileScreen(
                         }
                     },
                     actions = {
-                        IconButton(onClick = { navController.navigate("PersonaSettings") }) {
+                        IconButton(onClick = { navController.navigate("Settings") }) {
                             Icon(Icons.Default.Settings, contentDescription = "Settings")
                         }
                     },

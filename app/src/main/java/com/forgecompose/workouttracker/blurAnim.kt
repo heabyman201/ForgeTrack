@@ -7,6 +7,10 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 
 object PerfTuning {
     data class Snapshot(
@@ -49,15 +53,23 @@ object PerfTuning {
 object blurAnim {
     var length = mutableLongStateOf(700L)
     var intensity = mutableStateOf(14.dp)
+    private var calculatedIntensity = 14.dp
 
     @Volatile private var initialized = false
 
     fun init(appContext: Context) {
         if (initialized) return
+        initialized = true
+
         val snap = PerfTuning.snapshot(appContext)
+        calculatedIntensity = PerfTuning.defaultIntensityDp(snap)
 
-        intensity.value = PerfTuning.defaultIntensityDp(snap)
+        CoroutineScope(Dispatchers.Main).launch {
 
+            PerformanceOptionsManager.current.collect { options ->
+                intensity.value = if (options.blurEnabled) calculatedIntensity else 0.dp
+            }
+        }
 
         length.longValue = when {
             snap.mediaPerfClass >= 13 -> 750L
@@ -65,7 +77,5 @@ object blurAnim {
             snap.isLowRam || snap.memClassMb < 256 || snap.cpuCores <= 4 -> 650L
             else -> 700L
         }
-
-        initialized = true
     }
 }

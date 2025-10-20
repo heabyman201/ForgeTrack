@@ -6,12 +6,12 @@ import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.structuralEqualityPolicy
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.forgecompose.workouttracker.dynamicModel.currentModel
 import com.google.ai.client.generativeai.GenerativeModel
+import com.google.ai.client.generativeai.type.content
 import com.google.ai.client.generativeai.type.RequestOptions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -87,12 +87,13 @@ class GeminiUtilityViewModel(application: Application) : AndroidViewModel(applic
 
     fun setDynamicModel(value1: String?, value2: String?, value3: String?) {
         val (complexity, contextPressure, latencyTolerance) = takeThreeNumbers(value1, value2, value3)
-        val heavyScore = (2 * complexity) + (2 * contextPressure) - latencyTolerance
+        val heavyScore = (2 * complexity) + (2 * contextPressure) + latencyTolerance
         val model = when {
-            heavyScore >= 32 -> Models.PRO
-            heavyScore >= 9  -> Models.FLASH
-            heavyScore >= 6  -> Models.G12B
-            heavyScore >= 3  -> Models.G4B
+            heavyScore >= 40 -> Models.PREMIUM
+            heavyScore >= 30 -> Models.PRO
+            heavyScore >= 20 -> Models.FLASH
+            heavyScore >= 10 -> Models.G12B
+            heavyScore >= 5  -> Models.G4B
             else             -> Models.G1B
         }
         currentModel.value = model
@@ -105,7 +106,6 @@ class GeminiUtilityViewModel(application: Application) : AndroidViewModel(applic
             return
         }
 
-        if (dynamicModel.personaConfig.value.enabled) return
         val now = System.currentTimeMillis()
         if (now - lastCallMs < MIN_INTERVAL_MS) return
         lastCallMs = now
@@ -123,36 +123,35 @@ class GeminiUtilityViewModel(application: Application) : AndroidViewModel(applic
             currentModel.value
         }
 
-        val persona = dynamicModel.personaMode.value
+        val persona = dynamicModel.personaConfig.value.mode
         val key = cacheKey(selectedModel, persona, sanitizedContext, v1s, v2s, v3s)
         val nowTs = System.currentTimeMillis()
 
-        if (!isGemma(selectedModel)) {
-            val cached = cache[key]
-            if (cached != null && nowTs - cached.timestampMs < CACHE_WINDOW_MS) {
-                advice = cached.text
-                return
-            }
+        val cached = cache[key]
+        if (cached != null && nowTs - cached.timestampMs < CACHE_WINDOW_MS) {
+            advice = cached.text
+            return
         }
 
         isLoading = true
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val prompt = createGenericPrompt(sanitizedContext, v1s, v2s, v3s)
+                val systemPrompt = createSystemPrompt(persona)
+                val userPrompt = createUserPrompt(sanitizedContext, v1s, v2s, v3s)
                 val keyApi = SecureGeminiStore.readApiKey()
                     ?: com.forgecompose.workouttracker.BuildConfig.API_KEY
 
                 val gm = GenerativeModel(
                     modelName = selectedModel,
                     apiKey = keyApi,
+                    systemInstruction = content { text(systemPrompt) },
                     requestOptions = RequestOptions(timeout = 30.seconds),
                 )
 
                 var lastError: Throwable? = null
                 repeat(3) { attempt ->
                     try {
-                        if (DEBUG) { /* no-op */ }
-                        val response = gm.generateContent(prompt)
+                        val response = gm.generateContent(content { text(userPrompt) })
                         val raw = response.text ?: "Try again later."
                         val cleaned = postProcess(raw)
                         advice = cleaned
@@ -183,8 +182,9 @@ class GeminiUtilityViewModel(application: Application) : AndroidViewModel(applic
         }
     }
 
-    private fun createGenericPrompt(context: String, v1: String, v2: String, v3: String): String {
-        val personaInstruction = when (dynamicModel.personaMode.value.lowercase()) {
+
+    private fun createSystemPrompt(personaMode: String): String {
+        val personaInstruction = when (personaMode.lowercase()) {
             "coach" -> """
         Voice: steady, concise, confident. No clichés.
         Cadence: short, directive sentences.
@@ -272,11 +272,20 @@ Style Tint (Persona Overlay):
 $personaInstruction
 
 Output Rules:
-- 1–3 sentences, max ~35 words total; prefer 2 sentences.
+- 1–2 sentences, max 25 words total, under 160 characters.
 - Include one concrete directive + one immediate next step (rest, adjust load/tempo, scale weight, tweak stance).
 - If suggesting change, state the minimal measurable tweak (e.g., “reduce by 2.5–5 KG”, “tempo 3-1-1”).
 - No echoing inputs, labels, lists, JSON, or code fences. No quotation marks.
 
+Self-Check Before Responding (silent):
+- Is the cue observable and specific?
+- Does the next step reduce risk and increase clarity?
+- Did I avoid filler, emojis, and theatrics outside persona rules?
+    """.trimIndent()
+    }
+
+    private fun createUserPrompt(context: String, v1: String, v2: String, v3: String): String {
+        return """
 Context Window:
 - Training situation or goal:
 $context
@@ -285,11 +294,6 @@ Private Inputs (do not echo; only use for tailoring):
 - $v1
 - $v2
 - $v3
-
-Self-Check Before Responding (silent):
-- Is the cue observable and specific?
-- Does the next step reduce risk and increase clarity?
-- Did I avoid filler, emojis, and theatrics outside persona rules?
     """.trimIndent()
     }
 
@@ -319,7 +323,7 @@ Self-Check Before Responding (silent):
         val ensured = if (wordCount(candidate) < 8 && wordCount(unquoted) >= 8) {
             unquoted.split(Regex("\\s+")).take(24).joinToString(" ").trim()
         } else candidate
-        val clipped = ensured.take(240).trim()
+        val clipped = ensured.take(160).trim()
         return if (clipped.isNotEmpty() && clipped.last() !in ".!?") "$clipped." else clipped
     }
 }
@@ -348,15 +352,7 @@ object dynamicModel {
     }
 
     val personaConfig: MutableState<PersonaConfig> =
-        mutableStateOf(PersonaConfig("coach", false))
+        mutableStateOf(PersonaConfig("coach", true))
 
-    val personaMode: MutableState<String> = object : MutableState<String> {
-        override var value: String
-            get() = personaConfig.value.mode
-            set(v) { personaConfig.value = personaConfig.value.copy(mode = v.sanitizePersona()) }
 
-        override fun component1(): String = value
-        override fun component2(): (String) -> Unit = { new -> value = new }
-        val policy = structuralEqualityPolicy<String>()
-    }
 }

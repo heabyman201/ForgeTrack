@@ -31,10 +31,12 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -132,7 +134,7 @@ private fun formatHMS(totalSec: Long): String {
     }.trim()
 }
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WeeklySummaryScreen(
     tapeFlow: Flow<String>,
@@ -140,6 +142,13 @@ fun WeeklySummaryScreen(
     zoneId: ZoneId = ZoneId.systemDefault(),
     navController: NavController
 ) {
+    val cfg = LocalConfiguration.current
+    val widthDp = cfg.screenWidthDp
+    val heightDp = cfg.screenHeightDp
+    val isTall = heightDp >= 600
+    val isTwoPane = widthDp >= 840 || (widthDp >= 600 && isTall)
+    val compactTitle = widthDp < 360
+
     val lazyListState = rememberLazyListState()
 
     val crimson = Color(0xFF4A0000)
@@ -182,9 +191,12 @@ fun WeeklySummaryScreen(
                 title = {
                     Text(
                         "${summary.weekStart} — ${summary.weekEnd}",
-                        style = MaterialTheme.typography.titleLarge,
+                        style = if (compactTitle) MaterialTheme.typography.titleMedium else MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
-                        color = Color.White
+                        color = Color.White,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        letterSpacing = if (compactTitle) 0.sp else 0.2.sp
                     )
                 },
                 navigationIcon = {
@@ -219,49 +231,113 @@ fun WeeklySummaryScreen(
                 Text("No data yet", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         } else {
-            LazyColumn(
-                state = lazyListState,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-                    .padding(horizontal = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-                contentPadding = PaddingValues(bottom = 100.dp)
-            ) {
-                item(key = "summary-header") {
-                    GlassCard {
-                        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Text("Summary", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, color = Color.White)
-                            SummaryHeader(totalSec = summary.totalSec, totalCount = summary.totalCount)
+            if (isTwoPane) {
+                Row(
+                    Modifier
+                        .fillMaxSize()
+                        .padding(padding)
+                        .padding(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    LazyColumn(
+                        state = rememberLazyListState(),
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight(),
+                        verticalArrangement = Arrangement.spacedBy(16.dp),
+                        contentPadding = PaddingValues(bottom = 100.dp)
+                    ) {
+                        item(key = "summary-header") {
+                            GlassCard {
+                                Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    Text("Summary", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    SummaryHeader(totalSec = summary.totalSec, totalCount = summary.totalCount)
+                                }
+                            }
+                        }
+                        item(key = "days") {
+                            GlassCard {
+                                Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    Text("This Week", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    DayStrip(days = summary.days)
+                                }
+                            }
+                        }
+                    }
+                    LazyColumn(
+                        state = lazyListState,
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight(),
+                        verticalArrangement = Arrangement.spacedBy(16.dp),
+                        contentPadding = PaddingValues(bottom = 100.dp)
+                    ) {
+                        if (summary.byWorkout.isNotEmpty()) {
+                            item(key = "by-workout-title") {
+                                Text("By Workout", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(top = 4.dp), color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                            items(summary.byWorkout, key = { it.name }) { agg ->
+                                AnimatedVisibility(
+                                    visible = true,
+                                    enter = fadeIn(tween(300)) + expandVertically(tween(300, easing = FastOutSlowInEasing)),
+                                    exit = fadeOut()
+                                ) {
+                                    WorkoutRow(agg)
+                                }
+                            }
+                        } else {
+                            item(key = "no-by-workout") {
+                                Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
+                                    Text("No data this week", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
                         }
                     }
                 }
-                item(key = "days") {
-                    GlassCard {
-                        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Text("This Week", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, color = Color.White)
-                            DayStrip(days = summary.days)
+            } else {
+                LazyColumn(
+                    state = lazyListState,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(padding)
+                        .padding(horizontal = if (widthDp >= 400) 16.dp else 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    contentPadding = PaddingValues(bottom = 100.dp)
+                ) {
+                    item(key = "summary-header") {
+                        GlassCard {
+                            Column(Modifier.padding(if (widthDp >= 400) 20.dp else 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                Text("Summary", style = if (widthDp >= 400) MaterialTheme.typography.titleLarge else MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                SummaryHeader(totalSec = summary.totalSec, totalCount = summary.totalCount)
+                            }
                         }
                     }
-                }
-                if (summary.byWorkout.isNotEmpty()) {
-                    item(key = "by-workout-title") {
-                        Text("By Workout", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(top = 4.dp), color = Color.White)
-                    }
-                    items(summary.byWorkout, key = { it.name }) { agg ->
-                        AnimatedVisibility(
-                            visible = true,
-                            enter = fadeIn(tween(300)) + expandVertically(tween(300, easing = FastOutSlowInEasing)),
-                            exit = fadeOut(),
-
-                        ) {
-                            WorkoutRow(agg)
+                    item(key = "days") {
+                        GlassCard {
+                            Column(Modifier.padding(if (widthDp >= 400) 20.dp else 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                Text("This Week", style = if (widthDp >= 400) MaterialTheme.typography.titleLarge else MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                DayStrip(days = summary.days)
+                            }
                         }
                     }
-                } else {
-                    item(key = "no-by-workout") {
-                        Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
-                            Text("No data this week", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (summary.byWorkout.isNotEmpty()) {
+                        item(key = "by-workout-title") {
+                            Text("By Workout", style = if (widthDp >= 400) MaterialTheme.typography.titleLarge else MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 4.dp), color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                        items(summary.byWorkout, key = { it.name }) { agg ->
+                            AnimatedVisibility(
+                                visible = true,
+                                enter = fadeIn(tween(300)) + expandVertically(tween(300, easing = FastOutSlowInEasing)),
+                                exit = fadeOut()
+                            ) {
+                                WorkoutRow(agg)
+                            }
+                        }
+                    } else {
+                        item(key = "no-by-workout") {
+                            Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
+                                Text("No data this week", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
                         }
                     }
                 }
@@ -278,9 +354,6 @@ fun WeeklySummaryScreen(
         }
     }
 }
-
-
-
 
 @Composable
 private fun SummaryHeader(totalSec: Long, totalCount: Int) {
@@ -310,7 +383,7 @@ private fun StatCard(title: String, value: String, icon: @Composable () -> Unit,
         colors = CardDefaults.cardColors(containerColor = crimsonContainerColor.copy(alpha = 0.4f)),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
-        Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(
                 modifier = Modifier
                     .size(40.dp)
@@ -322,8 +395,8 @@ private fun StatCard(title: String, value: String, icon: @Composable () -> Unit,
             }
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
-                Text(title, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text(value, style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold), color = Color.White)
+                Text(title, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(value, style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold), color = Color.White, maxLines = 1, overflow = TextOverflow.Clip)
             }
         }
     }
@@ -377,13 +450,15 @@ private fun DayPill(label: String, value: Long, maxValue: Long, sub: String) {
             }
         }
         Spacer(Modifier.height(6.dp))
-        Text(label, style = MaterialTheme.typography.labelSmall, color = Color.White)
-        Text(sub, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(label, style = MaterialTheme.typography.labelSmall, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(sub, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
     }
 }
 
 @Composable
 private fun WorkoutRow(a: WorkoutAggregate) {
+    val cfg = LocalConfiguration.current
+    val widthDp = cfg.screenWidthDp
     val safeName = remember(a.name) { a.name.ifBlank { "Unnamed" } }
     val time = remember(a.totalSec) { formatHMS(a.totalSec) }
     val weight = a.avgWeightKg?.let { "${(it * 10.0).roundToInt() / 10.0}kg" } ?: "BW"
@@ -395,12 +470,12 @@ private fun WorkoutRow(a: WorkoutAggregate) {
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
             .background(crimsonColor.copy(alpha = 0.4f))
-            .padding(14.dp),
+            .padding(horizontal = if (widthDp >= 400) 14.dp else 12.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
             Modifier
-                .size(40.dp)
+                .size(if (widthDp >= 400) 40.dp else 36.dp)
                 .clip(CircleShape)
                 .background(crimsonColor.copy(alpha = 0.5f)),
             contentAlignment = Alignment.Center
@@ -408,19 +483,20 @@ private fun WorkoutRow(a: WorkoutAggregate) {
             Text(
                 safeName.take(1).uppercase(),
                 style = MaterialTheme.typography.titleMedium,
-                color = crimsonHighlight
+                color = crimsonHighlight,
+                maxLines = 1
             )
         }
-        Spacer(Modifier.width(12.dp))
+        Spacer(Modifier.width(if (widthDp >= 400) 12.dp else 10.dp))
         Column(Modifier.weight(1f)) {
             Text(
                 safeName,
-                style = MaterialTheme.typography.bodyLarge,
+                style = if (widthDp >= 400) MaterialTheme.typography.bodyLarge else MaterialTheme.typography.bodyMedium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 color = Color.White
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Chip(time)
                 Chip("${a.count}x")
                 Chip(weight)
@@ -440,7 +516,9 @@ private fun Chip(text: String) {
         Text(
             text,
             style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Clip
         )
     }
 }

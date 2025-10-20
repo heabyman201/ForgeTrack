@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "397225525667",
+    "project_id": "forgetrack-bd9be",
+    "storage_bucket": "forgetrack-bd9be.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:397225525667:android:484ff55aeb0b372aea5a16",
+        "android_client_info": {
+          "package_name": "com.forgecompose.workouttracker"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAyoYmVhcKUd41adif_cy9yipJ2vxPplgo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

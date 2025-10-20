@@ -129,9 +129,12 @@ data class WorkoutSummary(
 )
 
 private fun friendlyAgo(now: Instant, then: Instant): String {
+    val mins = ChronoUnit.MINUTES.between(then, now)
+    if (mins < 60) return "${max(0L, mins)}m ago"
+    val hours = ChronoUnit.HOURS.between(then, now)
+    if (hours < 24) return "${hours}h ago"
     val days = ChronoUnit.DAYS.between(then, now)
     return when {
-        days <= 0 -> "today"
         days == 1L -> "1d ago"
         days < 7 -> "${days}d ago"
         else -> "${days / 7}w ago"
@@ -149,9 +152,14 @@ private fun bmi(weightKg: Int, heightCm: Int): Float {
     return if (h <= 0f) 0f else weightKg / (h * h)
 }
 
+private fun parseYearsFromExperience(e: String): Float? {
+    val rx = Regex("""(\d+(?:\.\d+)?)\s*(?:y|yr|yrs|year|years)?""")
+    return rx.find(e)?.groupValues?.getOrNull(1)?.toFloatOrNull()
+}
+
 private fun expMultFrom(experience: String): Float {
     val e = experience.trim().lowercase(Locale.US)
-    val num = e.toFloatOrNull()
+    val num = parseYearsFromExperience(e)
     return when {
         num != null && num >= 8f -> 1.18f
         num != null && num >= 5f -> 1.12f
@@ -274,7 +282,8 @@ private val nameToMuscles: List<Pair<Regex, List<MuscleGroups>>> =
 
 private data class ParsedVolume(val sets: Int?, val reps: Int?, val weightKg: Float?)
 
-private val tripletRx = Regex("""(?:(\d+)\s*[xX]\s*(\d+))(?:\s*@\s*([0-9]*\.?[0-9]+|bw|bodyweight))?""")
+private val tripletRx = Regex("""(?:(\d+)\s*[xX]\s*(\d+)(?:\s*[xX]\s*([0-9]*\.?[0-9]+))?)(?:\s*@\s*([0-9]*\.?[0-9]+|bw|bodyweight))?""")
+private val inlineWordsRx = Regex("""(?:(\d+)\s*sets?)|(?:(\d+)\s*reps?)|(?:(\d+)\s*kg)|(?:(\d+)\s*lbs?)""", RegexOption.IGNORE_CASE)
 private val kvRx = Regex("""(?:\bsets\s*=\s*(\d+))?|(?:\breps\s*=\s*(\d+))?|(?:\bweight\s*=\s*([0-9]*\.?[0-9]+|bw|bodyweight))?""", RegexOption.IGNORE_CASE)
 
 private fun parseVolumeFromText(s: String): ParsedVolume {
@@ -282,17 +291,29 @@ private fun parseVolumeFromText(s: String): ParsedVolume {
     tripletRx.find(lower)?.let { m ->
         val sets = m.groupValues[1].toIntOrNull()
         val reps = m.groupValues[2].toIntOrNull()
-        val wtStr = m.groupValues.getOrNull(3)?.trim().orEmpty()
-        val weight = when {
-            wtStr.isEmpty() -> null
-            wtStr == "bw" || wtStr == "bodyweight" -> null
-            else -> wtStr.toFloatOrNull()
+        val third = m.groupValues.getOrNull(3)?.toFloatOrNull()
+        val at = m.groupValues.getOrNull(4)?.trim().orEmpty()
+        val w = when {
+            at.isEmpty() && third != null -> third
+            at == "bw" || at == "bodyweight" -> null
+            at.isNotEmpty() -> at.toFloatOrNull()
+            else -> null
         }
-        return ParsedVolume(sets, reps, weight)
+        return ParsedVolume(sets, reps, w)
     }
     var sets: Int? = null
     var reps: Int? = null
     var weight: Float? = null
+    inlineWordsRx.findAll(lower).forEach { m ->
+        val g1 = m.groups[1]?.value?.toIntOrNull()
+        val g2 = m.groups[2]?.value?.toIntOrNull()
+        val g3 = m.groups[3]?.value?.toFloatOrNull()
+        val g4 = m.groups[4]?.value?.toFloatOrNull()
+        if (g1 != null) sets = g1
+        if (g2 != null) reps = g2
+        if (g3 != null) weight = g3
+        if (g4 != null) weight = (g4 * 0.45359237f)
+    }
     kvRx.findAll(lower).forEach { m ->
         val g1 = m.groups[1]?.value?.toIntOrNull()
         val g2 = m.groups[2]?.value?.toIntOrNull()
@@ -309,23 +330,36 @@ private fun parseVolumeFromText(s: String): ParsedVolume {
     return ParsedVolume(sets, reps, weight)
 }
 
+private fun difficultyWordMult(token: String): Float {
+    var m = 1f
+    if ("amrap" in token || "failure" in token) m *= 1.08f
+    if ("drop set" in token || "dropset" in token) m *= 1.06f
+    if ("super set" in token || "superset" in token) m *= 1.04f
+    if ("rest pause" in token || "rest-pause" in token) m *= 1.05f
+    if ("tempo" in token) m *= 1.03f
+    return m
+}
+
 private fun effectiveSetsFromToken(token: String, profile: UserProfile): Float {
     val p = parseVolumeFromText(token)
     val baseSets = (p.sets ?: 1).coerceAtLeast(1)
     val reps = (p.reps ?: 8).coerceAtLeast(1)
     val repsFactor = when {
-        reps <= 4 -> 0.82f
+        reps <= 3 -> 0.80f
+        reps <= 5 -> 0.92f
         reps <= 8 -> 1.00f
         reps <= 12 -> 0.95f
         reps <= 20 -> 0.85f
-        else -> 0.72f
+        reps <= 30 -> 0.78f
+        else -> 0.70f
     }
     val loadFactor = p.weightKg?.let { w ->
         val bw = profile.weightKg.coerceAtLeast(50).toFloat()
-        val ratio = (w / bw).coerceIn(0.2f, 2.0f)
-        0.70f + 0.30f * ratio.pow(0.5f)
+        val ratio = (w / bw).coerceIn(0.15f, 2.5f)
+        0.68f + 0.34f * ratio.pow(0.5f)
     } ?: 0.82f
-    return baseSets * repsFactor * loadFactor
+    val wordMult = difficultyWordMult(token)
+    return baseSets * repsFactor * loadFactor * wordMult
 }
 
 suspend fun deriveMuscleLoads(
@@ -340,9 +374,19 @@ suspend fun deriveMuscleLoads(
     val k = ln(2.0).toFloat() / halfLifeDays
     val lastTime = mutableMapOf<MuscleGroups, Instant>()
     val decayed = mutableMapOf<MuscleGroups, Float>()
+
+    val aiTokens: List<String> = aiText
+        ?.split("\n", ",", ";")
+        ?.map { it.trim() }
+        ?.filter { it.isNotEmpty() }
+        ?: emptyList()
+
     recent.forEach { w ->
         if (w.date.isBefore(start)) return@forEach
-        val tokens = if (w.exercises.isNotEmpty()) w.exercises else listOf(w.name)
+        val tokens = buildList {
+            if (w.exercises.isNotEmpty()) addAll(w.exercises) else add(w.name)
+            addAll(aiTokens)
+        }
         val sessionMuscleStimulus = mutableMapOf<MuscleGroups, Float>()
         tokens.forEach { raw ->
             val token = raw.lowercase(Locale.US)
@@ -364,12 +408,14 @@ suspend fun deriveMuscleLoads(
             if (prev == null || w.date.isAfter(prev)) lastTime[m] = w.date
         }
     }
+
     val order = listOf(
         MuscleGroups.Pecs, MuscleGroups.Delts, MuscleGroups.Biceps, MuscleGroups.Triceps,
         MuscleGroups.Lats, MuscleGroups.UpperBack, MuscleGroups.Traps, MuscleGroups.Abs,
         MuscleGroups.Quads, MuscleGroups.Hamstrings, MuscleGroups.Glutes, MuscleGroups.Calves,
         MuscleGroups.LowerBack
     )
+
     order.map { g ->
         val t = computeTargets(profile, g)
         var effWeekly = (decayed[g] ?: 0f) * (1f - exp(-k)) * 7f
@@ -380,8 +426,8 @@ suspend fun deriveMuscleLoads(
             effWeekly < t.lackingCutoff.toFloat() -> LoadBand.Lacking
             else -> LoadBand.Balanced
         }
-        val ratio = (effWeekly / t.target).coerceIn(0f, 1f)
-        val score = ratio.toDouble().pow(0.45).toFloat()
+        val ratio = (effWeekly / t.target).coerceIn(0f, 2f)
+        val score = ratio.pow(0.45f).coerceIn(0f, 1f)
         MuscleLoad(
             group = g,
             score = score,
@@ -473,13 +519,6 @@ fun MuscleStatusSection(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                "Muscle Status",
-                style = MaterialTheme.typography.headlineSmall,
-                color = Color.White,
-                fontWeight = FontWeight.Bold
-            )
-
                 val borderBrush = Brush.horizontalGradient(
                     colors = listOf(Color(0xFF8B0000), Color.LightGray)
                 )

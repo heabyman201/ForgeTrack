@@ -56,6 +56,7 @@ val workoutPresets = listOf(
     WorkoutPreset("Dumbbell Step-ups", "Dumbbell/Kettlebell"),
     WorkoutPreset("Renegade Rows", "Dumbbell/Kettlebell"),
     WorkoutPreset("Turkish Get-ups", "Dumbbell/Kettlebell"),
+    WorkoutPreset("Dumbbell Shrugs", "Dumbbell/Kettlebell"),
 
     // --- Barbell ---
     WorkoutPreset("Barbell Bench Press", "Barbell"),
@@ -72,6 +73,7 @@ val workoutPresets = listOf(
     WorkoutPreset("Good Mornings", "Barbell"),
     WorkoutPreset("Hip Thrusts", "Barbell"),
     WorkoutPreset("Barbell Curls", "Barbell"),
+    WorkoutPreset("Barbell Shrugs", "Barbell"),
 
     // --- Machines / Cables ---
     WorkoutPreset("Lat Pulldown", "Machines/Cables"),

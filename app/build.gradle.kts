@@ -108,7 +108,7 @@ dependencies {
     implementation(libs.androidx.room.common.jvm)
     ksp(libs.xandroidx.room.compiler)
 
-
+    implementation("androidx.health.connect:connect-client:1.1.0")
         implementation(libs.play.services.wearable.v1900)
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
 
@@ -116,7 +116,7 @@ dependencies {
     // Core Android libraries
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)
-    implementation(libs.material) // Google Material Components
+    implementation(libs.material)
 
     // Compose UI testing
     androidTestImplementation(platform(libs.androidx.compose.bom))

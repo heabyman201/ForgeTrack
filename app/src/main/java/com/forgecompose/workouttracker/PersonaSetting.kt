@@ -102,10 +102,11 @@ object PersonaPrefs {
     }
 }
 
-fun String.sanitizePersona(): String = when (this.lowercase()) {
-    "coach","drill","companion","companion_plus","hype","minimal","nerd","monk","scientist" -> this
+fun String.sanitizePersona(): String = when (val v = lowercase()) {
+    "coach","drill","companion","companion_plus","hype","minimal","nerd","monk","scientist" -> v
     else -> "coach"
 }
+
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -116,19 +117,8 @@ fun PersonaSettingsScreen(
     val context = LocalContext.current
     PersonaPrefs.init(context)
 
-    var localConfig: dynamicModel.PersonaConfig by remember { mutableStateOf(dynamicModel.personaConfig.value) }
-
-    LaunchedEffect(localConfig) {
-        if (dynamicModel.personaConfig.value != localConfig) {
-            dynamicModel.personaConfig.value = localConfig
-        }
-    }
-    LaunchedEffect(dynamicModel.personaConfig.value) {
-        val normalized = dynamicModel.personaConfig.value.copy(
-            mode = dynamicModel.personaConfig.value.mode.sanitizePersona()
-        )
-        if (normalized != localConfig) localConfig = normalized
-    }
+    // The global config is now the single source of truth. No more local state.
+    val currentConfig by dynamicModel.personaConfig
 
     val staticGradientBrush = remember {
         Brush.radialGradient(
@@ -221,26 +211,27 @@ fun PersonaSettingsScreen(
                             },
                             supportingContent = {
                                 Text(
-                                    if (localConfig.enabled) "Assistant responses will use your selected persona."
+                                    if (currentConfig.enabled) "Assistant responses will use your selected persona."
                                     else "Assistant is disabled: no requests will be sent.",
                                     color = Color.White.copy(alpha = 0.75f)
                                 )
                             },
                             trailingContent = {
                                 Switch(
-                                    checked = localConfig.enabled,
+                                    checked = currentConfig.enabled,
                                     onCheckedChange = { enabled ->
-                                        val updated = localConfig.copy(enabled = enabled)
-                                        localConfig = updated
+                                        val updated = currentConfig.copy(enabled = enabled)
+                                        dynamicModel.personaConfig.value = updated
                                         PersonaPrefs.writeConfig(updated)
-                                    }
+                                    },
+                                    enabled = true
                                 )
                             }
                         )
                     }
 
-                    val listAlpha = if (localConfig.enabled) 1f else 0.4f
-                    val listClickable = localConfig.enabled
+                    val listAlpha = if (currentConfig.enabled) 1f else 0.4f
+                    val listClickable = currentConfig.enabled
 
                     ElevatedCard(
                         modifier = Modifier
@@ -281,113 +272,92 @@ fun PersonaSettingsScreen(
                                 .padding(vertical = 4.dp)
                         ) {
                             Column {
+                                val onSelectPersona = { mode: String ->
+                                    val updated = currentConfig.copy(mode = mode.sanitizePersona())
+                                    dynamicModel.personaConfig.value = updated
+                                    PersonaPrefs.writeConfig(updated)
+                                }
+
                                 PersonaOptionRowThemed(
                                     title = "Supportive Coach",
                                     subtitle = "Friendly, encouraging, practical",
                                     value = "coach",
-                                    selected = localConfig.mode,
-                                    enabled = listClickable
-                                ) { select ->
-                                    val updated = localConfig.copy(mode = select.sanitizePersona())
-                                    localConfig = updated
-                                    PersonaPrefs.writeConfig(updated)
-                                }
+                                    selected = currentConfig.mode,
+                                    enabled = listClickable,
+                                    onSelect = onSelectPersona
+                                )
                                 Divider(color = Color.White.copy(alpha = 0.06f))
                                 PersonaOptionRowThemed(
                                     title = "Disciplined Trainer",
                                     subtitle = "Crisp, direct, safety-first",
                                     value = "drill",
-                                    selected = localConfig.mode,
-                                    enabled = listClickable
-                                ) { select ->
-                                    val updated = localConfig.copy(mode = select.sanitizePersona())
-                                    localConfig = updated
-                                    PersonaPrefs.writeConfig(updated)
-                                }
+                                    selected = currentConfig.mode,
+                                    enabled = listClickable,
+                                    onSelect = onSelectPersona
+                                )
                                 Divider(color = Color.White.copy(alpha = 0.06f))
                                 PersonaOptionRowThemed(
-                                    title = "102",
-                                    subtitle = "",
+                                    title = "Training Buddy",
+                                    subtitle = "Grounded, encouraging, no fluff",
                                     value = "companion",
-                                    selected = localConfig.mode,
-                                    enabled = listClickable
-                                ) { select ->
-                                    val updated = localConfig.copy(mode = select.sanitizePersona())
-                                    localConfig = updated
-                                    PersonaPrefs.writeConfig(updated)
-                                }
+                                    selected = currentConfig.mode,
+                                    enabled = listClickable,
+                                    onSelect = onSelectPersona
+                                )
                                 Divider(color = Color.White.copy(alpha = 0.06f))
                                 PersonaOptionRowThemed(
-                                    title = "103",
-                                    subtitle = "103",
+                                    title = "Hype Companion",
+                                    subtitle = "Energetic, upbeat, playful",
                                     value = "companion_plus",
-                                    selected = localConfig.mode,
-                                    enabled = listClickable
-                                ) { select ->
-                                    val updated = localConfig.copy(mode = select.sanitizePersona())
-                                    localConfig = updated
-                                    PersonaPrefs.writeConfig(updated)
-                                }
+                                    selected = currentConfig.mode,
+                                    enabled = listClickable,
+                                    onSelect = onSelectPersona
+                                )
                                 Divider(color = Color.White.copy(alpha = 0.06f))
                                 PersonaOptionRowThemed(
                                     title = "Hype Master",
                                     subtitle = "High energy, short punchy lines",
                                     value = "hype",
-                                    selected = localConfig.mode,
-                                    enabled = listClickable
-                                ) { select ->
-                                    val updated = localConfig.copy(mode = select.sanitizePersona())
-                                    localConfig = updated
-                                    PersonaPrefs.writeConfig(updated)
-                                }
+                                    selected = currentConfig.mode,
+                                    enabled = listClickable,
+                                    onSelect = onSelectPersona
+                                )
                                 Divider(color = Color.White.copy(alpha = 0.06f))
                                 PersonaOptionRowThemed(
                                     title = "Minimal",
                                     subtitle = "One-line, straight to the point",
                                     value = "minimal",
-                                    selected = localConfig.mode,
-                                    enabled = listClickable
-                                ) { select ->
-                                    val updated = localConfig.copy(mode = select.sanitizePersona())
-                                    localConfig = updated
-                                    PersonaPrefs.writeConfig(updated)
-                                }
+                                    selected = currentConfig.mode,
+                                    enabled = listClickable,
+                                    onSelect = onSelectPersona
+                                )
                                 Divider(color = Color.White.copy(alpha = 0.06f))
-//                                PersonaOptionRowThemed(
-//                                    title = "Nerd Scholar",
-//                                    subtitle = "Geeky metaphors, precise wording",
-//                                    value = "nerd",
-//                                    selected = localConfig.mode,
-//                                    enabled = listClickable
-//                                ) { select ->
-//                                    val updated = localConfig.copy(mode = select.sanitizePersona())
-//                                    localConfig = updated
-//                                    PersonaPrefs.writeConfig(updated)
-//                                }
-//                                Divider(color = Color.White.copy(alpha = 0.06f))
+                                PersonaOptionRowThemed(
+                                    title = "Nerd Scholar",
+                                    subtitle = "Geeky metaphors, precise wording",
+                                    value = "nerd",
+                                    selected = currentConfig.mode,
+                                    enabled = listClickable,
+                                    onSelect = onSelectPersona
+                                )
+                                Divider(color = Color.White.copy(alpha = 0.06f))
                                 PersonaOptionRowThemed(
                                     title = "Zen Monk",
                                     subtitle = "Calm, reflective, almost meditative",
                                     value = "monk",
-                                    selected = localConfig.mode,
-                                    enabled = listClickable
-                                ) { select ->
-                                    val updated = localConfig.copy(mode = select.sanitizePersona())
-                                    localConfig = updated
-                                    PersonaPrefs.writeConfig(updated)
-                                }
+                                    selected = currentConfig.mode,
+                                    enabled = listClickable,
+                                    onSelect = onSelectPersona
+                                )
                                 Divider(color = Color.White.copy(alpha = 0.06f))
                                 PersonaOptionRowThemed(
                                     title = "Scientist",
                                     subtitle = "Biohacker tone",
                                     value = "scientist",
-                                    selected = localConfig.mode,
-                                    enabled = listClickable
-                                ) { select ->
-                                    val updated = localConfig.copy(mode = select.sanitizePersona())
-                                    localConfig = updated
-                                    PersonaPrefs.writeConfig(updated)
-                                }
+                                    selected = currentConfig.mode,
+                                    enabled = listClickable,
+                                    onSelect = onSelectPersona
+                                )
                             }
                         }
                     }
@@ -426,11 +396,13 @@ private fun PersonaOptionRowThemed(
             )
         },
         supportingContent = {
-            Text(
-                subtitle,
-                style = MaterialTheme.typography.bodyMedium,
-                color = Color.White.copy(alpha = 0.75f)
-            )
+            if (subtitle.isNotBlank()) {
+                Text(
+                    subtitle,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color.White.copy(alpha = 0.75f)
+                )
+            }
         },
         trailingContent = {
             RadioButton(

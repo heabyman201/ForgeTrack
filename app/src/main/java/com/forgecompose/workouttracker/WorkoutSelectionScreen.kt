@@ -36,6 +36,7 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Done
 import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -60,6 +61,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
@@ -67,6 +69,7 @@ import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
@@ -87,12 +90,41 @@ import com.forgecompose.workouttracker.ui.theme.WorkoutTrackerTheme
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeEffect
 import dev.chrisbanes.haze.materials.HazeMaterials
+
+import java.time.LocalTime
+import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.sin
+import kotlin.random.Random
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 public val Context.presetUsageDataStore by preferencesDataStore("preset_usage")
+private fun levenshteinDistance(lhs: String, rhs: String): Int {
+    val lhsLength = lhs.length
+    val rhsLength = rhs.length
 
+    var cost = IntArray(lhsLength + 1) { it }
+    var newCost = IntArray(lhsLength + 1) { 0 }
+
+    for (i in 1..rhsLength) {
+        newCost[0] = i
+        for (j in 1..lhsLength) {
+            val match = if (lhs[j - 1] == rhs[i - 1]) 0 else 1
+            val costReplace = cost[j - 1] + match
+            val costInsert = cost[j] + 1
+            val costDelete = newCost[j - 1] + 1
+            newCost[j] = minOf(costInsert, costDelete, costReplace)
+        }
+        val swap = cost
+        cost = newCost
+        newCost = swap
+    }
+
+    return cost[lhsLength]
+}
 public class PresetUsageTracker(private val context: Context) {
     private val KEY = stringSetPreferencesKey("usage_set")
     private val CAP = 999
@@ -181,6 +213,46 @@ private fun MostUsedPill(count: Int, modifier: Modifier = Modifier) {
         }
     }
 }
+@Composable
+private fun ExperimentalPill( modifier: Modifier = Modifier) {
+
+
+
+    val pillShape = remember { RoundedCornerShape(12.dp) }
+
+    Surface(
+        modifier = modifier.border(
+            width = 1.dp,
+            color = Color.White.copy(alpha = 0.2f),
+            shape = pillShape
+        ),
+        shape = pillShape,
+        color = Color(0xFF4A0000).copy(alpha = 0.6f),
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+
+                imageVector = Icons.Filled.Warning,
+                contentDescription = "Experimental Feature",
+                tint = Color.White.copy(alpha = 0.9f),
+                modifier = Modifier.size(14.dp)
+            )
+            Spacer(Modifier.width(4.dp))
+
+            Text(
+                text = "Experimental Feature",
+                color = Color.White.copy(alpha = 0.9f),
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold
+            )
+        }
+    }
+}
 
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -189,29 +261,11 @@ fun WorkoutSelector(
     viewModel: WorkoutListViewModel,
     navController: NavController
 ) {
-    val staticGradientBrush = remember {
-        Brush.radialGradient(
-            colors = listOf(
-                Color(0xFF0A0404),
-                Color(0xFF2A0F0F),
-                Color(0xFF3D0000),
-                Color(0xFF4A0000),
-                Color(0xFF060202)
-            ),
-            radius = 1000f,
-            center = Offset(0.5f, 0.4f)
-        )
-    }
-    val secondaryStaticBrush = remember {
-        Brush.linearGradient(
-            colors = listOf(
-                Color(0xFF4A0000).copy(alpha = 0.2f),
-                Color.Transparent,
-                Color(0xFF2A0F0F).copy(alpha = 0.15f),
-                Color.Transparent
-            )
-        )
-    }
+    val cardioExerciseNames = listOf(
+        "Running (Treadmill)", "Stair Climber", "Elliptical Trainer",
+        "Rowing Machine", "Stationary Bike","Swimming"
+    )
+
     val haze = remember { HazeState() }
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val haptics = LocalHapticFeedback.current
@@ -220,7 +274,15 @@ fun WorkoutSelector(
     val stages = rememberColdStartStages()
     val usageTracker = remember { PresetUsageTracker(context) }
     val usageMap by usageTracker.usageFlow.collectAsState(initial = emptyMap())
-
+    val abbreviationMap = remember {
+        mapOf(
+            "db" to "dumbbell",
+            "bb" to "barbell",
+            "ohp" to "overhead press",
+            "bp" to "bench press",
+            "dl" to "deadlift"
+        )
+    }
     val hour = remember { java.time.LocalTime.now().hour }
     val introColors = remember(hour) {
         when (hour) {
@@ -267,6 +329,50 @@ fun WorkoutSelector(
         label = "blur"
     )
 
+    val performanceOptions by PerformanceOptionsManager.flow(context)
+        .collectAsState(initial = PerformanceOptions.Defaults)
+    val movingEffectsEnabled = performanceOptions.movingGradientAndParticles
+    val shouldAnimate = stages.afterFirstFrame
+    var animationClock by remember { mutableStateOf(0f) }
+
+    LaunchedEffect(shouldAnimate, movingEffectsEnabled) {
+        if (shouldAnimate && movingEffectsEnabled) {
+            var lastFrameTime = 0L
+            while (true) {
+                val currentTime = withFrameNanos { it }
+                if (lastFrameTime != 0L) {
+                    val deltaTime = (currentTime - lastFrameTime) / 1_000_000_000f
+                    animationClock += deltaTime
+                }
+                lastFrameTime = currentTime
+                delay(42)
+            }
+        }
+    }
+
+    val fullPi = 2f * PI.toFloat()
+    val waveOffset = (animationClock * fullPi / 22f) % fullPi
+    val pulseAlpha = 0.25f + 0.10f * sin(animationClock * fullPi / 8f)
+    val glowIntensity = 0.4f + 0.2f * sin(animationClock * fullPi / 6f)
+    val gradientProgress = (animationClock / 15f) % 2f
+    val gradientOffset = if (gradientProgress > 1f) 2f - gradientProgress else gradientProgress
+
+    val clampedGlow by remember { derivedStateOf { glowIntensity.coerceIn(0f, 1f) } }
+    val clampedPulse by remember { derivedStateOf { pulseAlpha.coerceIn(0f, 1f) } }
+    val clampedGrad by remember { derivedStateOf { gradientOffset.coerceIn(0f, 1f) } }
+
+    val wavePath = remember { Path() }
+    val particleSeed = remember { Random(42) }
+    val particles = remember {
+        List(12) { i ->
+            val baseX = i / 12f
+            val yOff = 0.15f + particleSeed.nextFloat() * 0.25f
+            val r = 1.8f + particleSeed.nextFloat() * 2.0f
+            Triple(baseX, yOff, r)
+        }
+    }
+
+
     WorkoutTrackerTheme {
         val intent = remember { Intent(context, WorkoutActivity::class.java) }
         var searchText by remember { mutableStateOf("") }
@@ -280,15 +386,62 @@ fun WorkoutSelector(
             "Machines/Cables"
         )
 
-        val filteredWorkoutsBase by remember(searchText, selectedCategory) {
+        val filteredWorkoutsBase by remember(searchText, selectedCategory, abbreviationMap) {
             derivedStateOf {
                 val base =
                     if (selectedCategory == "All") workoutPresets else workoutPresets.filter { it.category == selectedCategory }
-                if (searchText.isBlank()) base else base.filter {
-                    it.name.contains(
-                        searchText,
-                        ignoreCase = true
-                    )
+
+                if (searchText.isBlank()) {
+                    base
+                } else {
+                    val lowerCaseSearchText = searchText.lowercase()
+                    val searchTokens = lowerCaseSearchText.split(" ")
+                        .filter { it.isNotBlank() }
+                        .map { abbreviationMap[it] ?: it }
+                        .toSet()
+
+                    base.map { preset ->
+                        var score = 0.0
+                        val presetNameLower = preset.name.lowercase()
+                        val presetTokens = presetNameLower.split(" ").filter { it.isNotBlank() }.toSet()
+
+
+                        if (presetNameLower == lowerCaseSearchText) {
+                            score += 1000
+                        }
+
+
+                        if (presetNameLower.contains(lowerCaseSearchText)) {
+                            score += 100
+                        }
+
+
+                        val matchedTokens = searchTokens.intersect(presetTokens)
+                        score += matchedTokens.size * 10.0
+
+
+                        if (matchedTokens.size == searchTokens.size) {
+                            score += 50
+                        }
+
+
+                        if (searchText.length > 2) {
+                            for (searchToken in searchTokens) {
+                                val bestMatchDistance = presetTokens
+                                    .minOfOrNull { presetToken ->
+                                        levenshteinDistance(searchToken, presetToken)
+                                    } ?: 100
+                                val threshold = (searchToken.length / 4).coerceAtMost(2)
+                                if (bestMatchDistance <= threshold) {
+                                    score += (5.0 / (bestMatchDistance + 1))
+                                }
+                            }
+                        }
+                        preset to score
+                    }
+                        .filter { it.second > 0 }
+                        .sortedByDescending { it.second }
+                        .map { it.first }
                 }
             }
         }
@@ -306,11 +459,62 @@ fun WorkoutSelector(
                 .fillMaxSize()
                 .blur(blurAnim)
                 .drawWithCache {
+                    val bgBrush = Brush.radialGradient(
+                        colors = listOf(
+                            Color(0xFF702727).copy(alpha = 0.85f + clampedGrad * 0.45f),
+                            Color(0xFF3A1515).copy(alpha = 0.7f + clampedGrad * 0.3f),
+                            Color(0xFF2A0D0D).copy(alpha = 0.8f + clampedGrad * 0.2f),
+                            Color(0xFF1A0808).copy(alpha = 0.9f + clampedGrad * 0.1f),
+                            Color(0xFF0D0404)
+                        ),
+                        radius = 1200f + (clampedGrad * 400f),
+                        center = Offset(0.3f + clampedGrad * 0.4f, 0.2f + clampedGrad * 0.3f)
+                    )
                     onDrawBehind {
-                        drawRect(Color(0xFF060202))
-                        drawRect(staticGradientBrush)
-                        drawRect(secondaryStaticBrush)
-                        if (introProgress < 1f) drawRect(introBrush, alpha = 1f - introProgress)
+                        drawRect(bgBrush)
+                        if (stages.after600ms && shouldAnimate && movingEffectsEnabled) {
+                            val baseAlpha = clampedPulse
+                            val g = clampedGlow
+                            val w = size.width
+                            val h = size.height
+                            for (layer in 0..2) {
+                                val layerOffset = waveOffset + (layer * PI.toFloat() / 4)
+                                val layerAlpha = baseAlpha * (0.25f + layer * 0.12f) * g
+                                val layerColor = when (layer) {
+                                    0 -> Color(0xFF4A1A1A).copy(alpha = layerAlpha)
+                                    1 -> Color(0xFF3A1515).copy(alpha = layerAlpha * 0.8f)
+                                    else -> Color(0xFF2A0D0D).copy(alpha = layerAlpha * 0.6f)
+                                }
+                                wavePath.reset()
+                                val baseY = h * (0.22f + layer * 0.16f)
+                                val step = (w / 36f).coerceAtLeast(10f)
+                                var x = 0f
+                                val waveHeight = 90f
+                                while (x <= w) {
+                                    val t = x / w
+                                    val phase = t * 3f * PI.toFloat() + layerOffset
+                                    val y =
+                                        baseY + sin(phase) * waveHeight * (0.55f + layer * 0.22f) * g
+                                    wavePath.lineTo(x, y)
+                                    x += step
+                                }
+                                wavePath.lineTo(w, h)
+                                wavePath.lineTo(0f, h)
+                                wavePath.close()
+                                drawPath(path = wavePath, color = layerColor)
+                            }
+                            particles.forEachIndexed { i, (baseX, yOff, r) ->
+                                val px = w * baseX + sin(waveOffset * 0.7f + i) * 60f * g
+                                val py =
+                                    h * yOff + cos(waveOffset * 0.5f + i * 0.3f) * 60f
+                                val alpha =
+                                    baseAlpha * (0.35f + sin(waveOffset + i) * 0.25f) * g
+                                drawCircle(Color.White.copy(alpha = alpha), r, Offset(px, py))
+                            }
+                        }
+                        if (introProgress < 1f) {
+                            drawRect(introBrush, alpha = 1f - introProgress)
+                        }
                     }
                 }
         ) {
@@ -512,6 +716,9 @@ fun WorkoutSelector(
                                                 count = count,
                                                 modifier = Modifier.padding(top = 6.dp)
                                             )
+                                            if (preset.name in cardioExerciseNames) {
+                                                ExperimentalPill(modifier = Modifier.padding(top = 6.dp))
+                                            }
                                         }
                                         Icon(
                                             imageVector = Icons.AutoMirrored.Filled.ArrowForward,

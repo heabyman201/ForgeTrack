@@ -1,5 +1,5 @@
-// app-wear/src/main/java/com/example/app_wear/ui/HrScreenPro.kt
-package com.forgecompose.app_wear.ui
+
+package com.forgecompose.app_wear.presentation
 
 import android.content.Context
 import androidx.compose.animation.animateColorAsState
@@ -9,6 +9,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -29,8 +30,8 @@ import androidx.wear.compose.material.Text
 import kotlin.math.ceil
 import kotlin.math.roundToInt
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
-import com.forgecompose.app_wear.presentation.CrimsonWearTheme
 import com.google.android.gms.wearable.Wearable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.tasks.await
@@ -44,7 +45,7 @@ suspend fun isWatchConnected(context: Context): Boolean {
 fun HrScreenPro(
     bpm: Int?,
     inExercise: Boolean,
-    // extra info from your ViewModel / repo:
+
     avgBpm: Int? = null,
     minBpm: Int? = null,
     maxBpm: Int? = null,
@@ -334,7 +335,7 @@ private fun BottomControls(inExercise: Boolean, onStart: () -> Unit, onStop: () 
     ) {
         Button(
             onClick = {
-                haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                 onStart()
             },
             enabled = !inExercise
@@ -342,7 +343,7 @@ private fun BottomControls(inExercise: Boolean, onStart: () -> Unit, onStop: () 
 
         Button(
             onClick = {
-                haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                 onStop()
             },
             enabled = inExercise
@@ -380,7 +381,7 @@ private fun PulseHeart(bpm: Int?, color: Color) {
         contentAlignment = Alignment.Center
     ) {
         Icon(
-            imageVector = androidx.compose.material.icons.Icons.Rounded.Favorite,
+            imageVector = Icons.Rounded.Favorite,
             contentDescription = null,
             tint = color
         )
