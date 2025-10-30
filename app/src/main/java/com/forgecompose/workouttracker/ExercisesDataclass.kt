@@ -1,11 +1,75 @@
 package com.forgecompose.workouttracker
 
-data class WorkoutPreset(val name: String, val category: String,
-                         val goalReps: Int? = null,
-                         val goalSets: Int? = null,
-                         val goalTimeMillis: Long? = null)
+import android.content.Context
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.emptyPreferences
+import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.preferencesDataStore
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.flow.map
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 
-// --- UPDATED: The categorized list using the new data class name ---
+@Serializable
+data class WorkoutPreset(
+    val name: String,
+    val category: String,
+    val goalReps: Int? = null,
+    val goalSets: Int? = null,
+    val goalTimeMillis: Long? = null
+)
+
+private val Context.presetStore by preferencesDataStore("preset_last_state")
+
+@Serializable
+data class PresetState(
+    val weightKg: Float? = null,
+    val goalReps: Int? = null,
+    val goalSets: Int? = null,
+    val goalTimeMillis: Long? = null
+)
+
+object PresetStateRepo {
+    private fun keyFor(name: String): Preferences.Key<String> =
+        stringPreferencesKey("preset_state::${name.trim().lowercase()}")
+
+    fun observe(context: Context, presetName: String): Flow<PresetState?> =
+        context.presetStore.data
+            .catch { emit(emptyPreferences()) }
+            .map { prefs ->
+                prefs[keyFor(presetName)]?.let { Json.decodeFromString<PresetState>(it) }
+            }
+
+    suspend fun save(context: Context, presetName: String, state: PresetState) {
+        context.presetStore.edit { prefs ->
+            prefs[keyFor(presetName)] = Json.encodeToString(state)
+        }
+    }
+
+    suspend fun upsert(
+        context: Context,
+        presetName: String,
+        weightKg: Float? = null,
+        goalReps: Int? = null,
+        goalSets: Int? = null,
+        goalTimeMillis: Long? = null
+    ) {
+        val current = observe(context, presetName)
+            .map { it ?: PresetState() }
+            .firstOrNull() ?: PresetState()
+        val merged = current.copy(
+            weightKg = weightKg ?: current.weightKg,
+            goalReps = goalReps ?: current.goalReps,
+            goalSets = goalSets ?: current.goalSets,
+            goalTimeMillis = goalTimeMillis ?: current.goalTimeMillis
+        )
+        save(context, presetName, merged)
+    }
+}
 val workoutPresets = listOf(
     // --- Bodyweight (Calisthenics) ---
     WorkoutPreset("Push-ups", "Bodyweight"),

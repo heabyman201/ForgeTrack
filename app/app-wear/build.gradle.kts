@@ -63,7 +63,7 @@ dependencies {
     implementation("androidx.health:health-services-client:1.1.0-alpha05")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-guava:1.8.1")
     // Data Layer sync to phone
-    implementation(libs.play.services.wearable.v1900)
+    implementation("com.google.android.gms:play-services-wearable:19.0.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.10.2")
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")

@@ -227,7 +227,7 @@ private fun HealthConnectStatusContent(
             ),
             modifier = Modifier
                 .background(
-                    color = Color.White.copy(alpha = 0.15f), // Semi-transparent white for frost effect
+                    color = Color.White.copy(alpha = 0.15f),
                     shape = MaterialTheme.shapes.medium
                 )
                 .border(

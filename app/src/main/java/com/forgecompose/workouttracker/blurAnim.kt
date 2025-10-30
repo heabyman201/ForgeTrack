@@ -54,7 +54,6 @@ object blurAnim {
     var length = mutableLongStateOf(700L)
     var intensity = mutableStateOf(14.dp)
     private var calculatedIntensity = 14.dp
-
     @Volatile private var initialized = false
 
     fun init(appContext: Context) {
@@ -65,9 +64,9 @@ object blurAnim {
         calculatedIntensity = PerfTuning.defaultIntensityDp(snap)
 
         CoroutineScope(Dispatchers.Main).launch {
-
             PerformanceOptionsManager.current.collect { options ->
                 intensity.value = if (options.blurEnabled) calculatedIntensity else 0.dp
+                length.longValue = options.blurLengthMs
             }
         }
 
@@ -79,3 +78,4 @@ object blurAnim {
         }
     }
 }
+

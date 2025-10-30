@@ -36,6 +36,7 @@ import androidx.wear.compose.material.*
 import androidx.wear.compose.navigation.SwipeDismissableNavHost
 import androidx.wear.compose.navigation.composable
 import androidx.wear.compose.navigation.rememberSwipeDismissableNavController
+import com.google.android.gms.wearable.PutDataMapRequest
 import com.google.android.gms.wearable.Wearable
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -43,6 +44,7 @@ import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withContext
 import java.util.concurrent.TimeUnit
 
 class MainActivity : ComponentActivity() {
@@ -60,7 +62,15 @@ object WorkoutDataSync {
     private const val WORKOUT_STATE_PATH = "/workout_state"
     private const val WEAR_CAPABILITY = "wear_app"
     private val scope = CoroutineScope(Dispatchers.IO)
-
+    suspend fun sendHeartRate(context: Context, bpm: Int) {
+        val req = PutDataMapRequest.create("/hr").apply {
+            dataMap.putInt("bpm", bpm)
+            dataMap.putLong("ts", System.currentTimeMillis())
+        }.asPutDataRequest().setUrgent()
+        withContext(Dispatchers.IO) {
+            Wearable.getDataClient(context).putDataItem(req).await()
+        }
+    }
     fun sendWorkoutState(context: Context) {
         val workoutState = ConnectedWorkout.toSyncString()
         val messageClient = Wearable.getMessageClient(context)
@@ -410,6 +420,29 @@ fun WorkoutScreen(onFinish: () -> Unit, onRest: () -> Unit, workoutState: Connec
     val startAt = remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
     var accMs by remember { mutableLongStateOf(0L) }
 
+    var heartRate by remember { mutableIntStateOf(0) }
+    val sensorManager = remember { context.getSystemService(Context.SENSOR_SERVICE) as SensorManager }
+    val hrSensor = remember { sensorManager.getDefaultSensor(Sensor.TYPE_HEART_RATE) }
+
+    DisposableEffect(isPaused, hrSensor) {
+        if (!isPaused && hrSensor != null) {
+            val listener = object : SensorEventListener {
+                override fun onSensorChanged(event: SensorEvent) {
+                    if (event.values.isNotEmpty()) heartRate = event.values[0].toInt().coerceAtLeast(0)
+                }
+                override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+            }
+            sensorManager.registerListener(listener, hrSensor, SensorManager.SENSOR_DELAY_NORMAL)
+            onDispose { sensorManager.unregisterListener(listener) }
+        } else {
+            onDispose { }
+        }
+    }
+
+    LaunchedEffect(heartRate) {
+        if (heartRate > 0) WorkoutDataSync.sendHeartRate(context, heartRate)
+    }
+
     LaunchedEffect(isPaused) {
         if (!isPaused) {
             val now = SystemClock.elapsedRealtime()
@@ -520,6 +553,8 @@ fun WorkoutScreen(onFinish: () -> Unit, onRest: () -> Unit, workoutState: Connec
                 }
             }
 
+            Text("$heartRate bpm", style = MaterialTheme.typography.title2, modifier = Modifier.padding(top = 4.dp))
+
             Row(
                 modifier = Modifier.padding(top = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -555,6 +590,8 @@ fun WorkoutScreen(onFinish: () -> Unit, onRest: () -> Unit, workoutState: Connec
         }
     }
 }
+
+
 
 
 @Composable
@@ -633,4 +670,5 @@ suspend fun continuousStepDetectionAndDistanceCalculation(
         sensorThread.quitSafely()
     }
 }
+
 

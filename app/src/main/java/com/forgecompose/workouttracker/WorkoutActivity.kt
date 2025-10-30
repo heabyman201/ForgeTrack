@@ -214,6 +214,7 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.health.connect.client.records.ExerciseSessionRecord
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.forgecompose.workouttracker.ConnectedWorkout.GoalDistance
 import com.forgecompose.workouttracker.ConnectedWorkout.currentDistance
@@ -1131,7 +1132,7 @@ fun DistanceProgressTracker(
 @RequiresApi(Build.VERSION_CODES.TIRAMISU)
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalTime::class)
 @Composable
-fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController, vm: HrPhoneViewModel = viewModel()) {
+fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController, vm: HrViewModel = viewModel()) {
     val performanceOptions by PerformanceOptionsManager.current.collectAsState(initial = PerformanceOptions.Defaults)
     val movingGradientAndParticlesEnabled = performanceOptions.movingGradientAndParticles
     val context = LocalContext.current
@@ -1774,6 +1775,7 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                     if (showCompletionAnimation) {
                         GoalCompletionAnimation(
                             onAnimationFinished = {
+
                                 val healthConnectManager = HealthConnectManager(context.applicationContext)
                                 val cardioExerciseNames = listOf(
                                     "Running (Treadmill)", "Stair Climber", "Elliptical Trainer",
@@ -1788,6 +1790,31 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                                         currentDistance.value,
                                         ""
                                     )
+                                    PDE.logWorkout(
+                                        workout.value,
+                                        CurrentTime.value,
+                                        CurrentWeight.value.toFloat(),
+                                        CurrentReps.intValue,
+                                        CurrentSets.intValue,
+                                        currentDistance.value.toFloat()
+
+                                    )
+                                    if (healthConnectManager.hasAllPermissions()) {
+                                        val endInstant = Clock.System.now().toJavaInstant()
+                                        val workoutDetails = WorkoutDetails(
+                                            title = workout.value,
+                                            startTime = endInstant.minusMillis(accMs),
+                                            endTime = endInstant,
+                                            exerciseType =
+                                                if (workout.value in cardioExerciseNames) {
+                                                    ExerciseSessionRecord.EXERCISE_TYPE_RUNNING
+                                                } else {
+                                                    ExerciseSessionRecord.EXERCISE_TYPE_STRENGTH_TRAINING
+                                                }
+                                        )
+                                        healthConnectManager.writeWorkout(workoutDetails)
+                                    }
+
                                 }
                                 WorkoutLog.sets.clear()
                                 WorkoutForegroundService.stop(context)
@@ -1861,7 +1888,7 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                     }
 
                     Spacer(modifier = Modifier.weight(1f))
-                    val aiEnabled = true
+                    val aiEnabled = dynamicModel.personaConfig.value.enabled
                     if (aiEnabled) {
                         AdviceSection(
                             advice = advice,
@@ -1869,7 +1896,8 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                             isLoading = false
                         )
                     }
-                    val bpm by vm.bpm.collectAsState()
+
+
                     Spacer(modifier = Modifier.weight(1f).height(32.dp))
 
                     if (GoalType == "Reps") {
@@ -1908,7 +1936,13 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                                 delay(60000)
                             }
                         }
-
+                        val bpm by vm.hr.collectAsStateWithLifecycle(0)
+                        HeartbeatEcgCenterStrip(
+                            bpm = bpm,
+                            height = 120.dp,
+                            lineThickness = 4.dp,
+                            label = true
+                        )
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -1982,22 +2016,9 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
 
                         Button(
                             onClick = {
-                                timeToMillis()
-                                ConnectedWorkout.currentMode.value = ConnectedWorkout.WorkoutMode.INACTIVE
-                                scope.launch(Dispatchers.IO) {
-                                    viewModel.addSampleWorkout(
-                                        workout.value, WorkoutStatus.COMPLETED,
-                                        CurrentTime.value, CurrentWeight.value,
-                                        CurrentSets.intValue, CurrentReps.intValue,
-                                        currentDistance.value,
-                                        ""
-                                    )
-                                }
-                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                activity?.finishAffinity()
-                                val intent = Intent(context, MainActivity::class.java)
-                                intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
-                                context.startActivity(intent)
+
+                                showSyncDialog.showSyncDialog.value = true
+
                             },
                             enabled = isPaused,
                             shape = RoundedCornerShape(25.dp),
@@ -2015,6 +2036,104 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                 if (showCountdown) {
                     CountdownOverlay(countdownValue = countdownValue)
                 }
+                if (
+                    showSyncDialog.showSyncDialog.value
+                ){
+                    val cardioExerciseNames = listOf(
+                        "Running (Treadmill)", "Stair Climber", "Elliptical Trainer",
+                        "Rowing Machine", "Stationary Bike", "Swimming"
+                    )
+                    ThemedConfirmationDialog(
+                        title = "Sync to health connect",
+                        text = "Sync this workout to health connect?",
+                        buttonText = "Sync and finish workout",
+                        additionalButton = true,
+                        additionalButtonText = "Finish Workout Only",
+                        onCustomAction = {
+                            timeToMillis()
+                            ConnectedWorkout.currentMode.value = ConnectedWorkout.WorkoutMode.INACTIVE
+                            scope.launch(Dispatchers.IO) {
+                                viewModel.addSampleWorkout(
+                                    workout.value, WorkoutStatus.COMPLETED,
+                                    CurrentTime.value, CurrentWeight.value,
+                                    CurrentSets.intValue, CurrentReps.intValue,
+                                    currentDistance.value,
+                                    ""
+                                )
+                                PDE.logWorkout(
+                                    workout.value,
+                                    CurrentTime.value,
+                                    CurrentWeight.value.toFloat(),
+                                    CurrentReps.intValue,
+                                    CurrentSets.intValue,
+                                    currentDistance.value.toFloat()
+
+                                )
+
+                            }
+                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                            activity?.finishAffinity()
+
+                            val intent = Intent(context, MainActivity::class.java)
+                            intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+                            context.startActivity(intent)
+
+                        },
+                        onDismiss = { showSyncDialog.showSyncDialog.value = false },
+                        onConfirm = {
+                            WorkoutForegroundService.stop(context)
+                            val healthConnectManager = HealthConnectManager(context.applicationContext)
+                            scope.launch {
+                                WorkoutForegroundService.stop(context)
+                                timeToMillis()
+                                ConnectedWorkout.currentMode.value = ConnectedWorkout.WorkoutMode.INACTIVE
+                                scope.launch(Dispatchers.IO) {
+                                    viewModel.addSampleWorkout(
+                                        workout.value, WorkoutStatus.COMPLETED,
+                                        CurrentTime.value, CurrentWeight.value,
+                                        CurrentSets.intValue, CurrentReps.intValue,
+                                        currentDistance.value,
+                                        ""
+                                    )
+                                    PDE.logWorkout(
+                                        workout.value,
+                                        CurrentTime.value,
+                                        CurrentWeight.value.toFloat(),
+                                        CurrentReps.intValue,
+                                        CurrentSets.intValue,
+                                        currentDistance.value.toFloat()
+
+                                    )
+
+                                }
+                                if (healthConnectManager.hasAllPermissions()) {
+                                    val endInstant = Clock.System.now().toJavaInstant()
+                                    val workoutDetails = WorkoutDetails(
+                                        title = workout.value,
+                                        startTime = endInstant.minusMillis(accMs),
+                                        endTime = endInstant,
+                                        exerciseType =
+                                            if (workout.value in cardioExerciseNames) {
+                                                ExerciseSessionRecord.EXERCISE_TYPE_RUNNING
+                                            } else {
+                                                ExerciseSessionRecord.EXERCISE_TYPE_STRENGTH_TRAINING
+                                            }
+                                    )
+                                    healthConnectManager.writeWorkout(workoutDetails)
+                                }
+                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                activity?.finishAffinity()
+                                val intent = Intent(context, MainActivity::class.java)
+                                intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+                                context.startActivity(intent)
+
+
+                            }
+
+                        },
+                        )
+                }
+
             }
         }
     }
@@ -2207,6 +2326,20 @@ fun GoalScreen(navController: NavController, viewModel: WorkoutListViewModel) {
     val isPressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(if (isPressed) 0.98f else 1f, label = "buttonScale")
     GoalType = selectedGoalType
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val last by remember(workout.value) {
+        PresetStateRepo.observe(ctx, workout.value)
+    }.collectAsState(initial = null)
+
+    LaunchedEffect(last) {
+        if (ConnectedWorkout.currentMode.value == WorkoutMode.INACTIVE && last != null) {
+            last?.weightKg?.let { CurrentWeight.value = it.toDouble() }
+            last?.goalReps?.let { GoalReps.intValue = it }
+            last?.goalSets?.let { GoalSets.intValue = it }
+            last?.goalTimeMillis?.let { GoalTime.value = it }
+        }
+    }
 
     var animationClock by remember { mutableStateOf(0f) }
 
@@ -2285,6 +2418,16 @@ fun GoalScreen(navController: NavController, viewModel: WorkoutListViewModel) {
         animationSpec = tween(length.value.toInt()),
         label = "blur"
     )
+    LaunchedEffect(Unit) {
+        GoalReps.intValue = 0
+        GoalSets.intValue = 0
+        GoalTime.value = 0
+        GoalDistance.value = 0.0
+        CurrentReps.intValue = 0
+        CurrentSets.intValue = 0
+        CurrentTime.value = 0
+        repsPerSet = 0
+    }
     WorkoutTrackerTheme {
         val aggressiveGradientBrush = remember(gradientOffset, glowIntensity, intensePulse) {
             Brush.radialGradient(
@@ -2460,14 +2603,44 @@ fun GoalScreen(navController: NavController, viewModel: WorkoutListViewModel) {
                                     if (ConnectedWorkout.currentMode.value == WorkoutMode.INACTIVE) {
                                         GoalReps.intValue = totalGoalReps
                                     }
+                                    scope.launch {
+                                        PresetStateRepo.upsert(
+                                            context = ctx,
+                                            presetName = workout.value,
+                                            weightKg = CurrentWeight.value.toFloat(),
+                                            goalReps = GoalReps.intValue,
+                                            goalSets = GoalSets.intValue,
+                                            goalTimeMillis = null
+                                        )
+                                    }
                                     navController.navigate("WorkoutScreen")
                                     ConnectedWorkout.currentMode.value = WorkoutMode.ACTIVE
                                 }
                                 "Time" -> if (GoalTime.value != 0L) {
+                                    scope.launch {
+                                        PresetStateRepo.upsert(
+                                            context = ctx,
+                                            presetName = workout.value,
+                                            weightKg = CurrentWeight.value.toFloat(),
+                                            goalReps = null,
+                                            goalSets = null,
+                                            goalTimeMillis = GoalTime.value
+                                        )
+                                    }
                                     navController.navigate("WorkoutScreen")
                                     ConnectedWorkout.currentMode.value = WorkoutMode.ACTIVE
                                 }
                                 "Distance" -> if (GoalDistance.value != 0.0) {
+                                    scope.launch {
+                                        PresetStateRepo.upsert(
+                                            context = ctx,
+                                            presetName = workout.value,
+                                            weightKg = CurrentWeight.value.toFloat(),
+                                            goalReps = null,
+                                            goalSets = null,
+                                            goalTimeMillis = null
+                                        )
+                                    }
                                     navController.navigate("WorkoutScreen")
                                     ConnectedWorkout.currentMode.value = WorkoutMode.ACTIVE
                                 }
@@ -2670,7 +2843,7 @@ fun DraggableTimeComponent(
             },
         contentAlignment = Alignment.Center
     ) {
-        val displayRange = -5..5
+        val displayRange = -20..20
         for (i in displayRange) {
             val displayValue = getWrappedValue(value, i, range)
             val verticalOffset = (i * itemHeightPx) + offsetY.value
@@ -3120,10 +3293,10 @@ object WorkoutLog {
 @Composable
 fun RestScreen(
     navController: NavController,
-    vm: HrPhoneViewModel = viewModel()
+    vm: HrViewModel = viewModel()
 ) {
     val haptics = LocalHapticFeedback.current
-    val bpm by vm.bpm.collectAsState()
+    val bpm by vm.hr.collectAsState()
     val initialTotal = rememberSaveable { 60000L }
 PreventBackGesture()
     var remaining by restTimeRemaining
@@ -3885,4 +4058,7 @@ private fun DrawScope.drawSweatDroplet(
 
     val dropletCenter = headCenter + rotatedOffset + Offset(-20f, -20f)
     drawCircle(color, radius = 8f - 4*t, center = dropletCenter)
+}
+object showSyncDialog {
+    var showSyncDialog = mutableStateOf(false)
 }

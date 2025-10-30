@@ -39,6 +39,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
@@ -71,6 +73,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -96,14 +99,16 @@ private val Context.perfDataStore by preferencesDataStore("performance_options")
 data class PerformanceOptions(
     val blurEnabled: Boolean,
     val taskbarAnimations: Boolean,
-    val movingGradientAndParticles: Boolean
+    val movingGradientAndParticles: Boolean,
+    val blurLengthMs: Long                // NEW
 ) {
     val blurDp: Dp get() = if (blurEnabled) 17.dp else 0.dp
     companion object {
         val Defaults = PerformanceOptions(
             blurEnabled = true,
             taskbarAnimations = true,
-            movingGradientAndParticles = true
+            movingGradientAndParticles = true,
+            blurLengthMs = 700L            // NEW default
         )
     }
 }
@@ -112,6 +117,7 @@ object PerformanceOptionsManager {
     private val keyBlurEnabled = booleanPreferencesKey("blurEnabled")
     private val keyTaskbarAnimations = booleanPreferencesKey("taskbarAnimations")
     private val keyMovingGradientParticles = booleanPreferencesKey("movingGradientAndParticles")
+    private val keyBlurLengthMs = longPreferencesKey("blurLengthMs")
 
     private val snapshot = MutableStateFlow(PerformanceOptions.Defaults)
     val current: StateFlow<PerformanceOptions> = snapshot
@@ -126,7 +132,8 @@ object PerformanceOptionsManager {
                     PerformanceOptions(
                         blurEnabled = p[keyBlurEnabled] ?: PerformanceOptions.Defaults.blurEnabled,
                         taskbarAnimations = p[keyTaskbarAnimations] ?: PerformanceOptions.Defaults.taskbarAnimations,
-                        movingGradientAndParticles = p[keyMovingGradientParticles] ?: PerformanceOptions.Defaults.movingGradientAndParticles
+                        movingGradientAndParticles = p[keyMovingGradientParticles] ?: PerformanceOptions.Defaults.movingGradientAndParticles,
+                        blurLengthMs = p[keyBlurLengthMs] ?: PerformanceOptions.Defaults.blurLengthMs
                     )
                 }
                 .collectLatest { snapshot.value = it }
@@ -140,6 +147,7 @@ object PerformanceOptionsManager {
             p[keyBlurEnabled] = v.blurEnabled
             p[keyTaskbarAnimations] = v.taskbarAnimations
             p[keyMovingGradientParticles] = v.movingGradientAndParticles
+            p[keyBlurLengthMs] = v.blurLengthMs
         }
         snapshot.value = v
     }
@@ -174,7 +182,6 @@ fun PerformanceOptionsScreen(
 ) {
     val opts by vm.options.collectAsState()
     val scope = rememberCoroutineScope()
-
     var showIntro by remember { mutableStateOf(true) }
     val introProgress by animateFloatAsState(targetValue = if (showIntro) 0f else 1f, animationSpec = tween(650, easing = LinearEasing), label = "introFade")
     LaunchedEffect(Unit) { showIntro = false }
@@ -186,11 +193,7 @@ fun PerformanceOptionsScreen(
             center = Offset(0.5f, 0.4f)
         )
     }
-    val blurAnim by animateDpAsState(
-        if (showIntro) intensity.value else 0.dp,
-        animationSpec = tween(length.value.toInt()),
-        label = "blur"
-    )
+    val blurAnim by animateDpAsState(if (showIntro) intensity.value else 0.dp, animationSpec = tween(length.value.toInt()), label = "blur")
 
     Box(
         modifier = Modifier
@@ -240,6 +243,16 @@ fun PerformanceOptionsScreen(
                             impacts = listOf(ResourceImpact.GPU)
                         ) { b -> vm.update { it.copy(blurEnabled = b) } }
 
+                        Spacer(Modifier.height(6.dp))
+
+                        BlurLengthRow(
+                            enabled = opts.blurEnabled,
+                            currentMs = opts.blurLengthMs,
+                            onChange = { newMs ->
+                                vm.update { it.copy(blurLengthMs = newMs.coerceIn(300L, 1200L)) }
+                            }
+                        )
+
                         PerformanceToggleRow(
                             label = "Taskbar Animations",
                             checked = opts.taskbarAnimations,
@@ -248,7 +261,7 @@ fun PerformanceOptionsScreen(
                         ) { b -> vm.update { it.copy(taskbarAnimations = b) } }
 
                         PerformanceToggleRow(
-                            label = "Gradient & Particles",
+                            label = "Moving Background Gradient & Particles",
                             checked = opts.movingGradientAndParticles,
                             icon = Icons.Default.Grain,
                             impacts = listOf(ResourceImpact.GPU, ResourceImpact.BATTERY)
@@ -259,23 +272,63 @@ fun PerformanceOptionsScreen(
                     val context = LocalContext.current
                     Button(
                         onClick = {
-                            scope.launch {
-                                PerformanceOptionsManager.set(context, PerformanceOptions.Defaults)
-                            }
+                            scope.launch { PerformanceOptionsManager.set(context, PerformanceOptions.Defaults) }
                         },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(50.dp),
+                        modifier = Modifier.fillMaxWidth().height(50.dp),
                         shape = RoundedCornerShape(16.dp),
                         colors = ButtonDefaults.buttonColors(
                             containerColor = Color.White.copy(alpha = 0.1f),
                             contentColor = Color.White
                         )
-                    ) {
-                        Text("Reset to Recommended")
-                    }
+                    ) { Text("Reset to Recommended") }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun BlurLengthRow(
+    enabled: Boolean,
+    currentMs: Long,
+    onChange: (Long) -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Blur Speed",
+                style = MaterialTheme.typography.bodyLarge,
+                color = Color.White.copy(alpha = 0.9f)
+            )
+            Text(
+                text = "${currentMs}ms",
+                style = MaterialTheme.typography.labelLarge,
+                color = Color.White.copy(alpha = 0.75f)
+            )
+        }
+        Slider(
+            value = currentMs.toFloat().coerceIn(300f, 1200f),
+            onValueChange = { v -> onChange(v.toLong()) },
+            valueRange = 300f..1200f,
+            steps = ((1200 - 300) / 50) - 1,
+            enabled = enabled,
+            colors = SliderDefaults.colors(
+                activeTrackColor = Color(0xFFFF3B30),
+                inactiveTrackColor = Color(0xFF8B0000),
+                thumbColor = Color.White
+            ),
+            modifier = Modifier.fillMaxWidth()
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text("Faster", fontSize = 12.sp, color = Color.White.copy(alpha = 0.6f))
+            Text("Slower", fontSize = 12.sp, color = Color.White.copy(alpha = 0.6f))
         }
     }
 }

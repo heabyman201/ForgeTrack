@@ -346,10 +346,7 @@ object dynamicModel {
     var currentModel = mutableStateOf("gemma-3-4b-it")
 
     data class PersonaConfig(val mode: String, val enabled: Boolean)
-    fun String.sanitizePersona(): String = when (lowercase()) {
-        "coach","drill","companion","companion_plus","hype","minimal","nerd","monk","scientist" -> lowercase()
-        else -> "coach"
-    }
+
 
     val personaConfig: MutableState<PersonaConfig> =
         mutableStateOf(PersonaConfig("coach", true))

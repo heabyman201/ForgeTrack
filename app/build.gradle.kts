@@ -117,16 +117,16 @@ dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)
     implementation(libs.material)
+    implementation("com.google.android.gms:play-services-wearable:19.0.0")
 
-    // Compose UI testing
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.ui.test.junit4)
 
-    // JUnit for unit tests
+
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
 
-    // Optional: Your AI Core or other libraries
+
     implementation(libs.aicore)
 }

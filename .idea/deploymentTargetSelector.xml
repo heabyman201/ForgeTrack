@@ -4,10 +4,10 @@
     <selectionStates>
       <SelectionState runConfigName="app">
         <option name="selectionMode" value="DROPDOWN" />
-        <DropdownSelection timestamp="2025-10-16T05:42:11.341834600Z">
+        <DropdownSelection timestamp="2025-10-28T12:20:21.997122400Z">
           <Target type="DEFAULT_BOOT">
             <handle>
-              <DeviceId pluginId="PhysicalDevice" identifier="serial=RFAW20FA2QE" />
+              <DeviceId pluginId="LocalEmulator" identifier="path=C:\Users\Laith Younis\.android\avd\Medium_Phone_2.avd" />
             </handle>
           </Target>
         </DropdownSelection>
@@ -15,10 +15,10 @@
       </SelectionState>
       <SelectionState runConfigName="app.app-wear">
         <option name="selectionMode" value="DROPDOWN" />
-        <DropdownSelection timestamp="2025-10-16T06:16:47.942465700Z">
+        <DropdownSelection timestamp="2025-10-28T12:20:12.747143400Z">
           <Target type="DEFAULT_BOOT">
             <handle>
-              <DeviceId pluginId="LocalEmulator" identifier="path=C:\Users\Laith Younis\.android\avd\Wear_OS_Large_Round.avd" />
+              <DeviceId pluginId="LocalEmulator" identifier="path=C:\Users\Laith Younis\.android\avd\Medium_Phone_2.avd" />
             </handle>
           </Target>
         </DropdownSelection>

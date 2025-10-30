@@ -16,12 +16,12 @@ class MyApplication : Application() {
     }
     override fun onCreate() {
         super.onCreate()
-    SecureGeminiStore.init(this)
         PersonaPrefs.init(this)
+        PersonaPrefs.bootstrapInto(dynamicModel.personaConfig)
+    SecureGeminiStore.init(this)
         PDE.init(applicationContext)
         blurAnim.init(applicationContext)
         AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_YES)
-        PersonaPrefs.bootstrapInto(dynamicModel.personaConfig)
         PerformanceOptionsManager.initialize(this)
 
     }
