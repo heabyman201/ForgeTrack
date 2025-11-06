@@ -5,6 +5,7 @@ import android.content.SharedPreferences
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -12,9 +13,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -116,252 +119,182 @@ fun PersonaSettingsScreen(
 ) {
     val context = LocalContext.current
     PersonaPrefs.init(context)
-
-    // The global config is now the single source of truth. No more local state.
-    val currentConfig by dynamicModel.personaConfig
+    val cfg by dynamicModel.personaConfig
 
     val staticGradientBrush = remember {
         Brush.radialGradient(
-            colors = listOf(
-                Color(0xFF0A0404),
-                Color(0xFF2A0F0F),
-                Color(0xFF3D0000),
-                Color(0xFF4A0000),
-                Color(0xFF060202)
-            ),
-            radius = 1000f,
+            colors = listOf(Color(0xFF2A0F0F), Color(0xFF3D0000), Color(0xFF060202)),
+            radius = 1200f,
             center = Offset(0.5f, 0.4f)
         )
     }
-    val secondaryStaticBrush = remember {
-        Brush.linearGradient(
-            colors = listOf(
-                Color(0xFF4A0000).copy(alpha = 0.2f),
-                Color.Transparent,
-                Color(0xFF2A0F0F).copy(alpha = 0.15f),
-                Color.Transparent
-            )
-        )
-    }
 
-    val haze = remember { HazeState() }
-    CompositionLocalProvider(LocalHazeState provides haze) {
-        Box(
-            modifier = modifier
-                .fillMaxSize()
-                .background(Color(0xFF0D0404).copy(alpha = 0.8f))
-                .background(staticGradientBrush)
-                .background(secondaryStaticBrush)
-        ) {
-            Scaffold(
-                containerColor = Color.Transparent,
-                topBar = {
-                    TopAppBar(
-                        title = {
-                            Text(
-                                "AI Persona",
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White
-                            )
-                        },
-                        navigationIcon = {
-                            IconButton(onClick = { navController.navigateUp() }) {
-                                Icon(
-                                    Icons.AutoMirrored.Filled.ArrowBack,
-                                    contentDescription = "Back",
-                                    tint = Color.White
-                                )
-                            }
-                        },
-                        colors = TopAppBarDefaults.topAppBarColors(
-                            containerColor = Color.Transparent,
-                            titleContentColor = Color.White,
-                            navigationIconContentColor = Color.White
-                        )
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .drawWithCache {
+                onDrawBehind {
+                    drawRect(Color(0xFF060202))
+                    drawRect(staticGradientBrush)
+                }
+            }
+    ) {
+        Scaffold(
+            containerColor = Color.Transparent,
+            topBar = {
+                TopAppBar(
+                    title = { Text("AI Persona", fontWeight = FontWeight.Bold) },
+                    navigationIcon = {
+                        IconButton(onClick = { navController.navigateUp() }) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Go back")
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = Color.Transparent,
+                        titleContentColor = Color.White,
+                        navigationIconContentColor = Color.White
                     )
-                },
-                contentWindowInsets = WindowInsets(0)
-            ) { padding ->
-
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(padding)
-                        .verticalScroll(rememberScrollState())
-                        .padding(horizontal = 16.dp, vertical = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    Text(
-                        "Choose how the AI talks — or turn it off entirely.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = Color.White.copy(alpha = 0.78f)
-                    )
-
-                    ElevatedCard(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(20.dp),
-                        colors = CardDefaults.elevatedCardColors(
-                            containerColor = Color(0xFF1A1A1A).copy(alpha = 0.55f)
-                        ),
-                        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 8.dp)
-                    ) {
-                        ListItem(
-                            headlineContent = {
-                                Text("Enable AI", color = Color.White, fontWeight = FontWeight.SemiBold)
-                            },
-                            supportingContent = {
+                )
+            },
+            contentWindowInsets = WindowInsets(0)
+        ) { padding ->
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding),
+                contentPadding = PaddingValues(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(24.dp)
+            ) {
+                item {
+                    PersonaSectionCard(title = "Assistant") {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text("Enable AI", style = MaterialTheme.typography.bodyLarge, color = Color.White)
+                                Spacer(Modifier.height(2.dp))
                                 Text(
-                                    if (currentConfig.enabled) "Assistant responses will use your selected persona."
-                                    else "Assistant is disabled: no requests will be sent.",
+                                    if (cfg.enabled) "Assistant uses the selected persona."
+                                    else "Assistant disabled. No requests will be sent.",
+                                    style = MaterialTheme.typography.bodyMedium,
                                     color = Color.White.copy(alpha = 0.75f)
                                 )
-                            },
-                            trailingContent = {
-                                Switch(
-                                    checked = currentConfig.enabled,
-                                    onCheckedChange = { enabled ->
-                                        val updated = currentConfig.copy(enabled = enabled)
-                                        dynamicModel.personaConfig.value = updated
-                                        PersonaPrefs.writeConfig(updated)
-                                    },
-                                    enabled = true
-                                )
                             }
-                        )
-                    }
-
-                    val listAlpha = if (currentConfig.enabled) 1f else 0.4f
-                    val listClickable = currentConfig.enabled
-
-                    ElevatedCard(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .graphicsLayer { alpha = listAlpha },
-                        shape = RoundedCornerShape(20.dp),
-                        colors = CardDefaults.elevatedCardColors(
-                            containerColor = Color(0xFF1A1A1A).copy(alpha = 0.55f)
-                        ),
-                        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 8.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .drawBehind {
-                                    val corner = 20.dp.toPx()
-                                    drawRoundRect(
-                                        brush = Brush.verticalGradient(
-                                            0f to Color.White.copy(alpha = 0.06f),
-                                            0.4f to Color.Transparent
-                                        ),
-                                        cornerRadius = CornerRadius(corner, corner)
-                                    )
-                                    val stroke = Stroke(width = 1.dp.toPx())
-                                    drawRoundRect(
-                                        color = Color.White.copy(alpha = 0.08f),
-                                        style = stroke,
-                                        cornerRadius = CornerRadius(corner, corner)
-                                    )
-                                    drawRoundRect(
-                                        color = Color.Black.copy(alpha = 0.20f),
-                                        style = Stroke(width = 1.dp.toPx()),
-                                        topLeft = Offset(0.5f, 0.5f),
-                                        size = Size(size.width - 1f, size.height - 1f),
-                                        cornerRadius = CornerRadius(corner - 0.5f, corner - 0.5f)
-                                    )
-                                }
-                                .padding(vertical = 4.dp)
-                        ) {
-                            Column {
-                                val onSelectPersona = { mode: String ->
-                                    val updated = currentConfig.copy(mode = mode.sanitizePersona())
+                            Switch(
+                                checked = cfg.enabled,
+                                onCheckedChange = { enabled ->
+                                    val updated = cfg.copy(enabled = enabled)
                                     dynamicModel.personaConfig.value = updated
                                     PersonaPrefs.writeConfig(updated)
-                                }
-
-                                PersonaOptionRowThemed(
-                                    title = "Supportive Coach",
-                                    subtitle = "Friendly, encouraging, practical",
-                                    value = "coach",
-                                    selected = currentConfig.mode,
-                                    enabled = listClickable,
-                                    onSelect = onSelectPersona
+                                },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = Color(0xFFFF3B30),
+                                    checkedTrackColor = Color(0xFF8B0000),
+                                    uncheckedThumbColor = Color.Gray,
+                                    uncheckedTrackColor = Color.DarkGray
                                 )
-                                Divider(color = Color.White.copy(alpha = 0.06f))
-                                PersonaOptionRowThemed(
-                                    title = "Disciplined Trainer",
-                                    subtitle = "Crisp, direct, safety-first",
-                                    value = "drill",
-                                    selected = currentConfig.mode,
-                                    enabled = listClickable,
-                                    onSelect = onSelectPersona
-                                )
-                                Divider(color = Color.White.copy(alpha = 0.06f))
-                                PersonaOptionRowThemed(
-                                    title = "Training Buddy",
-                                    subtitle = "Grounded, encouraging, no fluff",
-                                    value = "companion",
-                                    selected = currentConfig.mode,
-                                    enabled = listClickable,
-                                    onSelect = onSelectPersona
-                                )
-                                Divider(color = Color.White.copy(alpha = 0.06f))
-                                PersonaOptionRowThemed(
-                                    title = "Hype Companion",
-                                    subtitle = "Energetic, upbeat, playful",
-                                    value = "companion_plus",
-                                    selected = currentConfig.mode,
-                                    enabled = listClickable,
-                                    onSelect = onSelectPersona
-                                )
-                                Divider(color = Color.White.copy(alpha = 0.06f))
-                                PersonaOptionRowThemed(
-                                    title = "Hype Master",
-                                    subtitle = "High energy, short punchy lines",
-                                    value = "hype",
-                                    selected = currentConfig.mode,
-                                    enabled = listClickable,
-                                    onSelect = onSelectPersona
-                                )
-                                Divider(color = Color.White.copy(alpha = 0.06f))
-                                PersonaOptionRowThemed(
-                                    title = "Minimal",
-                                    subtitle = "One-line, straight to the point",
-                                    value = "minimal",
-                                    selected = currentConfig.mode,
-                                    enabled = listClickable,
-                                    onSelect = onSelectPersona
-                                )
-                                Divider(color = Color.White.copy(alpha = 0.06f))
-                                PersonaOptionRowThemed(
-                                    title = "Nerd Scholar",
-                                    subtitle = "Geeky metaphors, precise wording",
-                                    value = "nerd",
-                                    selected = currentConfig.mode,
-                                    enabled = listClickable,
-                                    onSelect = onSelectPersona
-                                )
-                                Divider(color = Color.White.copy(alpha = 0.06f))
-                                PersonaOptionRowThemed(
-                                    title = "Zen Monk",
-                                    subtitle = "Calm, reflective, almost meditative",
-                                    value = "monk",
-                                    selected = currentConfig.mode,
-                                    enabled = listClickable,
-                                    onSelect = onSelectPersona
-                                )
-                                Divider(color = Color.White.copy(alpha = 0.06f))
-                                PersonaOptionRowThemed(
-                                    title = "Scientist",
-                                    subtitle = "Biohacker tone",
-                                    value = "scientist",
-                                    selected = currentConfig.mode,
-                                    enabled = listClickable,
-                                    onSelect = onSelectPersona
-                                )
-                            }
+                            )
                         }
                     }
+                }
 
+                item {
+                    val enabled = cfg.enabled
+                    val alpha = if (enabled) 1f else 0.45f
+                    PersonaSectionCard(title = "Persona Style", bodyAlpha = alpha) {
+                        val onSelect: (String) -> Unit = { mode ->
+                            val updated = cfg.copy(mode = mode.sanitizePersona())
+                            dynamicModel.personaConfig.value = updated
+                            PersonaPrefs.writeConfig(updated)
+                        }
+
+                        PersonaOptionRow(
+                            title = "Supportive Coach",
+                            subtitle = "Friendly, encouraging, practical",
+                            value = "coach",
+                            selected = cfg.mode,
+                            enabled = enabled,
+                            onSelect = onSelect
+                        )
+                        PersonaDivider()
+                        PersonaOptionRow(
+                            title = "Disciplined Trainer",
+                            subtitle = "Crisp, direct, safety-first",
+                            value = "drill",
+                            selected = cfg.mode,
+                            enabled = enabled,
+                            onSelect = onSelect
+                        )
+                        PersonaDivider()
+                        PersonaOptionRow(
+                            title = "Training Buddy",
+                            subtitle = "Warm, supportive, practical",
+                            value = "companion",
+                            selected = cfg.mode,
+                            enabled = enabled,
+                            onSelect = onSelect
+                        )
+                        PersonaDivider()
+                        PersonaOptionRow(
+                            title = "Hype Companion",
+                            subtitle = "Energetic, upbeat, playful",
+                            value = "companion_plus",
+                            selected = cfg.mode,
+                            enabled = enabled,
+                            onSelect = onSelect
+                        )
+                        PersonaDivider()
+                        PersonaOptionRow(
+                            title = "Hype Master",
+                            subtitle = "High energy, punchy lines",
+                            value = "hype",
+                            selected = cfg.mode,
+                            enabled = enabled,
+                            onSelect = onSelect
+                        )
+                        PersonaDivider()
+                        PersonaOptionRow(
+                            title = "Minimal",
+                            subtitle = "One-line, straight to point",
+                            value = "minimal",
+                            selected = cfg.mode,
+                            enabled = enabled,
+                            onSelect = onSelect
+                        )
+                        PersonaDivider()
+                        PersonaOptionRow(
+                            title = "Nerd Scholar",
+                            subtitle = "Precise, geeky metaphors",
+                            value = "nerd",
+                            selected = cfg.mode,
+                            enabled = enabled,
+                            onSelect = onSelect
+                        )
+                        PersonaDivider()
+                        PersonaOptionRow(
+                            title = "Zen Monk",
+                            subtitle = "Calm, reflective, minimal",
+                            value = "monk",
+                            selected = cfg.mode,
+                            enabled = enabled,
+                            onSelect = onSelect
+                        )
+                        PersonaDivider()
+                        PersonaOptionRow(
+                            title = "Scientist",
+                            subtitle = "Evidence-driven, biohacker tone",
+                            value = "scientist",
+                            selected = cfg.mode,
+                            enabled = enabled,
+                            onSelect = onSelect
+                        )
+                    }
+                }
+
+                item {
                     Text(
                         "Encrypted on-device. Applies instantly across the app.",
                         style = MaterialTheme.typography.bodySmall,
@@ -374,7 +307,62 @@ fun PersonaSettingsScreen(
 }
 
 @Composable
-private fun PersonaOptionRowThemed(
+private fun PersonaSectionCard(
+    title: String,
+    bodyAlpha: Float = 1f,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    val cornerRadius = 24.dp
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(cornerRadius))
+            .drawWithCache {
+                val cornerRpx = cornerRadius.toPx()
+                val bgBrush = Brush.radialGradient(
+                    colors = listOf(Color(0xFF180909).copy(alpha = 0.9f), Color(0xFF100404).copy(alpha = 0.95f)),
+                    center = Offset(size.width / 2f, size.height * 0.1f),
+                    radius = size.width * 1.5f
+                )
+                val borderBrush = Brush.linearGradient(
+                    colors = listOf(
+                        Color(0xFFFF5555).copy(alpha = 0.2f),
+                        Color(0xFF8B0000).copy(alpha = 0.1f)
+                    )
+                )
+                onDrawBehind {
+                    drawRoundRect(brush = bgBrush, cornerRadius = CornerRadius(cornerRpx))
+                    drawRoundRect(brush = borderBrush, style = Stroke(width = 1.dp.toPx()), cornerRadius = CornerRadius(cornerRpx))
+                }
+            }
+            .padding(16.dp)
+    ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold,
+            color = Color.White
+        )
+        HorizontalDivider(
+            modifier = Modifier.padding(vertical = 12.dp),
+            color = Color(0xFFFF3535).copy(alpha = 0.3f)
+        )
+        Column(
+            modifier = Modifier.graphicsLayer { this.alpha = bodyAlpha },
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            content()
+        }
+    }
+}
+
+@Composable
+private fun PersonaDivider() {
+    HorizontalDivider(color = Color.White.copy(alpha = 0.06f))
+}
+
+@Composable
+private fun PersonaOptionRow(
     title: String,
     subtitle: String,
     value: String,
@@ -385,42 +373,53 @@ private fun PersonaOptionRowThemed(
     val isSelected = selected == value
     val accent = Color(0xFFFF3B30)
 
-    ListItem(
-        headlineContent = {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .let { m -> if (enabled) m.clickable { onSelect(value) } else m }
+            .background(if (isSelected) Color(0x22FF3B30) else Color.Transparent, RoundedCornerShape(16.dp))
+            .drawWithCache {
+                val r = 16.dp.toPx()
+                val stroke = 1.dp.toPx()
+                onDrawBehind {
+                    drawRoundRect(
+                        color = if (isSelected) accent.copy(alpha = 0.55f) else Color.White.copy(alpha = 0.08f),
+                        style = Stroke(width = stroke),
+                        cornerRadius = CornerRadius(r, r)
+                    )
+                }
+            }
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Column(Modifier.weight(1f)) {
             Text(
                 title,
-                style = if (isSelected) MaterialTheme.typography.titleMedium
-                else MaterialTheme.typography.bodyLarge,
+                style = if (isSelected) MaterialTheme.typography.titleMedium else MaterialTheme.typography.bodyLarge,
                 fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
                 color = Color.White
             )
-        },
-        supportingContent = {
             if (subtitle.isNotBlank()) {
+                Spacer(Modifier.height(2.dp))
                 Text(
                     subtitle,
                     style = MaterialTheme.typography.bodyMedium,
                     color = Color.White.copy(alpha = 0.75f)
                 )
             }
-        },
-        trailingContent = {
-            RadioButton(
-                selected = isSelected,
-                onClick = { if (enabled) onSelect(value) },
-                enabled = enabled,
-                colors = RadioButtonDefaults.colors(
-                    selectedColor = accent,
-                    unselectedColor = Color.White.copy(alpha = 0.6f),
-                    disabledSelectedColor = Color.White.copy(alpha = 0.3f),
-                    disabledUnselectedColor = Color.White.copy(alpha = 0.2f)
-                )
+        }
+        RadioButton(
+            selected = isSelected,
+            onClick = { if (enabled) onSelect(value) },
+            enabled = enabled,
+            colors = RadioButtonDefaults.colors(
+                selectedColor = accent,
+                unselectedColor = Color.White.copy(alpha = 0.65f),
+                disabledSelectedColor = Color.White.copy(alpha = 0.35f),
+                disabledUnselectedColor = Color.White.copy(alpha = 0.25f)
             )
-        },
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
-            .let { base -> if (enabled) base.clickable { onSelect(value) } else base }
-            .padding(horizontal = 4.dp, vertical = 2.dp)
-    )
+        )
+    }
 }

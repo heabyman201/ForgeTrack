@@ -32,6 +32,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.FlagCircle
+import androidx.compose.material.icons.rounded.OutlinedFlag
 import androidx.compose.material3.Divider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
@@ -42,6 +44,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -58,7 +61,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 
 @Composable
 fun AdviceSectionUser(
@@ -153,67 +158,68 @@ fun AdviceSectionUser(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Icon(
-                            imageVector = if (aiEnabled) Icons.Rounded.AutoAwesome else Icons.Default.Flag,
+                            imageVector = if (aiEnabled) Icons.Rounded.OutlinedFlag else Icons.Default.Flag,
                             contentDescription = null,
                             tint = accent,
-                            modifier = Modifier.size(27.dp)
+                            modifier = Modifier.size(42.dp)
                         )
                         Spacer(modifier = Modifier.size(10.dp))
 
-                        if (aiEnabled) {
-                            AnimatedContent(
-                                targetState = isLoading,
-                                transitionSpec = {
-                                    fadeIn(animationSpec = tween(800, easing = FastOutSlowInEasing)) togetherWith
-                                            fadeOut(animationSpec = tween(800))
-                                },
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .heightIn(min = 24.dp),
-                                label = "textMorphAnimation"
-                            ) { loading ->
-                                if (loading) {
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .height(24.dp)
-                                            .drawWithCache {
-                                                onDrawBehind {
-                                                    val lineWidth = size.width / 3
-                                                    val lineHeight = 4.dp.toPx()
-                                                    val spacing = 8.dp.toPx()
-                                                    drawIntoCanvas {
-                                                        repeat(3) { i ->
-                                                            drawRect(
-                                                                color = Color(0xFFFF3B30).copy(alpha = glow),
-                                                                topLeft = androidx.compose.ui.geometry.Offset(
-                                                                    x = i * (lineWidth + spacing),
-                                                                    y = (size.height - lineHeight) / 2
-                                                                ),
-                                                                size = androidx.compose.ui.geometry.Size(
-                                                                    width = lineWidth,
-                                                                    height = lineHeight
-                                                                ),
-                                                                style = Stroke(
-                                                                    width = 2.dp.toPx(),
-                                                                    cap = StrokeCap.Round
-                                                                )
-                                                            )
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                    )
-                                } else {
-                                    Text(
-                                        text = advice,
-                                        color = Color.White,
-                                        overflow = TextOverflow.Ellipsis,
-                                        maxLines = 10
-                                    )
-                                }
-                            }
-                        } else {
+//                        if (aiEnabled) {
+//                            AnimatedContent(
+//                                targetState = isLoading,
+//                                transitionSpec = {
+//                                    fadeIn(animationSpec = tween(800, easing = FastOutSlowInEasing)) togetherWith
+//                                            fadeOut(animationSpec = tween(800))
+//                                },
+//                                modifier = Modifier
+//                                    .weight(1f)
+//                                    .heightIn(min = 24.dp),
+//                                label = "textMorphAnimation"
+//                            ) { loading ->
+//                                if (loading) {
+//                                    Box(
+//                                        modifier = Modifier
+//                                            .fillMaxWidth()
+//                                            .height(24.dp)
+//                                            .drawWithCache {
+//                                                onDrawBehind {
+//                                                    val lineWidth = size.width / 3
+//                                                    val lineHeight = 4.dp.toPx()
+//                                                    val spacing = 8.dp.toPx()
+//                                                    drawIntoCanvas {
+//                                                        repeat(3) { i ->
+//                                                            drawRect(
+//                                                                color = Color(0xFFFF3B30).copy(alpha = glow),
+//                                                                topLeft = androidx.compose.ui.geometry.Offset(
+//                                                                    x = i * (lineWidth + spacing),
+//                                                                    y = (size.height - lineHeight) / 2
+//                                                                ),
+//                                                                size = androidx.compose.ui.geometry.Size(
+//                                                                    width = lineWidth,
+//                                                                    height = lineHeight
+//                                                                ),
+//                                                                style = Stroke(
+//                                                                    width = 2.dp.toPx(),
+//                                                                    cap = StrokeCap.Round
+//                                                                )
+//                                                            )
+//                                                        }
+//                                                    }
+//                                                }
+//                                            }
+//                                    )
+//                                } else {
+//                                    Text(
+//                                        text = advice,
+//                                        color = Color.White,
+//                                        overflow = TextOverflow.Ellipsis,
+//                                        maxLines = 10
+//                                    )
+//                                }
+//                            }
+//                        }
+//                        else {
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
                                     text = "Last workout:",
@@ -284,4 +290,3 @@ fun AdviceSectionUser(
             }
         }
     }
-}

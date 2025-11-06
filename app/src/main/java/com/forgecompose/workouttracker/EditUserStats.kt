@@ -79,31 +79,54 @@ fun EditUserStats(navcontroller: NavController) {
     var preferredStyle by remember { mutableStateOf(prefsManager.getPreferredStyle()) }
     var importantMuscles by remember { mutableStateOf(prefsManager.getImportantMuscles()) }
 
-    val interactionSource = remember { MutableInteractionSource() }
-    val pressed by interactionSource.collectIsPressedAsState()
-    val scale by animateFloatAsState(if (pressed) 0.98f else 1f, tween(120, easing = FastOutSlowInEasing))
-    val pulse = rememberInfiniteTransition(label = "pulse")
-    val intensePulse by pulse.animateFloat(0f, 1f, infiniteRepeatable(tween(1600, easing = LinearEasing), RepeatMode.Reverse), label = "intense")
-    val glowIntensity by animateFloatAsState(if (pressed) 0.6f else 1f, tween(250, easing = FastOutSlowInEasing))
-    val elevation by animateDpAsState(if (pressed) 4.dp else 10.dp, tween(200, easing = FastOutSlowInEasing))
-
     val styles = listOf("Cardio", "Weights", "Both")
     val muscles = listOf("Chest", "Arms", "Legs", "Back", "Core", "Shoulders")
+
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by animateFloatAsState(targetValue = if (pressed) 0.98f else 1f, animationSpec = tween(140, easing = FastOutSlowInEasing))
+    val elevate by animateDpAsState(targetValue = if (pressed) 2.dp else 10.dp, animationSpec = tween(200, easing = FastOutSlowInEasing))
+    val bgPulse = rememberInfiniteTransition(label = "pulse")
+    val pulse by bgPulse.animateFloat(0.0f, 1.0f, animationSpec = infiniteRepeatable(tween(1800, easing = LinearEasing), RepeatMode.Reverse), label = "p")
+    val glow by animateFloatAsState(if (pressed) 0.65f else 1f, tween(240, easing = FastOutSlowInEasing))
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF0A0606))
+            .background(
+                Brush.verticalGradient(
+                    listOf(
+                        Color(0xFF0A0708),
+                        Color(0xFF11090A),
+                        Color(0xFF160B0C)
+                    )
+                )
+            )
             .drawBehind {
-                val r = size.minDimension * 0.9f
+                val r = size.minDimension * 0.95f
                 drawCircle(
                     brush = Brush.radialGradient(
-                        colors = listOf(Color(0xFF4A0000), Color.Transparent),
-                        center = Offset(0f, 0f),
+                        colors = listOf(
+                            Color(0xFF2B0F10).copy(alpha = 0.75f + 0.15f * pulse),
+                            Color.Transparent
+                        ),
+                        center = Offset(size.width * 0.15f, size.height * 0.15f),
                         radius = r
                     ),
-                    center = Offset(0f, 0f),
+                    center = Offset(size.width * 0.15f, size.height * 0.15f),
                     radius = r
+                )
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            Color(0xFF360F0F).copy(alpha = 0.6f + 0.2f * (1f - pulse)),
+                            Color.Transparent
+                        ),
+                        center = Offset(size.width * 0.85f, size.height * 0.9f),
+                        radius = r * 0.8f
+                    ),
+                    center = Offset(size.width * 0.85f, size.height * 0.9f),
+                    radius = r * 0.8f
                 )
             }
     ) {
@@ -111,14 +134,25 @@ fun EditUserStats(navcontroller: NavController) {
             containerColor = Color.Transparent,
             topBar = {
                 TopAppBar(
-                    title = { Text("Edit Profile", color = Color.White, fontWeight = FontWeight.Bold) },
+                    title = {
+                        Text(
+                            "Edit Profile",
+                            color = Color.White,
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.ExtraBold
+                        )
+                    },
                     navigationIcon = {
                         IconButton(onClick = { navcontroller.popBackStack() }) {
-                            Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null, tint = Color.White)
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = null,
+                                tint = Color.White
+                            )
                         }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = Color.Transparent,
+                        containerColor = Color(0x331A0D0E),
                         titleContentColor = Color.White,
                         navigationIconContentColor = Color.White
                     )
@@ -129,7 +163,7 @@ fun EditUserStats(navcontroller: NavController) {
                     modifier = Modifier
                         .fillMaxWidth()
                         .navigationBarsPadding()
-                        .padding(horizontal = 20.dp, vertical = 16.dp)
+                        .padding(20.dp)
                 ) {
                     Button(
                         onClick = {
@@ -140,137 +174,238 @@ fun EditUserStats(navcontroller: NavController) {
                         },
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(60.dp)
+                            .height(56.dp)
                             .graphicsLayer { scaleX = scale; scaleY = scale }
                             .border(
                                 2.dp,
                                 Brush.linearGradient(
                                     listOf(
-                                        Color(0xFF8B0000).copy(alpha = 0.8f + intensePulse * 0.2f),
-                                        Color(0xFFFF8800).copy(alpha = 0.6f + glowIntensity * 0.3f),
-                                        Color(0xFF650000).copy(alpha = 0.7f)
+                                        Color(0xFFE9473B).copy(alpha = 0.85f),
+                                        Color(0xFFFFA04D).copy(alpha = 0.7f),
+                                        Color(0xFFB31B1B).copy(alpha = 0.9f)
                                     )
                                 ),
                                 CircleShape
                             ),
                         shape = CircleShape,
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFF4A1515).copy(alpha = 0.4f + intensePulse * 0.2f),
+                            containerColor = Color(0xFF2A0E10).copy(alpha = 0.65f + 0.2f * pulse),
                             contentColor = Color.White
                         ),
-                        elevation = ButtonDefaults.buttonElevation(defaultElevation = elevation, pressedElevation = elevation),
-                        interactionSource = interactionSource
+                        elevation = ButtonDefaults.buttonElevation(defaultElevation = elevate, pressedElevation = elevate),
+                        interactionSource = interaction
                     ) {
                         Text(
                             "Save",
-                            style = MaterialTheme.typography.titleLarge.copy(
-                                shadow = Shadow(color = Color.White.copy(alpha = glowIntensity * 0.5f), blurRadius = 10f)
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                shadow = Shadow(color = Color.White.copy(alpha = 0.4f * glow), blurRadius = 12f)
                             ),
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.SemiBold
                         )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Icon(imageVector = Icons.Default.ArrowForward, contentDescription = null, tint = Color.White)
+                        Spacer(Modifier.width(10.dp))
+                        Icon(Icons.Default.ArrowForward, contentDescription = null, tint = Color.White)
                     }
                 }
             }
-        ) { innerPadding ->
+        ) { inner ->
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(innerPadding)
-                    .padding(horizontal = 20.dp, vertical = 12.dp)
+                    .padding(inner)
+                    .padding(horizontal = 18.dp, vertical = 12.dp)
                     .imePadding()
-                    .verticalScroll(rememberScrollState()),
+                    .verticalScroll(rememberScrollState())
+                    .graphicsLayer {
+                        clip = true
+                        shape = RoundedCornerShape(24.dp)
+                    }
+                    .background(Color(0x1A1C0E10))
+                    .border(1.dp, Color(0x33F04E3E), RoundedCornerShape(24.dp))
+                    .padding(18.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-
                 OutlinedTextField(
                     value = userName,
                     onValueChange = { userName = it },
                     label = { Text("Name") },
-                    shape = RoundedCornerShape(20.dp),
-                    modifier = Modifier.fillMaxWidth()
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = Color(0x331F1011),
+                        unfocusedContainerColor = Color(0x22161011),
+                        focusedBorderColor = Color(0xFFFF6A4E),
+                        unfocusedBorderColor = Color(0x44FF6A4E),
+                        focusedLabelColor = Color(0xFFFF6A4E),
+                        cursorColor = Color(0xFFFF6A4E),
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White
+                    )
                 )
-                Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(14.dp))
                 OutlinedTextField(
                     value = userAge,
                     onValueChange = { userAge = it },
                     label = { Text("Age") },
-                    shape = RoundedCornerShape(20.dp),
-                    modifier = Modifier.fillMaxWidth()
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = Color(0x331F1011),
+                        unfocusedContainerColor = Color(0x22161011),
+                        focusedBorderColor = Color(0xFFFF6A4E),
+                        unfocusedBorderColor = Color(0x44FF6A4E),
+                        focusedLabelColor = Color(0xFFFF6A4E),
+                        cursorColor = Color(0xFFFF6A4E),
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White
+                    )
                 )
-                Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(14.dp))
                 OutlinedTextField(
                     value = userHeight,
                     onValueChange = { userHeight = it },
                     label = { Text("Height") },
-                    shape = RoundedCornerShape(20.dp),
-                    modifier = Modifier.fillMaxWidth()
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = Color(0x331F1011),
+                        unfocusedContainerColor = Color(0x22161011),
+                        focusedBorderColor = Color(0xFFFF6A4E),
+                        unfocusedBorderColor = Color(0x44FF6A4E),
+                        focusedLabelColor = Color(0xFFFF6A4E),
+                        cursorColor = Color(0xFFFF6A4E),
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White
+                    )
                 )
-                Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(14.dp))
                 OutlinedTextField(
                     value = userWeight,
                     onValueChange = { userWeight = it },
                     label = { Text("Weight") },
-                    shape = RoundedCornerShape(20.dp),
-                    modifier = Modifier.fillMaxWidth()
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = Color(0x331F1011),
+                        unfocusedContainerColor = Color(0x22161011),
+                        focusedBorderColor = Color(0xFFFF6A4E),
+                        unfocusedBorderColor = Color(0x44FF6A4E),
+                        focusedLabelColor = Color(0xFFFF6A4E),
+                        cursorColor = Color(0xFFFF6A4E),
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White
+                    )
                 )
-
-                Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(14.dp))
                 OutlinedTextField(
                     value = getExp,
                     onValueChange = { getExp = it },
                     label = { Text("Experience") },
-                    shape = RoundedCornerShape(20.dp),
-                    modifier = Modifier.fillMaxWidth()
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = Color(0x331F1011),
+                        unfocusedContainerColor = Color(0x22161011),
+                        focusedBorderColor = Color(0xFFFF6A4E),
+                        unfocusedBorderColor = Color(0x44FF6A4E),
+                        focusedLabelColor = Color(0xFFFF6A4E),
+                        cursorColor = Color(0xFFFF6A4E),
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White
+                    )
                 )
 
                 Spacer(Modifier.height(20.dp))
-                Text("Preferred Workout Style", style = MaterialTheme.typography.titleMedium, color = Color.White)
-                Spacer(Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Preferred Workout Style", style = MaterialTheme.typography.titleMedium, color = Color.White, fontWeight = FontWeight.SemiBold)
+                }
+                Spacer(Modifier.height(10.dp))
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
                     styles.forEach { style ->
+                        val selected = preferredStyle == style
                         FilterChip(
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = Color(0xFF4A1515),
-                                selectedLabelColor = Color.White
-                            ),
-                            selected = preferredStyle == style,
+                            selected = selected,
                             onClick = { preferredStyle = style },
-                            label = { Text(style) }
+                            label = {
+                                Text(
+                                    style,
+                                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium
+                                )
+                            },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = Color(0x33FF6A4E),
+                                selectedLabelColor = Color.White,
+                                containerColor = Color(0x22FFFFFF),
+                                labelColor = Color(0xEEFFFFFF)
+                            ),
+                            border = FilterChipDefaults.filterChipBorder(
+                                enabled = true,
+                                selected = selected,
+                                borderColor = if (selected) Color(0xFFFF6A4E) else Color(0x44FFFFFF),
+                                selectedBorderColor = Color(0xFFFF6A4E),
+                                borderWidth = 1.dp
+                            )
                         )
                     }
                 }
 
                 Spacer(Modifier.height(20.dp))
-                Text("Most Important Muscles", style = MaterialTheme.typography.titleMedium, color = Color.White)
-                Spacer(Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Most Important Muscles", style = MaterialTheme.typography.titleMedium, color = Color.White, fontWeight = FontWeight.SemiBold)
+                }
+                Spacer(Modifier.height(10.dp))
                 FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     muscles.forEach { muscle ->
                         val selected = muscle in importantMuscles
                         FilterChip(
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = Color(0xFF4A1515),
-                                selectedLabelColor = Color.White
-                            ),
                             selected = selected,
                             onClick = {
                                 importantMuscles = if (selected) importantMuscles - muscle else importantMuscles + muscle
                             },
-                            label = { Text(muscle) }
+                            label = {
+                                Text(
+                                    muscle,
+                                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium
+                                )
+                            },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = Color(0x33FF6A4E),
+                                selectedLabelColor = Color.White,
+                                containerColor = Color(0x22FFFFFF),
+                                labelColor = Color(0xEEFFFFFF)
+                            ),
+                            border = FilterChipDefaults.filterChipBorder(
+                                enabled = true,
+                                selected = selected,
+                                borderColor = if (selected) Color(0xFFFF6A4E) else Color(0x44FFFFFF),
+                                selectedBorderColor = Color(0xFFFF6A4E),
+                                borderWidth = 1.dp
+                            )
                         )
                     }
                 }
 
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(8.dp))
             }
         }
     }
 }
+
 
 
 

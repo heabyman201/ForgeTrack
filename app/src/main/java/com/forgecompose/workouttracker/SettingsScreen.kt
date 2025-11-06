@@ -240,11 +240,25 @@ fun SettingsScreen(
                             onClick = {  navController.navigate("PerformanceOptions")  }
                         )
 
+
                         SettingsOptionRow(
                             title = "AI Settings",
                             subtitle = "Change AI persona, disable or enable AI features",
                             icon = Icons.Default.AutoAwesome,
                             onClick = {  navController.navigate("PersonaSettings")  }
+                        )
+                    }
+                }
+                item{
+                    SettingsSectionCard(title = "Appearance") {
+                        SettingsOptionRow(
+                            title = "App theme",
+                            subtitle = "Change app theme",
+                            icon = Icons.Default.Palette,
+                            onClick = {
+navController.navigate("AppearanceScreen")
+
+                            }
                         )
                     }
                 }

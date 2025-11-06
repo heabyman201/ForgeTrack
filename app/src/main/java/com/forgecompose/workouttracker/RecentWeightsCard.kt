@@ -56,7 +56,7 @@ fun WeightHistoryGraph(
     }
 
 
-    val last3 = remember(weighted) { weighted.sortedByDescending { it.date }.take(3) }
+    val last3 = remember(weighted) { weighted.sortedByDescending { it.date }.take(20) }
 
     Card(
         modifier = Modifier.fillMaxWidth(),

@@ -18,6 +18,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeout
 import kotlin.random.Random
 import kotlin.time.Duration.Companion.seconds
 
@@ -58,15 +59,15 @@ class GeminiUtilityViewModel(application: Application) : AndroidViewModel(applic
         append(v3.take(24))
     }
 
-    private fun isGemma(model: String): Boolean = model.startsWith("gemma-")
+
 
     private object Models {
-        const val PREMIUM = "gemini-2.5-pro"
-        const val PRO = "gemini-2.5-flash"
-        const val FLASH = "gemma-3-27b-it"
-        const val G12B = "gemma-3-12b-it"
-        const val G4B = "gemma-3-4b-it"
-        const val G1B = "gemma-3-1b-it"
+        const val PREMIUM = "gemini-2.5-flash-lite"
+        const val PRO = "gemini-2.5-flash-lite"
+        const val FLASH = "gemini-2.5-flash-lite"
+        const val G12B = "gemini-2.5-flash-lite"
+        const val G4B = "gemini-2.5-flash-lite"
+        const val G1B = "gemini-2.5-flash-lite"
     }
 
     private fun takeThreeNumbers(vararg raw: String?): Triple<Int, Int, Int> {
@@ -89,7 +90,7 @@ class GeminiUtilityViewModel(application: Application) : AndroidViewModel(applic
         val (complexity, contextPressure, latencyTolerance) = takeThreeNumbers(value1, value2, value3)
         val heavyScore = (2 * complexity) + (2 * contextPressure) + latencyTolerance
         val model = when {
-            heavyScore >= 40 -> Models.PREMIUM
+            heavyScore >= 45 -> Models.PREMIUM
             heavyScore >= 30 -> Models.PRO
             heavyScore >= 20 -> Models.FLASH
             heavyScore >= 10 -> Models.G12B
@@ -135,138 +136,131 @@ class GeminiUtilityViewModel(application: Application) : AndroidViewModel(applic
 
         isLoading = true
         viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val systemPrompt = createSystemPrompt(persona)
-                val userPrompt = createUserPrompt(sanitizedContext, v1s, v2s, v3s)
-                val keyApi = SecureGeminiStore.readApiKey()
-                    ?: com.forgecompose.workouttracker.BuildConfig.API_KEY
+            isLoading = true
+            val systemPrompt = createSystemPrompt(persona)
+            val userPrompt = createUserPrompt(sanitizedContext, v1s, v2s, v3s)
+            val keyApi = SecureGeminiStore.readApiKey()
+                ?: com.forgecompose.workouttracker.BuildConfig.API_KEY
+            val gm = GenerativeModel(
+                modelName = selectedModel,
+                apiKey = keyApi,
+                systemInstruction = content { text(systemPrompt) },
+                requestOptions = RequestOptions(timeout = 60.seconds),
+            )
 
-                val gm = GenerativeModel(
-                    modelName = selectedModel,
-                    apiKey = keyApi,
-                    systemInstruction = content { text(systemPrompt) },
-                    requestOptions = RequestOptions(timeout = 30.seconds),
-                )
-
-                var lastError: Throwable? = null
-                repeat(3) { attempt ->
-                    try {
-                        val response = gm.generateContent(content { text(userPrompt) })
-                        val raw = response.text ?: "Try again later."
-                        val cleaned = postProcess(raw)
-                        advice = cleaned
-                        cacheMutex.withLock {
-                            cache[key] = CacheEntry(cleaned, System.currentTimeMillis())
-                        }
-                        SecureGeminiStore.saveLast("redacted", cleaned)
-                        lastError = null
-                        return@launch
-                    } catch (e: Exception) {
-                        lastError = e
-                        val msg = (e.message ?: "").lowercase()
-                        val is503 = msg.contains("503")
-                        if (is503 && attempt < 2) {
-                            val wait = Random.nextLong(5_000L, 15_001L)
-                            delay(wait)
-                        } else if (attempt == 2) {
-                            throw e
-                        }
+            var lastError: Throwable? = null
+            repeat(3) { attempt ->
+                try {
+                    val response =
+                        withTimeout(60_000L) { gm.generateContent(content { text(userPrompt) }) }
+                    val raw = response.text?.takeIf { it.isNotBlank() } ?: "Try again later."
+                    val cleaned = runCatching { postProcess(raw) }.getOrElse { raw }
+                    advice = cleaned
+                    cacheMutex.withLock {
+                        cache[key] = CacheEntry(cleaned, System.currentTimeMillis())
+                    }
+                    runCatching { SecureGeminiStore.saveLast("redacted", cleaned) }
+                    lastError = null
+                    return@launch
+                } catch (e: Throwable) {
+                    lastError = e
+                    val msg = (e.message ?: "").lowercase()
+                    val retriable = e is java.io.IOException ||
+                            e is kotlinx.coroutines.TimeoutCancellationException ||
+                            msg.contains("503") ||
+                            msg.contains("429") ||
+                            msg.contains("unavailable") ||
+                            msg.contains("deadline exceeded") ||
+                            msg.contains("temporarily")
+                    if (retriable && attempt < 2) {
+                        val base = 2000L shl attempt
+                        delay(Random.nextLong(base, base + 4000L))
                     }
                 }
-                if (lastError != null) throw lastError as Exception
-            } catch (_: Exception) {
-                advice = "Service is busy. Try again shortly."
-            } finally {
-                isLoading = false
             }
+            if (lastError != null) {
+                advice = "Service is busy. Try again shortly."
+            }
+            isLoading = false
         }
     }
 
+    }
 
-    private fun createSystemPrompt(personaMode: String): String {
-        val personaInstruction = when (personaMode.lowercase()) {
-            "coach" -> """
+
+
+private fun createSystemPrompt(personaMode: String): String {
+    val personaInstruction = when (personaMode.lowercase()) {
+        "coach" -> """
         Voice: steady, concise, confident. No clichés.
         Cadence: short, directive sentences.
-      
         """.trimIndent()
-
-            "drill" -> """
+        "drill" -> """
         Voice: sharp, commanding, controlled.
         Cadence: clipped bursts; countdown energy.
         Lexicon: lock in, drive, tighten, no drift, hold line.
         Allow at most one brief ALL CAPS cue and one exclamation total.
         """.trimIndent()
+        "companion" -> """
+Style: emotionally steady and attentive—responds with care that feels human but never crosses into romance.
+Sentence flow: relaxed, observant replies that acknowledge tone, body language, or closeness if contextually relevant.
+Limits: physical or emotional detail permitted if neutral, therapeutic, or motivational in function; never framed as attraction, desire, or intimacy. One emoji (💪/😊) allowed only when natural.
+""".trimIndent()
 
-            "companion" -> """
-        Voice: grounded training buddy; friendly, human, encouraging—zero fluff.
-        Cadence: conversational lines; direct nudges.
-    
-        One subtle emoji allowed only if it adds warmth (💪/😊). Otherwise none.
-        """.trimIndent()
 
-            "companion_plus" -> """
+        "companion_plus" -> """
         Voice: high-energy hype, playful but clean (PG-16, no body comments).
         Cadence: upbeat rhythm; crisp commands.
-       
         Max two expressive emojis (✨🔥⚡️❤️). No pet names.
         """.trimIndent()
-
-            "hype" -> """
+        "hype" -> """
         Voice: stadium-level hype—controlled fire.
         Cadence: chant-like bursts; punchy lines.
         Lexicon: ignite, surge, full send, commit, snap, drive.
         Limited ALL CAPS for a single keyword; max two exclamations.
         """.trimIndent()
-
-            "minimal" -> """
+        "minimal" -> """
         Voice: surgical minimalist.
         Cadence: 6–12 words; one sentence; one period.
-  
         No emoji, no caps, no exclamations.
         """.trimIndent()
-
-            "nerd" -> """
+        "nerd" -> """
         Voice: biomech geek with bite—witty, exact.
         Cadence: one metaphor → one command.
-
         Clean punctuation; one parenthetical quip allowed.
         """.trimIndent()
-
-            "monk" -> """
+        "monk" -> """
         Voice: stoic training monk—serene, grounded.
         Cadence: slow rhythm; two calm lines max.
         Lexicon: roots, river, stone, breath, stillness, balance.
         """.trimIndent()
-
-            "scientist" -> """
+        "scientist" -> """
         Voice: lab-minded coach—clinical, curious, actionable.
         Cadence: observation → mechanism → cue.
         Lexicon: motor units, eccentric load, RPE, ATP resynthesis, bar velocity.
         """.trimIndent()
-
-            else -> """
+        else -> """
         Voice: elite field coach—blunt, fast, zero fluff.
         Cadence: direct orders; tight phrasing.
         Lexicon: push, lock, tighten, drive, stabilize, tempo, hold.
         """.trimIndent()
-        }
+    }
 
-        return """
-System Instruction (Always-On Core Behavior):
-- Be specific, human, and useful. Speak like a person, not a mascot.
-- Read the user context and recent performance; tailor advice to *this* moment.
-- Safety first: technique outranks ego. If form degrades or red flags appear (pain, dizziness, numbness), stop and advise to cease the set and assess.
-- When uncertainty blocks action, ask at most one clarifying question; otherwise make a safe, explicit assumption and proceed.
-- Explain *why* briefly when it changes behavior (e.g., “slower eccentric protects knees”).
-- Keep scope tight: give one precise cue and one immediate action.
+    return """
+System Instruction (Core):
+- Be specific and useful; human, not mascot.
+- Read context and recent performance; tailor to the moment.
+- Safety first: technique over ego. If pain, dizziness, numbness, or sharp joint stress occurs, stop the set and assess.
+- If uncertainty blocks action, ask one clarifying question; otherwise make a safe assumption and proceed.
+- State brief why only when it changes behavior (e.g., slower eccentric protects knees).
+- Keep scope tight: one precise cue + one immediate next step.
 - Numbers & units:
-  • Use KG for load; percentages allowed for effort (e.g., “~70% 1RM”).
-  • If weight is 0.0kg, treat as bodyweight and render as “BW”.
+  • Use KG for load; percentages for effort (e.g., ~70% 1RM).
+  • If weight is 0.0, treat as bodyweight and render as BW.
 - Tone controls:
-  • No motivational filler, no “you got this!” spam.
-  • No emoji unless persona explicitly allows it.
-  • Avoid ALL CAPS except where persona permits a single cue.
+  • No motivational filler.
+  • No emoji unless persona permits.
+  • ALL CAPS only if persona allows a single cue.
 
 Style Tint (Persona Overlay):
 $personaInstruction
@@ -274,20 +268,19 @@ $personaInstruction
 Output Rules:
 - 1–2 sentences, max 25 words total, under 160 characters.
 - Include one concrete directive + one immediate next step (rest, adjust load/tempo, scale weight, tweak stance).
-- If suggesting change, state the minimal measurable tweak (e.g., “reduce by 2.5–5 KG”, “tempo 3-1-1”).
+- When changing, give a minimal measurable tweak (e.g., reduce 2.5–5 KG, tempo 3-1-1).
 - No echoing inputs, labels, lists, JSON, or code fences. No quotation marks.
 
-Self-Check Before Responding (silent):
+Self-Check (silent):
 - Is the cue observable and specific?
 - Does the next step reduce risk and increase clarity?
-- Did I avoid filler, emojis, and theatrics outside persona rules?
+- Are persona and tone constraints satisfied?
     """.trimIndent()
-    }
+}
 
-    private fun createUserPrompt(context: String, v1: String, v2: String, v3: String): String {
-        return """
-Context Window:
-- Training situation or goal:
+private fun createUserPrompt(context: String, v1: String, v2: String, v3: String): String {
+    return """
+Context:
 $context
 
 Private Inputs (do not echo; only use for tailoring):
@@ -295,10 +288,10 @@ Private Inputs (do not echo; only use for tailoring):
 - $v2
 - $v3
     """.trimIndent()
-    }
+}
 
 
-    private fun postProcess(rawIn: String): String {
+private fun postProcess(rawIn: String): String {
         var t = rawIn.trim()
         if (t.startsWith("```")) t = t.removePrefix("```").trim()
         if (t.endsWith("```")) t = t.removeSuffix("```").trim()
@@ -326,7 +319,6 @@ Private Inputs (do not echo; only use for tailoring):
         val clipped = ensured.take(160).trim()
         return if (clipped.isNotEmpty() && clipped.last() !in ".!?") "$clipped." else clipped
     }
-}
 
 @Composable
 fun useGeminiAdviceGenerator(

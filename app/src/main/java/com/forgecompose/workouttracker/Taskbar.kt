@@ -399,9 +399,14 @@ fun FloatingTaskbar(
                                                 }
                                                 .clip(RoundedCornerShape(pillRadius))
                                                 .pointerInput(selected) {
+                                                    val densityLocal = this
+
+                                                    val dragThresholdPx = with(densityLocal) { 32.dp.toPx() }
+
                                                     if (selected) {
                                                         detectDragGestures(
                                                             onDragEnd = {
+
                                                                 dragAccum = 0f
                                                                 dragPreviewIndex = null
                                                                 dragProgress = 0f
@@ -409,27 +414,43 @@ fun FloatingTaskbar(
                                                         ) { change, dragAmount ->
                                                             change.consume()
                                                             dragAccum += dragAmount.x
+
                                                             val absAccum = kotlin.math.abs(dragAccum)
-                                                            val progress = (absAccum / dragThresholdPx).coerceIn(0f, 1f)
+
+
+                                                            var progress = (absAccum / dragThresholdPx).coerceIn(0f, 1f)
+                                                            progress = progress * progress
+
                                                             val dir = dragAccum.sign.toInt().coerceIn(-1, 1)
-                                                            val idx = order.indexOf(route).let { if (it < 0) 1 else it }
+
+
+                                                            val idx = order.indexOf(route).let { if (it < 0) 0 else it }
                                                             val next = (idx + dir).coerceIn(0, order.lastIndex)
+
                                                             if (dir != 0 && next != idx) {
+
                                                                 dragPreviewIndex = next
                                                                 dragProgress = progress
                                                             } else {
+
                                                                 dragPreviewIndex = null
                                                                 dragProgress = 0f
                                                             }
+
                                                             if (absAccum > dragThresholdPx) {
+
                                                                 val nextRoute = order[next]
                                                                 if (nextRoute != route) {
                                                                     navController.navigate(nextRoute) {
-                                                                        popUpTo(navController.graph.startDestinationId)
+
+                                                                        popUpTo(navController.graph.startDestinationId) { saveState = true }
                                                                         launchSingleTop = true
+                                                                        restoreState = true
                                                                     }
+
                                                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                                                 }
+
                                                                 dragAccum = 0f
                                                                 dragPreviewIndex = null
                                                                 dragProgress = 0f

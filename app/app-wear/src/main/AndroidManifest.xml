@@ -53,6 +53,10 @@
                 <action android:name="androidx.health.services.client.action.PASSIVE_DATA" />
             </intent-filter>
         </service>
+        <meta-data
+            android:name="com.google.android.wearable.beta.app"
+            android:resource="@xml/ass" />
+
 
 
     </application>

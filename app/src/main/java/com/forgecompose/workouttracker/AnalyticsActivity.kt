@@ -7,6 +7,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -15,8 +16,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -331,9 +334,11 @@ fun ExerciseAnalyticsScreen(
             if (filteredData.size < 2) {
                 item {
                     GlassCard {
-                        Box(modifier = Modifier
-                            .fillMaxWidth()
-                            .height(200.dp), contentAlignment = Alignment.Center) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(200.dp), contentAlignment = Alignment.Center
+                        ) {
                             Text(
                                 text = "Not enough data for the selected range.",
                                 color = Color.White.copy(alpha = 0.7f),
@@ -345,54 +350,12 @@ fun ExerciseAnalyticsScreen(
                 }
             } else {
                 val weightData = filteredData.filter { (it.weight ?: 0.0) > 0.0 }
-                if (weightData.size >= 2) {
+                if (weightData.size >= 2 || filteredData.size >= 2) {
                     item {
-                        GlassCard(modifier = Modifier.padding(bottom = 2.dp)) {
-                            SectionTitle("Weight Progression")
-                            val maxWeight = weightData.maxOf { it.weight!! }
-                            val minWeight = weightData.minOf { it.weight!! }
-                            GenericLineChart(
-                                data = weightData, maxValue = maxWeight, minValue = minWeight,
-                                valueSelector = { it.weight ?: 0.0 }, unit = "kg",
-                                lineBrush = Brush.verticalGradient(colors = listOf(Color(0xFFF85757), Color(0xFFD32F2F))),
-                                areaBrush = Brush.verticalGradient(colors = listOf(Color(0xFF9B111E).copy(alpha = 0.4f), Color.Transparent)),
-                                tooltipColor = Color(0xFF1A0808)
+                        GlassCard {
+                            CombinedWorkoutChart(
+                                data = filteredData,
                             )
-                        }
-                    }
-                }
-                val setData = filteredData.filter { (it.sets ?: 0) > 0 }
-                if (setData.size >= 2) {
-                    item {
-                        GlassCard(modifier = Modifier.padding(bottom = 2.dp)) {
-                            SectionTitle("Sets Progression")
-                            val maxSets = setData.maxOf { it.sets!! }.toDouble()
-                            val minSets = setData.minOf { it.sets!! }.toDouble()
-                            GenericLineChart(
-                                data = setData, maxValue = maxSets, minValue = minSets,
-                                valueSelector = { (it.sets ?: 0).toDouble() }, unit = "sets",
-                                lineBrush = Brush.verticalGradient(colors = listOf(Color(0xFF00E676), Color(0xFF1B8E4B))),
-                                areaBrush = Brush.verticalGradient(colors = listOf(Color(0xFF00E676).copy(alpha = 0.35f), Color.Transparent)),
-                                tooltipColor = Color(0xFF081A12)
-                            )
-                        }
-                    }
-                }
-                val repData = filteredData.filter { (it.reps ?: 0) > 0 }
-                if (repData.size >= 2) {
-                    item {
-                        GlassCard(modifier = Modifier.padding(bottom = 2.dp)) {
-                            SectionTitle("Reps Progression")
-                            val maxReps = repData.maxOf { it.reps!! }.toDouble()
-                            val minReps = repData.minOf { it.reps!! }.toDouble()
-                            GenericLineChart(
-                                data = repData, maxValue = maxReps, minValue = minReps,
-                                valueSelector = { (it.reps ?: 0).toDouble() }, unit = "reps",
-                                lineBrush = Brush.verticalGradient(colors = listOf(Color(0xFF4FC3F7), Color(0xFF0288D1))),
-                                areaBrush = Brush.verticalGradient(colors = listOf(Color(0xFF01579B).copy(alpha = 0.4f), Color.Transparent)),
-                                tooltipColor = Color(0xFF011A27)
-                            )
-
                         }
                     }
                 }
@@ -404,7 +367,14 @@ fun ExerciseAnalyticsScreen(
         val datePickerState = rememberDatePickerState()
         DatePickerDialog(
             onDismissRequest = { showStartDatePicker = false },
-            confirmButton = { TextButton(onClick = { startDate = datePickerState.selectedDateMillis; showStartDatePicker = false }) { Text("OK") } },
+            confirmButton = {
+                TextButton(onClick = {
+                    datePickerState.selectedDateMillis?.let {
+                        startDate = it
+                    }
+                    showStartDatePicker = false
+                }) { Text("OK") }
+            },
             dismissButton = { TextButton(onClick = { showStartDatePicker = false }) { Text("Cancel") } }
         ) { DatePicker(state = datePickerState) }
     }
@@ -413,7 +383,15 @@ fun ExerciseAnalyticsScreen(
         val datePickerState = rememberDatePickerState()
         DatePickerDialog(
             onDismissRequest = { showEndDatePicker = false },
-            confirmButton = { TextButton(onClick = { endDate = datePickerState.selectedDateMillis; showEndDatePicker = false }) { Text("OK") } },
+            confirmButton = {
+                TextButton(onClick = {
+                    datePickerState.selectedDateMillis?.let {
+                        endDate = it
+                    }
+                    showEndDatePicker = false
+                }) { Text("OK") }
+            },
+
             dismissButton = { TextButton(onClick = { showEndDatePicker = false }) { Text("Cancel") } }
         ) { DatePicker(state = datePickerState) }
     }
@@ -425,31 +403,153 @@ fun ExerciseAnalyticsScreen(
 
 @Composable
 private fun AnalysisInsightsCard(data: List<Workout>) {
-    val insightMessage = remember(data) {
-        if (data.size < 4) {
-            "Select a date range with at least 4 workouts for performance insights."
-        } else {
-            val midpoint = data.size / 2
-            val firstHalf = data.take(midpoint)
-            val secondHalf = data.drop(midpoint)
-            val avgWeightFirst = firstHalf.mapNotNull { it.weight }.average().takeIf { !it.isNaN() } ?: 0.0
-            val avgWeightSecond = secondHalf.mapNotNull { it.weight }.average().takeIf { !it.isNaN() } ?: 0.0
-            val avgRepsFirst = firstHalf.mapNotNull { it.reps }.average().takeIf { !it.isNaN() } ?: 0.0
-            val avgRepsSecond = secondHalf.mapNotNull { it.reps }.average().takeIf { !it.isNaN() } ?: 0.0
-            val weightChange = if (avgWeightFirst > 0) ((avgWeightSecond - avgWeightFirst) / avgWeightFirst) * 100 else 0.0
-            val repsChange = if (avgRepsFirst > 0) ((avgRepsSecond - avgRepsFirst) / avgRepsFirst) * 100 else 0.0
-            val changes = listOf("Weight" to weightChange, "Reps" to repsChange).filter { it.second != 0.0 }.maxByOrNull { abs(it.second) }
-            changes?.let { (metric, percent) ->
-                val direction = if (percent > 0) "up" else "down"
-                val color = if (percent > 0) "🟢" else "🔴"
-                "$color Your $metric is $direction by ${abs(percent).roundToInt()}% compared to the first half of this period."
-            } ?: "✅ Your performance has been consistent. Keep up the great work!"
+    if (data.size < 4) {
+        GlassCard {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp)) {
+                Text(
+                    "Insights",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.92f)
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "Select a date range with at least 4 workouts for performance insights.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
+                )
+            }
+        }
+        return
+    }
+
+    val midpoint = data.size / 2
+    val first = data.take(midpoint)
+    val second = data.drop(midpoint)
+
+    fun avgD(get: (Workout) -> Double?): Double {
+        val vals = first.mapNotNull(get)
+        val vals2 = second.mapNotNull(get)
+        val a = vals.average().takeIf { !it.isNaN() } ?: 0.0
+        val b = vals2.average().takeIf { !it.isNaN() } ?: 0.0
+        return if (a > 0.0) ((b - a) / a) * 100.0 else 0.0
+    }
+
+    fun avgI(get: (Workout) -> Int?): Double = avgD { get(it)?.toDouble() }
+
+    val dWeight = avgD { it.weight }
+    val dReps = avgI { it.reps }
+    val dSets = avgI { it.sets }
+    val dVolume = run {
+        val v1 = first.map { ((it.weight ?: 0.0) * (it.reps ?: 0) * (it.sets ?: 0)).toDouble() }
+            .average().takeIf { !it.isNaN() } ?: 0.0
+        val v2 = second.map { ((it.weight ?: 0.0) * (it.reps ?: 0) * (it.sets ?: 0)).toDouble() }
+            .average().takeIf { !it.isNaN() } ?: 0.0
+        if (v1 > 0.0) ((v2 - v1) / v1) * 100.0 else 0.0
+    }
+    val dFrequency = run {
+        val firstDays = (first.lastOrNull()?.date ?: 0L) - (first.firstOrNull()?.date ?: 0L)
+        val secondDays = (second.lastOrNull()?.date ?: 0L) - (second.firstOrNull()?.date ?: 0L)
+        val f1 = if (firstDays > 0) first.size / (firstDays / 86_400_000.0) else 0.0
+        val f2 = if (secondDays > 0) second.size / (secondDays / 86_400_000.0) else 0.0
+        if (f1 > 0.0) ((f2 - f1) / f1) * 100.0 else 0.0
+    }
+
+    data class Metric(val label: String, val delta: Double, val priority: Int)
+    val metrics = listOf(
+        Metric("Volume", dVolume, 0),
+        Metric("Weight", dWeight, 1),
+        Metric("Reps", dReps, 2),
+        Metric("Sets", dSets, 3),
+        Metric("Frequency", dFrequency, 4)
+    )
+
+    fun fmt(p: Double): String {
+        val v = abs(p)
+        val r = if (v >= 10.0) v.roundToInt().toString() else String.format(Locale.US, "%.1f", v)
+        return "$r%"
+    }
+
+    fun arrow(p: Double): String = when {
+        p > 0.5 -> "↑"
+        p < -0.5 -> "↓"
+        else -> "↔"
+    }
+
+    val headline = run {
+        val lead = metrics.maxWithOrNull(compareBy<Metric> { abs(it.delta) }.thenBy { -it.priority })
+        if (lead == null || abs(lead.delta) < 0.5) "Performance stable across this period."
+        else "${lead.label} ${arrow(lead.delta)} ${fmt(lead.delta)}"
+    }
+
+    val onBg = MaterialTheme.colorScheme.onSurface
+    val pos = Color(0xFF1DB954)
+    val neg = Color(0xFFFF4D4D)
+    val neu = onBg.copy(alpha = 0.6f)
+
+    @Composable
+    fun MetricRow(m: Metric) {
+        val base = when {
+            m.delta > 0.5 -> pos
+            m.delta < -0.5 -> neg
+            else -> neu
+        }
+        val fg by animateColorAsState(base, label = "fg")
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(m.label, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = arrow(m.delta),
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = fg,
+                    modifier = Modifier.padding(end = 8.dp)
+                )
+                Text(
+                    text = fmt(m.delta),
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = fg,
+                    fontWeight = FontWeight.Bold
+                )
+            }
         }
     }
+
     GlassCard {
-        Text(text = insightMessage, style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.9f))
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
+            Text(
+                "Insights",
+                style = MaterialTheme.typography.titleLarge,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.92f)
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                headline,
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
+            )
+            Spacer(Modifier.height(16.dp))
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                metrics.forEach { metric ->
+                    MetricRow(m = metric)
+                }
+            }
+        }
     }
 }
+
 
 @Composable
 private fun DateRangeSelector(startDate: Long?, endDate: Long?, onStartDateClick: () -> Unit, onEndDateClick: () -> Unit) {

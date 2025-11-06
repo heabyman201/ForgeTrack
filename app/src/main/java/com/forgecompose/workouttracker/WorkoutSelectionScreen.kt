@@ -914,25 +914,7 @@ fun WorkoutSelector(
                     }
                 }
             }
-//            if (customDeletion.showDeleteDialog.value){
-//                ThemedConfirmationDialog(
-//                    title = "Delete Custom Preset",
-//                    text = "Are you sure you want to delete this custom preset?",
-//                    buttonText = "Delete",
-//                    onConfirm = {
-//                        scope.launch { CustomPresetStore.remove(context, preset.name) }
-//                        haptics.performHapticFeedback(HapticFeedbackType.Confirm)
-//                    },
-//                    onDismiss = { haptics.performHapticFeedback(HapticFeedbackType.LongPress);
-//                        customDeletion.showDeleteDialog.value = false},
-//                    additionalButton = false,
-//                    additionalButtonText = "Cancel",
-//                    onCustomAction = {
-//
-//                    }
-//
-//                )
-//            }
+
 
 
             FloatingTaskbar(

@@ -17,6 +17,8 @@
     <uses-permission android:name="android.permission.health.READ_TOTAL_CALORIES_BURNED" />
     <uses-permission android:name="android.permission.health.READ_OXYGEN_SATURATION" />
     <uses-permission android:name="android.permission.health.READ_HEART_RATE_VARIABILITY_RMSSD" />
+    <uses-permission android:name="com.google.android.gms.permission.WEARABLE_DATA" />
+
     <queries>
         <package android:name="com.google.android.apps.healthdata" />
     </queries>
@@ -28,7 +30,7 @@
         android:icon="@mipmap/ic_launcher"
         android:label="ForgeTrack"
         android:roundIcon="@mipmap/ic_launcher_round"
-        android:supportsRtl="true"
+        android:supportsRtl="false"
         android:theme="@style/Theme.WorkoutTracker"
         android:hardwareAccelerated="true">
 

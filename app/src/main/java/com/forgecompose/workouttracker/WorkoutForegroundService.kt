@@ -189,7 +189,7 @@ class WorkoutForegroundService : Service() {
                 .setStyle(style)
                 .setOngoing(true)
                 .setOnlyAlertOnce(true)
-                .setColor(Color.parseColor("#8B0000"))
+                .setColor("#8B0000".toColorInt())
                 .setContentIntent(openAppPendingIntent)
                 .setExtras(Bundle().apply {
                     putBoolean("android.extra.REQUEST_PROMOTED_ONGOING", true)
@@ -202,7 +202,7 @@ class WorkoutForegroundService : Service() {
             }
         } else {
             val builder = NotificationCompat.Builder(this, CHANNEL_ID)
-                .setSmallIcon(R.drawable.ic_launcher_foreground)
+                .setSmallIcon(R.drawable.ic_launcher_mono)
                 .setContentTitle(title)
                 .setContentText(text)
                 .setStyle(NotificationCompat.BigTextStyle().bigText("$text\n$sub"))

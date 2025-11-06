@@ -127,6 +127,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -202,10 +203,13 @@ import dev.chrisbanes.haze.materials.ExperimentalHazeMaterialsApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.time.DayOfWeek
+import java.time.Duration
 import java.time.Instant
 import java.time.LocalTime
+import java.time.temporal.ChronoUnit
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
@@ -661,6 +665,44 @@ fun MainScreen(viewModel: WorkoutListViewModel, viewModel2: MainScreenViewModel)
 
                 PerformanceOptionsScreen(navController = navController)
             }
+            composable("AppearanceScreen",
+                enterTransition = {
+
+                    if (initialState.destination.route == "Settings") {
+                        slideInHorizontally(
+                            animationSpec = tween(200, easing = LinearEasing),
+                            initialOffsetX = { it }
+                        )
+                    } else {
+                        fadeIn(animationSpec = fadeInSpec) +
+                                scaleIn(
+                                    initialScale = 0.92f,
+                                    animationSpec = spring(dampingRatio = 0.78f, stiffness = 300f),
+                                    transformOrigin = TransformOrigin.Center
+                                )
+                    }
+                },
+
+                exitTransition = {
+                    if (targetState.destination.route == "Settings") {
+                        slideOutHorizontally(
+                            animationSpec = tween(200, easing = LinearEasing),
+                            targetOffsetX = { it }
+                        )
+                    } else {
+                        fadeOut(animationSpec = fadeOutSpec) +
+                                scaleOut(
+                                    targetScale = 1.04f,
+                                    animationSpec = tween(800, easing = LinearEasing),
+                                    transformOrigin = TransformOrigin.Center
+                                )
+                    }
+                },
+            ){
+                AppearanceScreen(
+                    navController = navController
+                )
+            }
             composable("Settings") {
               SettingsScreen(navController = navController)
             }
@@ -918,37 +960,81 @@ fun WorkoutListScreen(
     val usageTracker = remember { PresetUsageTracker(context) }
     val usageMap by usageTracker.usageFlow.collectAsState(initial = emptyMap())
 
-    LaunchedEffect(userName, userAge, userWeight, userHeight, userExperience, personalRecords, recentWorkouts) {
+    LaunchedEffect(
+        userName,
+        userAge,
+        userWeight,
+        userHeight,
+        userExperience,
+        personalRecords,
+        recentWorkouts
+    ) {
+        val healthConnectManager = HealthConnectManager(context)
         val tape: String = PDE.readTape()
         setPrefStyle()
+
+        val healthDataSummary = if (healthConnectManager.hasAllPermissions()) {
+            val endTime = Instant.now()
+            val startTime = endTime.minus(30, ChronoUnit.DAYS)
+            val summaryBuilder = StringBuilder("\n\nHealth data (last 30 days):\n")
+            var dataFound = false
+
+            val sleepSessions = healthConnectManager.readSleepSessions(startTime, endTime)
+            if (sleepSessions.isNotEmpty()) {
+                val averageSleepDurationHours =
+                    sleepSessions.map { Duration.between(it.startTime, it.endTime).toMinutes() }.average() / 60.0
+                summaryBuilder.append("Average Sleep: %.1f h/night\n".format(averageSleepDurationHours))
+                dataFound = true
+            }
+
+            val restingHeartRates = healthConnectManager.readRestingHeartRate(startTime, endTime)
+            if (restingHeartRates.isNotEmpty()) {
+                val averageRhr = restingHeartRates.map { it.beatsPerMinute }.average()
+                summaryBuilder.append("Average Resting HR: %.0f bpm\n".format(averageRhr))
+                dataFound = true
+            }
+
+            val bodyFatReadings = healthConnectManager.readBodyFat(startTime, endTime)
+            bodyFatReadings.maxByOrNull { it.time }?.let {
+                summaryBuilder.append("Latest Body Fat: %.1f%%\n".format(it.percentage.value))
+                dataFound = true
+            }
+
+            val oxygenSaturationReadings = healthConnectManager.readOxygenSaturation(startTime, endTime)
+            if (oxygenSaturationReadings.isNotEmpty()) {
+                val averageSpo2 = oxygenSaturationReadings.map { it.percentage.value }.average()
+                summaryBuilder.append("Average SpO₂: %.1f%%\n".format(averageSpo2))
+                dataFound = true
+            }
+
+            if (dataFound) summaryBuilder.toString() else ""
+        } else {
+            ""
+        }
+
         generateAdvice(
-
             """
-    The user’s profile:
-    – Name: $userName
-    – Age: $userAge
-    – Weight: $userWeight kg
-    – Height: $userHeight cm
-    – Training experience: $userExperience years of experience
-    """.trimIndent(),
-
+Rules:
+Respond instantly using given data only. No questions, no follow-ups, no assumptions.
+Output ≤2 lines: 1 for performance summary, 1 for short focus recommendation.
+""".trimIndent(),
             """
-    The user’s training preferences:
-    – Current personal records: $personalRecords
-    – Preferred training style: $userPreferredStyle
-    – Muscles they care most about: $userImportantMuscles
-    """.trimIndent(),
-
+Profile:
+$userName, $userAge y, $userWeight kg, $userHeight cm, $userExperience y exp
+PRs: $personalRecords | Style: $userPreferredStyle | Focus: $userImportantMuscles
+Recent: $recentWorkouts
+$healthDataSummary
+""".trimIndent(),
             """
-                    some info about their logged workouts $tape , take the dates and times for each workout into account
-    Recent workout history for this user: $recentWorkouts
-
-    Use this information to create advice and suggest their next move that feels personal and tailored to their current fitness level, goals, and style.
-    Be encouraging, practical, and specific (not generic). Mention progress opportunities, form cues, or recovery tips that match their profile.
-    """.trimIndent()
+Format:
+Line 1 – Overall status (e.g. “Steady strength rise, mild recovery lag.”)
+Line 2 – Next focus (e.g. “Prioritize sleep and progressive overload.”)
+No extra text or interaction.
+""".trimIndent()
         )
 
     }
+
 
     val haze = remember { HazeState() }
     val clampedGlow by remember { derivedStateOf { glowIntensity.coerceIn(0f, 1f) } }
@@ -1396,12 +1482,12 @@ fun WorkoutListScreen(
                                                             haptics.performHapticFeedback(HapticFeedbackType.ContextClick)
                                                             workout.value = workoutName
                                                             scope.launch {
-                                                                expand.animateTo(0.55f, tween(250))
+                                                                expand.animateTo(0.85f, tween(200))
                                                                 val intent = Intent(context, WorkoutActivity::class.java).apply {
                                                                     putExtra("WORKOUT_NAME", workoutName)
                                                                 }
                                                                 startActivity(context, intent, null)
-                                                                expand.animateTo(1f, tween(300))
+                                                                expand.animateTo(1f, tween(100))
                                                                 expand.snapTo(0f)
                                                             }
                                                         }

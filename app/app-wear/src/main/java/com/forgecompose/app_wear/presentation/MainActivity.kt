@@ -36,12 +36,16 @@ import androidx.wear.compose.material.*
 import androidx.wear.compose.navigation.SwipeDismissableNavHost
 import androidx.wear.compose.navigation.composable
 import androidx.wear.compose.navigation.rememberSwipeDismissableNavController
+import com.google.android.gms.wearable.CapabilityClient
+import com.google.android.gms.wearable.Node
 import com.google.android.gms.wearable.PutDataMapRequest
 import com.google.android.gms.wearable.Wearable
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
@@ -51,19 +55,53 @@ class MainActivity : ComponentActivity() {
     @RequiresApi(Build.VERSION_CODES.TIRAMISU)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        WorkoutDataSync.init(this)
         setContent {
             WorkoutAppWear()
         }
     }
+    override fun onDestroy() {
+        WorkoutDataSync.shutdown(this)
+        super.onDestroy()
+    }
 }
 
-object WorkoutDataSync {
+object WorkoutDataSync : CapabilityClient.OnCapabilityChangedListener {
     private const val TAG = "WorkoutDataSync"
     private const val WORKOUT_STATE_PATH = "/workout_state"
+    private const val HR_PATH = "/hr"
     private const val WEAR_CAPABILITY = "wear_app"
     private val scope = CoroutineScope(Dispatchers.IO)
+    private val reachableNodesFlow = MutableStateFlow<List<Node>>(emptyList())
+    val reachableNodes: StateFlow<List<Node>> = reachableNodesFlow
+    @Volatile private var latestNodeId: String? = null
+
+    fun init(context: Context) {
+        val client = Wearable.getCapabilityClient(context)
+        client.addListener(this, WEAR_CAPABILITY)
+        scope.launch {
+            try {
+                val info = client.getCapability(WEAR_CAPABILITY, CapabilityClient.FILTER_REACHABLE).await()
+                val nodes = info.nodes.toList()
+                reachableNodesFlow.value = nodes
+                latestNodeId = nodes.firstOrNull()?.id
+            } catch (_: Exception) { }
+        }
+    }
+
+    fun shutdown(context: Context) {
+        Wearable.getCapabilityClient(context).removeListener(this, WEAR_CAPABILITY)
+    }
+
+    override fun onCapabilityChanged(info: com.google.android.gms.wearable.CapabilityInfo) {
+        val nodes = info.nodes.toList()
+        reachableNodesFlow.value = nodes
+        latestNodeId = nodes.firstOrNull()?.id
+        Log.d(TAG, "reachable=${nodes.map { it.displayName }}")
+    }
+
     suspend fun sendHeartRate(context: Context, bpm: Int) {
-        val req = PutDataMapRequest.create("/hr").apply {
+        val req = PutDataMapRequest.create(HR_PATH).apply {
             dataMap.putInt("bpm", bpm)
             dataMap.putLong("ts", System.currentTimeMillis())
         }.asPutDataRequest().setUrgent()
@@ -71,21 +109,28 @@ object WorkoutDataSync {
             Wearable.getDataClient(context).putDataItem(req).await()
         }
     }
-    fun sendWorkoutState(context: Context) {
-        val workoutState = ConnectedWorkout.toSyncString()
-        val messageClient = Wearable.getMessageClient(context)
-        val capabilityClient = Wearable.getCapabilityClient(context)
 
+    fun sendWorkoutState(context: Context) {
+        val payload = ConnectedWorkout.toSyncString().toByteArray(Charsets.UTF_8)
+        val messageClient = Wearable.getMessageClient(context)
         scope.launch {
             try {
-                val nodes = capabilityClient.getCapability(WEAR_CAPABILITY, com.google.android.gms.wearable.CapabilityClient.FILTER_REACHABLE).await().nodes
-                nodes.firstOrNull()?.let { node ->
-                    messageClient.sendMessage(node.id, WORKOUT_STATE_PATH, workoutState.toByteArray(Charsets.UTF_8))
-                        .addOnSuccessListener { Log.d(TAG, "State sent successfully") }
-                        .addOnFailureListener { e -> Log.e(TAG, "Failed to send state", e) }
+                var nodeId = latestNodeId
+                if (nodeId == null) {
+                    val info = Wearable.getCapabilityClient(context).getCapability(WEAR_CAPABILITY, CapabilityClient.FILTER_REACHABLE).await()
+                    val nodes = info.nodes.toList()
+                    reachableNodesFlow.value = nodes
+                    nodeId = nodes.firstOrNull()?.id
+                    latestNodeId = nodeId
+                }
+                if (nodeId != null) {
+                    messageClient.sendMessage(nodeId, WORKOUT_STATE_PATH, payload).await()
+                    Log.d(TAG, "workout_state sent")
+                } else {
+                    Log.w(TAG, "no reachable node")
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Error getting capable nodes", e)
+                Log.e(TAG, "sendWorkoutState failed", e)
             }
         }
     }
@@ -95,7 +140,6 @@ object ConnectedWorkout {
     enum class WorkoutMode { INACTIVE, ACTIVE, RESTING, COMPLETED }
     var currentMode = mutableStateOf(WorkoutMode.INACTIVE)
     var restTimeRemaining = mutableLongStateOf(45000L)
-
     var workout = mutableStateOf("Select Workout")
     var goalReps = mutableIntStateOf(10)
     var goalSets = mutableIntStateOf(3)
@@ -107,7 +151,6 @@ object ConnectedWorkout {
     var currentDistance = mutableDoubleStateOf(0.0)
     var currentWeight = mutableDoubleStateOf(10.0)
     var goalType = mutableStateOf("Reps")
-
     fun reset() {
         currentMode.value = WorkoutMode.INACTIVE
         workout.value = "Select Workout"
@@ -123,7 +166,6 @@ object ConnectedWorkout {
         goalType.value = "Reps"
         restTimeRemaining.longValue = 45000L
     }
-
     fun toSyncString(): String {
         return "mode=${currentMode.value.name}," +
                 "workout=${workout.value}," +
@@ -165,7 +207,6 @@ fun WorkoutAppWear() {
     val navController = rememberSwipeDismissableNavController()
     val workoutState = remember { ConnectedWorkout }
     val context = LocalContext.current
-
     MaterialTheme(colors = wearColorPalette) {
         SwipeDismissableNavHost(
             navController = navController,
@@ -282,12 +323,10 @@ fun GoalSetterScreen(
     val listState = rememberScalingLazyListState()
     val isCardio = workoutName().contains("Running") || workoutName().contains("Bike")
     val context = LocalContext.current
-
     LaunchedEffect(isCardio) {
         onGoalTypeChange(if (isCardio) "Distance" else "Reps")
         WorkoutDataSync.sendWorkoutState(context)
     }
-
     Scaffold(
         timeText = { TimeText(modifier = Modifier.scrollAway(listState)) },
         vignette = { Vignette(vignettePosition = VignettePosition.TopAndBottom) },
@@ -308,7 +347,6 @@ fun GoalSetterScreen(
                     modifier = Modifier.padding(horizontal = 8.dp)
                 )
             }
-
             if (!isCardio) {
                 item {
                     Row(
@@ -339,9 +377,7 @@ fun GoalSetterScreen(
                     }
                 }
             }
-
             item { Spacer(modifier = Modifier.height(4.dp)) }
-
             when (goalType()) {
                 "Reps" -> {
                     item {
@@ -404,26 +440,21 @@ fun GoalSetterScreen(
                     }
                 }
             }
-
             item { Button(onClick = onStart, modifier = Modifier.padding(top = 16.dp)) { Text("Start") } }
         }
     }
 }
-
 
 @Composable
 fun WorkoutScreen(onFinish: () -> Unit, onRest: () -> Unit, workoutState: ConnectedWorkout) {
     val haptics = LocalHapticFeedback.current
     val context = LocalContext.current
     var isPaused by remember { mutableStateOf(false) }
-
     val startAt = remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
     var accMs by remember { mutableLongStateOf(0L) }
-
     var heartRate by remember { mutableIntStateOf(0) }
     val sensorManager = remember { context.getSystemService(Context.SENSOR_SERVICE) as SensorManager }
     val hrSensor = remember { sensorManager.getDefaultSensor(Sensor.TYPE_HEART_RATE) }
-
     DisposableEffect(isPaused, hrSensor) {
         if (!isPaused && hrSensor != null) {
             val listener = object : SensorEventListener {
@@ -438,11 +469,9 @@ fun WorkoutScreen(onFinish: () -> Unit, onRest: () -> Unit, workoutState: Connec
             onDispose { }
         }
     }
-
     LaunchedEffect(heartRate) {
         if (heartRate > 0) WorkoutDataSync.sendHeartRate(context, heartRate)
     }
-
     LaunchedEffect(isPaused) {
         if (!isPaused) {
             val now = SystemClock.elapsedRealtime()
@@ -459,9 +488,8 @@ fun WorkoutScreen(onFinish: () -> Unit, onRest: () -> Unit, workoutState: Connec
             accMs = workoutState.currentTime.longValue
         }
     }
-
     LaunchedEffect(workoutState.goalType.value) {
-        if(workoutState.goalType.value == "Distance"){
+        if (workoutState.goalType.value == "Distance") {
             continuousStepDetectionAndDistanceCalculation(
                 context = context,
                 onStepDetected = {},
@@ -472,7 +500,6 @@ fun WorkoutScreen(onFinish: () -> Unit, onRest: () -> Unit, workoutState: Connec
             )
         }
     }
-
     val progress by remember {
         derivedStateOf {
             when (workoutState.goalType.value) {
@@ -496,7 +523,6 @@ fun WorkoutScreen(onFinish: () -> Unit, onRest: () -> Unit, workoutState: Connec
         }
     }
     val animatedProgress by animateFloatAsState(targetValue = progress, animationSpec = tween(500), label = "progress")
-
     LaunchedEffect(progress) {
         if (progress >= 1f) {
             haptics.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -504,7 +530,6 @@ fun WorkoutScreen(onFinish: () -> Unit, onRest: () -> Unit, workoutState: Connec
             onFinish()
         }
     }
-
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         CircularProgressIndicator(
             progress = animatedProgress, modifier = Modifier.fillMaxSize(),
@@ -515,12 +540,12 @@ fun WorkoutScreen(onFinish: () -> Unit, onRest: () -> Unit, workoutState: Connec
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(2.dp, Alignment.CenterVertically)
         ) {
-            Text( text = workoutState.workout.value, textAlign = TextAlign.Center,
+            Text(
+                text = workoutState.workout.value, textAlign = TextAlign.Center,
                 style = MaterialTheme.typography.caption1, modifier = Modifier.padding(horizontal = 12.dp)
             )
-
-            AnimatedContent(targetState = workoutState.goalType.value, label="workout_metric") { type ->
-                when(type) {
+            AnimatedContent(targetState = workoutState.goalType.value, label = "workout_metric") { type ->
+                when (type) {
                     "Reps" -> {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text(
@@ -537,7 +562,8 @@ fun WorkoutScreen(onFinish: () -> Unit, onRest: () -> Unit, workoutState: Connec
                         val time = workoutState.currentTime.longValue
                         val minutes = TimeUnit.MILLISECONDS.toMinutes(time)
                         val seconds = TimeUnit.MILLISECONDS.toSeconds(time) % 60
-                        Text( String.format("%02d:%02d", minutes, seconds),
+                        Text(
+                            String.format("%02d:%02d", minutes, seconds),
                             style = MaterialTheme.typography.display1, fontWeight = FontWeight.Bold
                         )
                     }
@@ -552,15 +578,13 @@ fun WorkoutScreen(onFinish: () -> Unit, onRest: () -> Unit, workoutState: Connec
                     }
                 }
             }
-
             Text("$heartRate bpm", style = MaterialTheme.typography.title2, modifier = Modifier.padding(top = 4.dp))
-
             Row(
                 modifier = Modifier.padding(top = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                if(workoutState.goalType.value == "Reps") {
+                if (workoutState.goalType.value == "Reps") {
                     Button(
                         onClick = {
                             haptics.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -582,17 +606,14 @@ fun WorkoutScreen(onFinish: () -> Unit, onRest: () -> Unit, workoutState: Connec
                 } else {
                     Button(onClick = { isPaused = !isPaused }) { Text(if (isPaused) "Resume" else "Pause") }
                 }
-
-                CompactChip( onClick = onFinish, label = { Text("End") },
-                    colors = ChipDefaults.chipColors( backgroundColor = Color.DarkGray )
+                CompactChip(
+                    onClick = onFinish, label = { Text("End") },
+                    colors = ChipDefaults.chipColors(backgroundColor = Color.DarkGray)
                 )
             }
         }
     }
 }
-
-
-
 
 @Composable
 fun RestScreen(onFinishRest: () -> Unit, restTimeProvider: () -> Long) {
@@ -600,7 +621,6 @@ fun RestScreen(onFinishRest: () -> Unit, restTimeProvider: () -> Long) {
     var remainingTime by remember { mutableLongStateOf(totalRestTime) }
     val haptics = LocalHapticFeedback.current
     val context = LocalContext.current
-
     LaunchedEffect(Unit) {
         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
         val startTime = SystemClock.elapsedRealtime()
@@ -612,10 +632,8 @@ fun RestScreen(onFinishRest: () -> Unit, restTimeProvider: () -> Long) {
         }
         onFinishRest()
     }
-
     val progress = 1f - (remainingTime.toFloat() / totalRestTime.toFloat())
     val animatedProgress by animateFloatAsState(targetValue = progress, label = "rest_progress", animationSpec = tween(200))
-
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         CircularProgressIndicator(progress = animatedProgress, modifier = Modifier.fillMaxSize(), strokeWidth = 6.dp)
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
@@ -637,11 +655,9 @@ suspend fun continuousStepDetectionAndDistanceCalculation(
 ) {
     val sensorManager = context.getSystemService(Context.SENSOR_SERVICE) as? SensorManager ?: return
     val stepDetector = sensorManager.getDefaultSensor(Sensor.TYPE_STEP_DETECTOR) ?: return
-
     val sensorThread = HandlerThread("StepDetectorThread").apply { start() }
     val sensorHandler = Handler(sensorThread.looper)
     var distanceMeters = 0.0
-
     val stepListener = object : SensorEventListener {
         override fun onSensorChanged(event: SensorEvent?) {
             event ?: return
@@ -655,7 +671,6 @@ suspend fun continuousStepDetectionAndDistanceCalculation(
         }
         override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
     }
-
     try {
         val registered = sensorManager.registerListener(
             stepListener, stepDetector,
@@ -670,5 +685,3 @@ suspend fun continuousStepDetectionAndDistanceCalculation(
         sensorThread.quitSafely()
     }
 }
-
-
