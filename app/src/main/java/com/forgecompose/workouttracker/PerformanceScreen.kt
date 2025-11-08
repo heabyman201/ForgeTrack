@@ -1,7 +1,11 @@
 package com.forgecompose.workouttracker
 
 import android.app.Application
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.os.PowerManager
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -76,6 +80,9 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.ProcessLifecycleOwner
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
@@ -92,6 +99,8 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 
 private val Context.perfDataStore by preferencesDataStore("performance_options")
 
@@ -100,15 +109,14 @@ data class PerformanceOptions(
     val blurEnabled: Boolean,
     val taskbarAnimations: Boolean,
     val movingGradientAndParticles: Boolean,
-    val blurLengthMs: Long                // NEW
+    val blurLengthMs: Long
 ) {
-    val blurDp: Dp get() = if (blurEnabled) 17.dp else 0.dp
     companion object {
         val Defaults = PerformanceOptions(
             blurEnabled = true,
             taskbarAnimations = true,
             movingGradientAndParticles = true,
-            blurLengthMs = 700L            // NEW default
+            blurLengthMs = 700L
         )
     }
 }
@@ -119,10 +127,17 @@ object PerformanceOptionsManager {
     private val keyMovingGradientParticles = booleanPreferencesKey("movingGradientAndParticles")
     private val keyBlurLengthMs = longPreferencesKey("blurLengthMs")
 
-    private val snapshot = MutableStateFlow(PerformanceOptions.Defaults)
-    val current: StateFlow<PerformanceOptions> = snapshot
+    private val saved = MutableStateFlow(PerformanceOptions.Defaults)
+    val current: StateFlow<PerformanceOptions> = saved
+
+    private val isForeground = MutableStateFlow(true)
+    private val isScreenOn = MutableStateFlow(true)
+
+    private val _effective = MutableStateFlow(PerformanceOptions.Defaults)
+    val effective: StateFlow<PerformanceOptions> = _effective
 
     private var initJob: Job? = null
+    private var initRuntime: Boolean = false
 
     fun initialize(context: Context) {
         if (initJob != null) return
@@ -136,11 +151,56 @@ object PerformanceOptionsManager {
                         blurLengthMs = p[keyBlurLengthMs] ?: PerformanceOptions.Defaults.blurLengthMs
                     )
                 }
-                .collectLatest { snapshot.value = it }
+                .collectLatest { saved.value = it }
+        }
+        initializeRuntimeOverrides(context.applicationContext)
+        CoroutineScope(Dispatchers.Default).launch {
+            combine(saved, isForeground, isScreenOn) { s, fg, scr ->
+                val allow = fg && scr
+                s.copy(
+                    blurEnabled = s.blurEnabled && allow,
+                    taskbarAnimations = s.taskbarAnimations && allow,
+                    movingGradientAndParticles = s.movingGradientAndParticles && allow
+                )
+            }.distinctUntilChanged().collect { _effective.value = it }
         }
     }
 
+    private fun initializeRuntimeOverrides(appCtx: Context) {
+        if (initRuntime) return
+        initRuntime = true
+
+        val pm = appCtx.getSystemService(Context.POWER_SERVICE) as PowerManager
+        isScreenOn.value = pm.isInteractive
+
+        ProcessLifecycleOwner.get().lifecycleScope.launch {
+            ProcessLifecycleOwner.get().lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
+                isForeground.emit(true)
+            }
+        }
+        ProcessLifecycleOwner.get().lifecycle.addObserver(
+            object : androidx.lifecycle.DefaultLifecycleObserver {
+                override fun onStart(owner: androidx.lifecycle.LifecycleOwner) { isForeground.value = true }
+                override fun onStop(owner: androidx.lifecycle.LifecycleOwner) { isForeground.value = false }
+            }
+        )
+
+        val filter = IntentFilter().apply {
+            addAction(Intent.ACTION_SCREEN_ON)
+            addAction(Intent.ACTION_SCREEN_OFF)
+        }
+        appCtx.registerReceiver(object : BroadcastReceiver() {
+            override fun onReceive(context: Context, intent: Intent) {
+                when (intent.action) {
+                    Intent.ACTION_SCREEN_ON -> isScreenOn.value = true
+                    Intent.ACTION_SCREEN_OFF -> isScreenOn.value = false
+                }
+            }
+        }, filter)
+    }
+
     fun flow(context: Context): Flow<PerformanceOptions> = current
+    fun effectiveFlow(context: Context): Flow<PerformanceOptions> = effective
 
     suspend fun set(context: Context, v: PerformanceOptions) {
         context.perfDataStore.edit { p ->
@@ -149,25 +209,27 @@ object PerformanceOptionsManager {
             p[keyMovingGradientParticles] = v.movingGradientAndParticles
             p[keyBlurLengthMs] = v.blurLengthMs
         }
-        snapshot.value = v
+        saved.value = v
     }
 }
 
 class PerformanceOptionsViewModel(app: Application) : AndroidViewModel(app) {
     private val ctx = app.applicationContext
-    val options = PerformanceOptionsManager.flow(ctx).stateIn(
+    val savedOptions = PerformanceOptionsManager.flow(ctx).stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = PerformanceOptions.Defaults
+    )
+    val effectiveOptions = PerformanceOptionsManager.effectiveFlow(ctx).stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
         initialValue = PerformanceOptions.Defaults
     )
     fun update(transform: (PerformanceOptions) -> PerformanceOptions) {
-        val next = transform(options.value)
-        viewModelScope.launch(Dispatchers.IO) {
-            PerformanceOptionsManager.set(ctx, next)
-        }
+        val next = transform(savedOptions.value)
+        viewModelScope.launch(Dispatchers.IO) { PerformanceOptionsManager.set(ctx, next) }
     }
 }
-
 private enum class ResourceImpact(val label: String, val icon: ImageVector, val color: Color) {
     CPU("CPU", Icons.Default.Architecture, Color(0xFFF2994A)),
     GPU("GPU", Icons.Default.DataObject, Color(0xFF2D9CDB)),
@@ -180,7 +242,7 @@ fun PerformanceOptionsScreen(
     navController: NavController,
     vm: PerformanceOptionsViewModel = viewModel(),
 ) {
-    val opts by vm.options.collectAsState()
+    val opts by vm.effectiveOptions.collectAsState()
     val scope = rememberCoroutineScope()
     var showIntro by remember { mutableStateOf(true) }
     val introProgress by animateFloatAsState(targetValue = if (showIntro) 0f else 1f, animationSpec = tween(650, easing = LinearEasing), label = "introFade")

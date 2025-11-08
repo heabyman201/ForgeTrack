@@ -17,19 +17,29 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ArrowDownward
 import androidx.compose.material.icons.outlined.ArrowUpward
@@ -60,8 +70,10 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -889,7 +901,6 @@ private fun planDailyMissions(
 }
 
 // ----------------------------- COMPOSABLES ------------------------------------
-
 @Composable
 fun MuscleStatusSection(
     recentWorkouts: List<WorkoutSummary>,
@@ -971,8 +982,27 @@ fun MuscleStatusSection(
         )
     }
 
+    val filtered = remember(loads, selected) { if (selected == BodyCategory.All) loads else loads.filter { categoryOf(it.group.name) == selected } }
+    val sortedLoads = remember(filtered) {
+        filtered.sortedWith(
+            compareBy<MuscleLoad> {
+                when (it.band) {
+                    LoadBand.DeloadRecommended -> 0
+                    LoadBand.Overreached -> 1
+                    LoadBand.Recovering -> 2
+                    LoadBand.OnTrack -> 3
+                    LoadBand.Building -> 4
+                    LoadBand.SlightlyTrained -> 5
+                    LoadBand.NotTrained -> 6
+                }
+            }.thenByDescending { it.score }
+        )
+    }
+
     Column(
-        modifier = modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Row(
@@ -980,9 +1010,7 @@ fun MuscleStatusSection(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            val borderBrush = Brush.horizontalGradient(
-                colors = listOf(Color(0xFF8B0000), Color.LightGray)
-            )
+            val borderBrush = Brush.horizontalGradient(colors = listOf(Color(0xFF8B0000), Color.LightGray))
             FilledTonalButton(
                 onClick = onOpenWeeklySummary,
                 contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
@@ -991,40 +1019,29 @@ fun MuscleStatusSection(
                     containerColor = Color(0xFF4A0000).copy(alpha = 0.4f),
                     contentColor = Color(0xFFF48A8A)
                 ),
-                border = BorderStroke(width = 1.dp, brush = borderBrush)
+                border = BorderStroke(width = 1.dp, brush = borderBrush),
+                enabled = weeklySummaryAvailable
             ) {
                 Icon(Icons.Outlined.FitnessCenter, contentDescription = null, modifier = Modifier.padding(2.dp))
                 Text("Weekly Summary")
             }
         }
-        recoveryFactors?.let { RecoveryFactorRow(it) }
-        MissionDeck(missions = missions)
-        val filtered = remember(loads, selected) { if (selected == BodyCategory.All) loads else loads.filter { categoryOf(it.group.name) == selected } }
+        if (recoveryFactors != null) RecoveryFactorRow(recoveryFactors!!)
+//        MissionDeck(missions = missions)
         OverviewRow(loads = filtered)
-        CategoryFilterBar(selected = selected, onSelect = { selected = it; haptics.performHapticFeedback(HapticFeedbackType.KeyboardTap) })
-        val sortedLoads = remember(filtered) {
-            filtered.sortedWith(
-                compareBy<MuscleLoad> {
-                    // Order by risk/need
-                    when (it.band) {
-                        LoadBand.DeloadRecommended -> 0
-                        LoadBand.Overreached -> 1
-                        LoadBand.Recovering -> 2
-                        LoadBand.OnTrack -> 3
-                        LoadBand.Building -> 4
-                        LoadBand.SlightlyTrained -> 5
-                        LoadBand.NotTrained -> 6
-                    }
-                }.thenByDescending { it.score }
-            )
-        }
-        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            sortedLoads.forEach { item -> MuscleBarRow(item) }
-        }
+        CategoryFilterBar(
+            selected = selected,
+            onSelect = {
+                selected = it
+                haptics.performHapticFeedback(HapticFeedbackType.KeyboardTap)
+            }
+        )
+        MuscleGrid(loads = sortedLoads)
     }
 }
 
-// ----------------------------- UI SUB-COMPOSABLES -----------------------------
+
+
 
 @Composable
 private fun RecoveryFactorRow(factors: RecoveryFactors) {
@@ -1063,12 +1080,7 @@ private fun FactorPill(value: Float, label: String) {
             modifier = Modifier.size(16.dp)
         )
         Text(text = label, style = MaterialTheme.typography.labelMedium, color = Color.White.copy(alpha = 0.8f))
-        Text(
-            text = valueText,
-            style = MaterialTheme.typography.labelMedium,
-            fontWeight = FontWeight.Bold,
-            color = color
-        )
+        Text(text = valueText, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = color)
     }
 }
 
@@ -1081,9 +1093,8 @@ private fun LoadingScreen(progress: Float, modifier: Modifier = Modifier) {
     val neonPhase by infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            tween(2500),
-        ), label = "neon_phase"
+        animationSpec = infiniteRepeatable(tween(2500)),
+        label = "neon_phase"
     )
     Column(
         modifier = modifier
@@ -1111,10 +1122,7 @@ private fun LoadingScreen(progress: Float, modifier: Modifier = Modifier) {
         verticalArrangement = Arrangement.SpaceAround,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Text(
-            "Analyzing muscle status...", style = MaterialTheme.typography.titleMedium, color = Color.White,
-            fontWeight = FontWeight.Bold
-        )
+        Text("Analyzing muscle status...", style = MaterialTheme.typography.titleMedium, color = Color.White, fontWeight = FontWeight.Bold)
         val barBrush = Brush.horizontalGradient(listOf(Color(0xFFFF3B30).copy(alpha = 0.7f), Color(0xFFFF7A59)))
         Box(
             Modifier
@@ -1140,10 +1148,7 @@ private fun LoadingScreen(progress: Float, modifier: Modifier = Modifier) {
                     }
             )
         }
-        Text(
-            "${(progress * 100f).coerceIn(0f, 100f).toInt()}%", style = MaterialTheme.typography.headlineSmall, color = Color.White.copy(alpha = 0.8f),
-            fontWeight = FontWeight.Bold
-        )
+        Text("${(progress * 100f).coerceIn(0f, 100f).toInt()}%", style = MaterialTheme.typography.headlineSmall, color = Color.White.copy(alpha = 0.8f), fontWeight = FontWeight.Bold)
     }
 }
 
@@ -1159,26 +1164,19 @@ private fun MissionDeck(missions: List<Mission>, modifier: Modifier = Modifier) 
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Text(
-            "Today’s Missions",
-            style = MaterialTheme.typography.titleMedium,
-            color = Color.White,
-            fontWeight = FontWeight.Bold
-        )
+        Text("Today’s Missions", style = MaterialTheme.typography.titleMedium, color = Color.White, fontWeight = FontWeight.Bold)
         missions.forEach { MissionCard(it) }
     }
 }
 
 @Composable
 private fun MissionCard(m: Mission) {
-    val frac = (if (m.setsGoalToday <= 0) 0f else (m.setsDoneToday.toFloat() / m.setsGoalToday.toFloat()))
-        .coerceIn(0f, 1.25f)
-
+    val frac = (if (m.setsGoalToday <= 0) 0f else (m.setsDoneToday.toFloat() / m.setsGoalToday.toFloat())).coerceIn(0f, 1.25f)
     val color = when {
-        frac < 0.5f  -> Color(0xFF2979FF)
-        frac < 1.0f  -> Color(0xFF00E676)
-        frac < 1.2f  -> Color(0xFFFFA500)
-        else         -> Color(0xFFFF3B30)
+        frac < 0.5f -> Color(0xFF2979FF)
+        frac < 1.0f -> Color(0xFF00E676)
+        frac < 1.2f -> Color(0xFFFFA500)
+        else -> Color(0xFFFF3B30)
     }
     val animatedColor by animateColorAsState(color, label = "missionColor", animationSpec = tween(300))
     val fill by animateFloatAsState(frac.coerceAtMost(1f), animationSpec = tween(550, 0, LinearOutSlowInEasing), label = "missionFill")
@@ -1194,9 +1192,7 @@ private fun MissionCard(m: Mission) {
                     center = Offset(size.width / 2f, size.height * -0.2f),
                     radius = size.width * 1.2f
                 )
-                val border = Brush.linearGradient(
-                    listOf(animatedColor.copy(alpha = 0.28f), animatedColor.copy(alpha = 0.08f))
-                )
+                val border = Brush.linearGradient(listOf(animatedColor.copy(alpha = 0.28f), animatedColor.copy(alpha = 0.08f)))
                 onDrawBehind {
                     val r = 16.dp.toPx()
                     drawRoundRect(brush = bg, cornerRadius = CornerRadius(r))
@@ -1211,43 +1207,17 @@ private fun MissionCard(m: Mission) {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.weight(1f)) {
-                Text(
-                    m.group.name,
-                    style = MaterialTheme.typography.titleSmall,
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    m.reason,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = Color.White.copy(alpha = 0.75f),
-                    maxLines = 2
-                )
+                Text(m.group.name, style = MaterialTheme.typography.titleSmall, color = Color.White, fontWeight = FontWeight.Bold)
+                Text(m.reason, style = MaterialTheme.typography.labelMedium, color = Color.White.copy(alpha = 0.75f), maxLines = 2)
             }
-            Text(
-                "${m.setsDoneToday} / ${m.setsGoalToday} sets",
-                style = MaterialTheme.typography.labelMedium,
-                color = animatedColor,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(start = 12.dp)
-            )
+            Text("${m.setsDoneToday} / ${m.setsGoalToday} sets", style = MaterialTheme.typography.labelMedium, color = animatedColor, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 12.dp))
         }
-
         if (m.exercises.isNotEmpty()) {
-            ChipRow(
-                items = m.exercises,
-                icon = Icons.Outlined.FitnessCenter,
-                tint = Color.White.copy(alpha = 0.9f)
-            )
+            ChipRow(items = m.exercises, icon = Icons.Outlined.FitnessCenter, tint = Color.White.copy(alpha = 0.9f))
         }
         if (m.lifestyleHints.isNotEmpty()) {
-            ChipRow(
-                items = m.lifestyleHints,
-                icon = Icons.Outlined.MonitorHeart,
-                tint = Color(0xFFFFE082)
-            )
+            ChipRow(items = m.lifestyleHints, icon = Icons.Outlined.MonitorHeart, tint = Color(0xFFFFE082))
         }
-
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1291,12 +1261,7 @@ private fun ChipRow(items: List<String>, icon: ImageVector, tint: Color) {
                     .padding(horizontal = 10.dp, vertical = 6.dp)
             ) {
                 Icon(icon, null, tint = tint, modifier = Modifier.size(16.dp))
-                Text(
-                    text,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = Color.White.copy(alpha = 0.9f),
-                    maxLines = 1
-                )
+                Text(text, style = MaterialTheme.typography.labelMedium, color = Color.White.copy(alpha = 0.9f), maxLines = 1)
             }
         }
     }
@@ -1362,16 +1327,32 @@ private fun MiniStatPill(label: String, value: String, tint: Color) {
                     )
                 }
         )
-        Text(
-            text = "$label: $value",
-            style = MaterialTheme.typography.labelMedium,
-            color = Color.White.copy(alpha = 0.85f)
-        )
+        Text(text = "$label: $value", style = MaterialTheme.typography.labelMedium, color = Color.White.copy(alpha = 0.85f))
     }
 }
 
 @Composable
-private fun MuscleBarRow(load: MuscleLoad) {
+private fun MuscleGrid(loads: List<MuscleLoad>) {
+    FlowRow(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(24.dp),
+        verticalArrangement = Arrangement.spacedBy(24.dp)
+    ) {
+        loads.forEach { item ->
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .widthIn(min = 0.dp, max = 650.dp)
+                    .weight(1f, fill = false)
+            ) {
+                MuscleCircleTile(load = item)
+            }
+        }
+    }
+}
+
+@Composable
+private fun MuscleCircleTile(load: MuscleLoad) {
     val bandColor = when (load.band) {
         LoadBand.NotTrained -> Color(0xFF9E9E9E)
         LoadBand.SlightlyTrained -> Color(0xFF2979FF)
@@ -1383,147 +1364,100 @@ private fun MuscleBarRow(load: MuscleLoad) {
     }
     val bandLabel = when (load.band) {
         LoadBand.NotTrained -> "Not Trained"
-        LoadBand.SlightlyTrained -> "Slightly trained"
+        LoadBand.SlightlyTrained -> "Slightly"
         LoadBand.Building -> "Building"
-        LoadBand.OnTrack -> "On track"
+        LoadBand.OnTrack -> "On Track"
         LoadBand.Recovering -> "Recovering"
         LoadBand.Overreached -> "Overreached"
         LoadBand.DeloadRecommended -> "Deload"
     }
-    val bandIcon = when (load.band) {
-        LoadBand.NotTrained -> Icons.Outlined.NightlightRound
-        LoadBand.SlightlyTrained -> Icons.Outlined.KeyboardArrowDown
-        LoadBand.Building -> Icons.Outlined.Scale
-        LoadBand.OnTrack -> Icons.Outlined.Check
-        LoadBand.Recovering -> Icons.Outlined.Restore
-        LoadBand.Overreached -> Icons.Outlined.Warning
-        LoadBand.DeloadRecommended -> Icons.Outlined.Warning
-    }
-
-
-    val pct = if (load.weeklyTarget > 0f) {
-        ((load.weeklyProgress / load.weeklyTarget) * 100f).coerceIn(0f, 140f)
-    } else 0f
-    val pctText = String.format(Locale.US, "%.0f%%", pct)
-
-    val animatedColor by animateColorAsState(bandColor, label = "bandColor", animationSpec = tween(400))
-
-    val fill by animateFloatAsState(
-        targetValue = (pct / 100f).coerceIn(0f, 1f),
-        animationSpec = tween(800, 0, LinearOutSlowInEasing),
-        label = "fill"
-    )
-
-    val cornerRadius = 22.dp
-    val density = LocalDensity.current
-    val cornerRpx = with(density) { cornerRadius.toPx() }
-
+    val pct = if (load.weeklyTarget > 0f) ((load.weeklyProgress / load.weeklyTarget) * 100f).coerceIn(0f, 140f) else 0f
+    val animatedPct by animateFloatAsState(targetValue = pct.coerceIn(0f, 100f), animationSpec = tween(700, easing = LinearOutSlowInEasing), label = "pct")
+    val animatedColor by animateColorAsState(bandColor, animationSpec = tween(300), label = "tileColor")
+    val r = 54.dp
     Column(
-        verticalArrangement = Arrangement.spacedBy(14.dp),
         modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(cornerRadius))
+            .clip(RoundedCornerShape(18.dp))
             .drawWithCache {
-                val bgBrush = Brush.radialGradient(
-                    listOf(animatedColor.copy(alpha = 0.1f), Color(0xFF120707)),
+                val bg = Brush.radialGradient(
+                    listOf(animatedColor.copy(alpha = 0.10f), Color(0xFF120707)),
                     center = Offset(size.width / 2f, size.height * -0.2f),
                     radius = size.width * 1.2f
                 )
-                val borderBrush = Brush.linearGradient(
-                    listOf(animatedColor.copy(alpha = 0.3f), animatedColor.copy(alpha = 0.1f))
-                )
+                val border = Brush.linearGradient(listOf(animatedColor.copy(alpha = 0.30f), animatedColor.copy(alpha = 0.10f)))
                 onDrawBehind {
-                    drawRoundRect(brush = bgBrush, cornerRadius = CornerRadius(cornerRpx, cornerRpx))
-                    drawRoundRect(brush = borderBrush, style = Stroke(width = 1.dp.toPx()), cornerRadius = CornerRadius(cornerRpx, cornerRpx))
+                    drawRoundRect(brush = bg, cornerRadius = CornerRadius(18.dp.toPx()))
+                    drawRoundRect(brush = border, style = Stroke(width = 1.dp.toPx()), cornerRadius = CornerRadius(18.dp.toPx()))
                 }
             }
-            .padding(16.dp)
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                load.group.name,
-                style = MaterialTheme.typography.titleMedium,
-                color = Color.White,
-                modifier = Modifier.drawBehind {
-                    drawCircle(
-                        brush = Brush.radialGradient(
-                            colors = listOf(animatedColor.copy(alpha = 0.3f), Color.Transparent)
-                        ),
-                        radius = size.height * 1.5f
-                    )
-                }
-            )
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                modifier = Modifier
-                    .clip(RoundedCornerShape(999.dp))
-                    .background(Color.White.copy(alpha = 0.08f))
-                    .padding(horizontal = 10.dp, vertical = 6.dp)
-            ) {
-                Icon(bandIcon, contentDescription = null, tint = animatedColor, modifier = Modifier.size(18.dp))
-                Text(bandLabel, style = MaterialTheme.typography.bodySmall, color = Color.White, fontWeight = FontWeight.Bold)
-                Text(pctText, style = MaterialTheme.typography.bodySmall, color = animatedColor.copy(alpha = 0.9f))
-            }
-        }
-
         Box(
             modifier = Modifier
-                .fillMaxWidth()
-                .height(16.dp)
-                .clip(RoundedCornerShape(10.dp))
-                .background(Color.White.copy(alpha = 0.1f))
+                .size(r * 2)
+                .drawBehind {
+                    val strokeW = 10.dp.toPx()
+                    val radius = size.minDimension / 2f
+                    drawCircle(color = Color.White.copy(alpha = 0.06f), radius = radius)
+                    drawArc(
+                        color = Color.White.copy(alpha = 0.10f),
+                        startAngle = -90f,
+                        sweepAngle = 360f,
+                        useCenter = false,
+                        style = Stroke(strokeW, cap = StrokeCap.Round),
+                        size = Size(size.width, size.height),
+                        topLeft = Offset(0f, 0f)
+                    )
+                    val sweep = animatedPct / 100f * 360f
+                    drawArc(
+                        brush = Brush.sweepGradient(listOf(animatedColor.copy(alpha = 0.6f), animatedColor)),
+                        startAngle = -90f,
+                        sweepAngle = sweep,
+                        useCenter = false,
+                        style = Stroke(strokeW, cap = StrokeCap.Round),
+                        size = Size(size.width, size.height),
+                        topLeft = Offset(0f, 0f)
+                    )
+                },
+            contentAlignment = Alignment.Center
         ) {
-            val barBrush = Brush.horizontalGradient(listOf(animatedColor.copy(alpha = 0.6f), animatedColor))
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth(fill)
-                    .height(16.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(barBrush)
-                    .drawWithCache {
-                        val glowBrush = Brush.radialGradient(
-                            colors = listOf(Color.White.copy(alpha = 0.4f), Color.Transparent),
-                            center = Offset(size.width * 0.9f, size.height / 2f),
-                            radius = size.height * 2.5f
-                        )
-                        onDrawBehind { drawRoundRect(brush = glowBrush, cornerRadius = CornerRadius(10.dp.toPx())) }
-                    }
-            )
+            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(String.format(Locale.US, "%.0f%%", animatedPct), style = MaterialTheme.typography.titleMedium, color = animatedColor, fontWeight = FontWeight.Black)
+                Text(bandLabel, style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.75f))
+            }
         }
-
+        Text(load.group.name, style = MaterialTheme.typography.bodyMedium, color = Color.White, maxLines = 1)
         Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            modifier = Modifier
+                .clip(RoundedCornerShape(999.dp))
+                .background(Color.White.copy(alpha = 0.06f))
+                .padding(horizontal = 10.dp, vertical = 6.dp)
         ) {
             val readiness = when (load.band) {
                 LoadBand.NotTrained -> "Muscle isn't trained"
                 LoadBand.SlightlyTrained -> "Ready for volume"
-                LoadBand.Building -> "Keep building momentum"
-                LoadBand.OnTrack -> "Maintain or finish target"
+                LoadBand.Building -> "Keep building"
+                LoadBand.OnTrack -> "Maintain"
                 LoadBand.Recovering -> "Active recovery"
-                LoadBand.Overreached -> "Light work only"
+                LoadBand.Overreached -> "Light work"
                 LoadBand.DeloadRecommended -> "Deload"
             }
-            Text(
-                readiness, style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.8f),
-                fontWeight = FontWeight.Bold
-            )
-            if (load.lastTrainedAgo != null) {
-                Text("Last: ${load.lastTrainedAgo}", style = MaterialTheme.typography.labelMedium, color = Color.White.copy(alpha = 0.5f))
-            }
+            Text(readiness, style = MaterialTheme.typography.labelMedium, color = Color.White.copy(alpha = 0.8f))
+        }
+        if (load.lastTrainedAgo != null) {
+            Text("Last: ${load.lastTrainedAgo}", style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.5f))
         }
     }
 }
 
-
-
-// ----------------------------- SMALL HELPERS ----------------------------------
+@Composable
+private fun MuscleBarRow(load: MuscleLoad) {
+    MuscleCircleTile(load)
+}
 
 @Composable
 private fun CategoryFilterBar(selected: BodyCategory, onSelect: (BodyCategory) -> Unit) {
@@ -1554,7 +1488,7 @@ private fun CategoryFilterBar(selected: BodyCategory, onSelect: (BodyCategory) -
                     .clickable(interactionSource = interactionSource, indication = null) { onSelect(cat) }
                     .drawWithCache {
                         val bgBrush = if (isSelected) Brush.radialGradient(
-                            listOf(Color(0xFF3A0E0E), Color(0xFF120707)),
+                            listOf(Color(0xFF2C0404), Color(0xFF2B0404)),
                             radius = size.minDimension * 2f
                         ) else Brush.radialGradient(
                             listOf(Color.White.copy(alpha = 0.1f), Color.Transparent),
@@ -1574,11 +1508,9 @@ private fun CategoryFilterBar(selected: BodyCategory, onSelect: (BodyCategory) -
                     .padding(horizontal = 16.dp, vertical = 8.dp),
                 contentAlignment = Alignment.Center
             ) {
-                Text(
-                    label,
-                    color = if (isSelected) Color(0xFFFF3B30) else Color.White.copy(alpha = 0.7f)
-                )
+                Text(label, color = if (isSelected) Color(0xFFF8BDC1) else Color.White.copy(alpha = 0.7f))
             }
         }
     }
 }
+

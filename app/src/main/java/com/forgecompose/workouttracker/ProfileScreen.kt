@@ -1,5 +1,7 @@
 package com.forgecompose.workouttracker
 
+import android.graphics.RenderEffect
+import android.graphics.Shader
 import android.os.Build
 import androidx.annotation.RequiresApi
 import androidx.compose.animation.core.LinearEasing
@@ -28,6 +30,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.asComposeRenderEffect
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
@@ -150,10 +154,16 @@ fun UserProfileScreen(
         animationSpec = tween(length.value.toInt()),
         label = "blur"
     )
+
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .blur(blurAnim)
+
+            .graphicsLayer{
+                clip = true
+
+                renderEffect = RenderEffect.createBlurEffect(blurAnim.toPx(), blurAnim.toPx(), Shader.TileMode.CLAMP).asComposeRenderEffect()
+            }
             .drawWithCache {
                 val bgBrush = Brush.radialGradient(
                     colors = listOf(

@@ -2,7 +2,6 @@ package com.forgecompose.workouttracker
 
 import android.content.Context
 import android.content.Intent
-import android.graphics.Paint
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -11,56 +10,73 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.DateRange
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.rememberDatePickerState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
-import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.*
-import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewmodel.compose.viewModel
 import com.forgecompose.workouttracker.ui.theme.WorkoutTrackerTheme
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.time.LocalTime
-import java.util.*
+import java.util.Date
+import java.util.Locale
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.roundToInt
 import kotlin.math.sin
-
-// Assume your existing ViewModel, Factory, and Application setup
-// import com.yourpackage.MyApplication
-// import com.yourpackage.WorkoutListViewModel
-// import com.yourpackage.WorkoutListViewModelFactory
-// import com.yourpackage.data.Workout
+import kotlin.random.Random
 
 class ExerciseAnalyticsActivity : ComponentActivity() {
 
@@ -77,31 +93,23 @@ class ExerciseAnalyticsActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // The exercise name must be passed in the Intent
         val exerciseName = intent.getStringExtra(EXTRA_EXERCISE_NAME)
         if (exerciseName == null) {
-            // Close the activity if the name is missing
             finish()
             return
         }
 
-        // --- ViewModel Initialization ---
         val application = application as MyApplication
         val workoutRepository = application.workoutRepository
         val factory = WorkoutListViewModelFactory(workoutRepository)
         val workoutListViewModel: WorkoutListViewModel by viewModels { factory }
 
-        // -----------------------------
-
         setContent {
-
             WorkoutTrackerTheme {
                 val workoutsUiState by workoutListViewModel.uiState.collectAsStateWithLifecycle()
 
-
                 when (val state = workoutsUiState) {
                     is WorkoutListUiState.Success -> {
-
                         ExerciseAnalyticsScreen(
                             exerciseName = exerciseName,
                             workouts = state.workouts,
@@ -109,7 +117,6 @@ class ExerciseAnalyticsActivity : ComponentActivity() {
                         )
                     }
                     is WorkoutListUiState.Loading -> {
-
                         Box(
                             modifier = Modifier.fillMaxSize(),
                             contentAlignment = Alignment.Center
@@ -118,9 +125,10 @@ class ExerciseAnalyticsActivity : ComponentActivity() {
                         }
                     }
                     is WorkoutListUiState.Error -> {
-
                         Box(
-                            modifier = Modifier.fillMaxSize().padding(16.dp),
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(16.dp),
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
@@ -132,13 +140,9 @@ class ExerciseAnalyticsActivity : ComponentActivity() {
                     }
                 }
             }
-            }
         }
     }
-
-
-
-// --- Main Screen Composable (Modified for Activity) ---
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -180,12 +184,17 @@ fun ExerciseAnalyticsScreen(
     val waveOffset = (animationClock * fullPi / 22f) % fullPi
     val pulseAlpha = 0.25f + 0.10f * sin(animationClock * fullPi / 8f)
     val glowIntensity = 0.4f + 0.2f * sin(animationClock * fullPi / 6f)
-    val gradientProgress = (animationClock / 15f) % 2f
-    val gradientOffset = if (gradientProgress > 1f) 2f - gradientProgress else gradientProgress
+
+    val gradientProgress1 = (animationClock / 15f) % 2f
+    val gradientOffset1 = if (gradientProgress1 > 1f) 2f - gradientProgress1 else gradientProgress1
+
+    val gradientProgress2 = (animationClock / 25f) % 2f
+    val gradientOffset2 = if (gradientProgress2 > 1f) 2f - gradientProgress2 else gradientProgress2
 
     val clampedGlow by remember { derivedStateOf { glowIntensity.coerceIn(0f, 1f) } }
     val clampedPulse by remember { derivedStateOf { pulseAlpha.coerceIn(0f, 1f) } }
-    val clampedGrad by remember { derivedStateOf { gradientOffset.coerceIn(0f, 1f) } }
+    val clampedGrad1 by remember { derivedStateOf { gradientOffset1.coerceIn(0f, 1f) } }
+    val clampedGrad2 by remember { derivedStateOf { gradientOffset2.coerceIn(0f, 1f) } }
 
     val wavePath = remember { Path() }
     val particleSeed = remember { Random(42) }
@@ -208,11 +217,7 @@ fun ExerciseAnalyticsScreen(
         }
     }
     val introBrush = remember(introColors) {
-        Brush.linearGradient(
-            colors = introColors,
-            start = Offset.Zero,
-            end = Offset(Float.POSITIVE_INFINITY, 0f)
-        )
+        Brush.linearGradient(colors = introColors, start = Offset.Zero, end = Offset(Float.POSITIVE_INFINITY, 0f))
     }
     var showIntro by remember { mutableStateOf(true) }
     val introProgress by animateFloatAsState(
@@ -253,19 +258,38 @@ fun ExerciseAnalyticsScreen(
         modifier = Modifier
             .fillMaxSize()
             .drawWithCache {
-                val bgBrush = Brush.radialGradient(
+                val darkPurpleSweep = Brush.linearGradient(
                     colors = listOf(
-                        Color(0xFF702727).copy(alpha = 0.85f + clampedGrad * 0.45f),
-                        Color(0xFF3A1515).copy(alpha = 0.7f + clampedGrad * 0.3f),
-                        Color(0xFF2A0D0D).copy(alpha = 0.8f + clampedGrad * 0.2f),
-                        Color(0xFF1A0808).copy(alpha = 0.9f + clampedGrad * 0.1f),
-                        Color(0xFF0D0404)
+                        Color(0xFF10051F).copy(alpha = 0.6f),
+                        Color(0xFF050815).copy(alpha = 0.8f),
+                        Color.Transparent
                     ),
-                    radius = 1200f + (clampedGrad * 400f),
-                    center = Offset(0.3f + clampedGrad * 0.4f, 0.2f + clampedGrad * 0.3f)
+                    start = Offset(size.width * clampedGrad2, size.height * (1 - clampedGrad2)),
+                    end = Offset(size.width * (1 - clampedGrad2), size.height * clampedGrad2)
                 )
+
+                val redGlow = Brush.radialGradient(
+                    colors = listOf(
+                        Color(0xFF451010).copy(alpha = 0.85f + clampedGrad1 * 0.45f),
+                        Color(0xFF280B0B).copy(alpha = 0.7f + clampedGrad1 * 0.3f),
+                        Color(0xFF1F0808).copy(alpha = 0.8f + clampedGrad1 * 0.2f),
+                        Color(0xFF150505).copy(alpha = 0.9f + clampedGrad1 * 0.1f),
+                        Color(0xFF050101)
+                    ),
+                    radius = 1200f + (clampedGrad1 * 400f),
+                    center = Offset(
+                        size.width * (0.3f + clampedGrad1 * 0.4f),
+                        size.height * (0.2f + clampedGrad1 * 0.3f)
+                    )
+                )
+
                 onDrawBehind {
-                    drawRect(bgBrush)
+                    drawRect(Color(0xFF050101))
+                    if (shouldAnimate && movingEffectsEnabled) {
+                        drawRect(darkPurpleSweep)
+                    }
+                    drawRect(redGlow)
+
                     if (stages.after600ms && shouldAnimate && movingEffectsEnabled) {
                         val baseAlpha = clampedPulse
                         val g = clampedGlow
@@ -299,10 +323,8 @@ fun ExerciseAnalyticsScreen(
                         }
                         particles.forEachIndexed { i, (baseX, yOff, r) ->
                             val px = w * baseX + sin(waveOffset * 0.7f + i) * 60f * g
-                            val py =
-                                h * yOff + cos(waveOffset * 0.5f + i * 0.3f) * 60f
-                            val alpha =
-                                baseAlpha * (0.35f + sin(waveOffset + i) * 0.25f) * g
+                            val py = h * yOff + cos(waveOffset * 0.5f + i * 0.3f) * 60f
+                            val alpha = baseAlpha * (0.35f + sin(waveOffset + i) * 0.25f) * g
                             drawCircle(Color.White.copy(alpha = alpha), r, Offset(px, py))
                         }
                     }
@@ -391,15 +413,10 @@ fun ExerciseAnalyticsScreen(
                     showEndDatePicker = false
                 }) { Text("OK") }
             },
-
             dismissButton = { TextButton(onClick = { showEndDatePicker = false }) { Text("Cancel") } }
         ) { DatePicker(state = datePickerState) }
     }
 }
-
-
-
-
 
 @Composable
 private fun AnalysisInsightsCard(data: List<Workout>) {
@@ -408,7 +425,8 @@ private fun AnalysisInsightsCard(data: List<Workout>) {
             Column(
                 Modifier
                     .fillMaxWidth()
-                    .padding(16.dp)) {
+                    .padding(16.dp)
+            ) {
                 Text(
                     "Insights",
                     style = MaterialTheme.typography.titleMedium,
@@ -550,19 +568,39 @@ private fun AnalysisInsightsCard(data: List<Workout>) {
     }
 }
 
-
 @Composable
-private fun DateRangeSelector(startDate: Long?, endDate: Long?, onStartDateClick: () -> Unit, onEndDateClick: () -> Unit) {
+private fun DateRangeSelector(
+    startDate: Long?,
+    endDate: Long?,
+    onStartDateClick: () -> Unit,
+    onEndDateClick: () -> Unit
+) {
     fun formatDate(timestamp: Long?): String {
         if (timestamp == null) return "Select Date"
         val sdf = SimpleDateFormat("MMM dd, yyyy", Locale.getDefault())
         return sdf.format(Date(timestamp))
     }
 
-    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-        InfoChip(label = formatDate(startDate), icon = Icons.Filled.DateRange, modifier = Modifier.weight(1f).clickable(onClick = onStartDateClick))
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        InfoChip(
+            label = formatDate(startDate),
+            icon = Icons.Filled.DateRange,
+            modifier = Modifier
+                .weight(1f)
+                .clickable(onClick = onStartDateClick)
+        )
         Text("to", color = Color.White.copy(alpha = 0.7f))
-        InfoChip(label = formatDate(endDate), icon = Icons.Filled.DateRange, modifier = Modifier.weight(1f).clickable(onClick = onEndDateClick))
+        InfoChip(
+            label = formatDate(endDate),
+            icon = Icons.Filled.DateRange,
+            modifier = Modifier
+                .weight(1f)
+                .clickable(onClick = onEndDateClick)
+        )
     }
 }
 
@@ -575,12 +613,20 @@ private fun InfoChip(label: String, icon: ImageVector, modifier: Modifier = Modi
             .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(999.dp))
             .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)
     ) {
-        Icon(icon, contentDescription = null, tint = Color.White.copy(alpha = 0.7f), modifier = Modifier.size(20.dp))
-        Text(label, color = Color.White.copy(alpha = 0.9f), maxLines = 1, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+        Icon(
+            icon,
+            contentDescription = null,
+            tint = Color.White.copy(alpha = 0.7f),
+            modifier = Modifier.size(20.dp)
+        )
+        Text(
+            label,
+            color = Color.White.copy(alpha = 0.9f),
+            maxLines = 1,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.weight(1f, fill = false)
+        )
     }
 }
-
-
-

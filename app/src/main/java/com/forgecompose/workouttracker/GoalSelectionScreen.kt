@@ -3,32 +3,45 @@ package com.forgecompose.workouttracker
 import android.annotation.SuppressLint
 import android.content.Intent
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowForward
+import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -51,6 +64,7 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.CornerRadius
@@ -59,9 +73,16 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import androidx.navigation.NavController
 import com.forgecompose.workouttracker.ConnectedWorkout.CurrentReps
 import com.forgecompose.workouttracker.ConnectedWorkout.CurrentSets
@@ -74,13 +95,16 @@ import com.forgecompose.workouttracker.ConnectedWorkout.GoalTime
 import com.forgecompose.workouttracker.ConnectedWorkout.GoalType
 import com.forgecompose.workouttracker.ConnectedWorkout.WorkoutMode
 import com.forgecompose.workouttracker.ConnectedWorkout.workout
+import com.forgecompose.workouttracker.GoalSelectionScreen.blurScreen
 import com.forgecompose.workouttracker.blurAnim.intensity
 import com.forgecompose.workouttracker.blurAnim.length
 import com.forgecompose.workouttracker.ui.theme.WorkoutTrackerTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.time.LocalTime
+import java.time.format.TextStyle
 import kotlin.math.PI
+import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.roundToInt
 import kotlin.math.sin
@@ -102,6 +126,22 @@ fun GoalScreen(navController: NavController, viewModel: WorkoutListViewModel) {
     val last by remember(workout.value) {
         PresetStateRepo.observe(ctx, workout.value)
     }.collectAsState(initial = null)
+
+    var showRestTimeDialog by remember { mutableStateOf(false) }
+
+    if (showRestTimeDialog) {
+        RestTimeSelectorDialog(
+            onDismissRequest = { showRestTimeDialog = false;
+                               blurScreen.value = false},
+            onConfirm = { newRestTime ->
+                ConnectedWorkout.restTime.longValue = newRestTime
+                showRestTimeDialog = false
+                blurScreen.value = false
+            },
+            initialRestTimeInMillis = 60000L
+        )
+    }
+
 
     LaunchedEffect(last) {
         if (ConnectedWorkout.currentMode.value == WorkoutMode.INACTIVE && last != null) {
@@ -159,7 +199,11 @@ fun GoalScreen(navController: NavController, viewModel: WorkoutListViewModel) {
             navController.navigate("RestScreen")
         }
     }
-
+val blurAnimation by animateDpAsState(
+    if (blurScreen.value) intensity.value else 0.dp,
+    animationSpec = tween(650),
+    label = "blur"
+)
     val hour = remember { LocalTime.now().hour }
     val introColors = remember(hour) {
         when (hour) {
@@ -246,7 +290,9 @@ fun GoalScreen(navController: NavController, viewModel: WorkoutListViewModel) {
         ) {
             Scaffold(
                 containerColor = Color.Transparent,
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier.fillMaxSize().blur(
+                    blurAnimation
+                ),
                 topBar = {
                     TopAppBar(
                         title = {
@@ -260,11 +306,22 @@ fun GoalScreen(navController: NavController, viewModel: WorkoutListViewModel) {
                         colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
                         navigationIcon = {
                             IconButton(onClick = {
-                                if (ConnectedWorkout.currentMode.value == WorkoutMode.INACTIVE){
-                                    context.startActivity(Intent(context, MainActivity::class.java))} }) {
+                                navController.popBackStack()
+                                    context.startActivity(Intent(context, MainActivity::class.java)) }) {
                                 Icon(
                                     Icons.Default.ArrowBack,
                                     contentDescription = "Back",
+                                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
+                                )
+                            }
+                        },
+                        actions = {
+                            IconButton(onClick = { showRestTimeDialog = true;
+                            blurScreen.value = true
+                            }) {
+                                Icon(
+                                    Icons.Default.Settings,
+                                    contentDescription = "Rest Time Settings",
                                     tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
                                 )
                             }
@@ -277,6 +334,7 @@ fun GoalScreen(navController: NavController, viewModel: WorkoutListViewModel) {
                         .fillMaxSize()
                         .padding(paddingValues)
                         .padding(horizontal = 24.dp),
+
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Spacer(modifier = Modifier.height(64.dp))
@@ -465,4 +523,196 @@ fun GoalScreen(navController: NavController, viewModel: WorkoutListViewModel) {
             }
         }
     }
+}
+
+private fun getWrappedValue(value: Int, delta: Int, range: IntRange): Int {
+    if (range.isEmpty()) return 0
+    val rangeSize = range.last - range.first + 1
+    val relativeValue = value - range.first
+    val newRelativeValue = relativeValue + delta
+    val mod = ((newRelativeValue % rangeSize) + rangeSize) % rangeSize
+    return mod + range.first
+}
+
+@Composable
+fun DraggableTimePicker(
+    modifier: Modifier = Modifier,
+    value: Int,
+    range: IntRange,
+    onValueChange: (Int) -> Unit
+) {
+    val itemHeight = 40.dp
+    val density = LocalDensity.current
+    val itemHeightPx = with(density) { itemHeight.toPx() }
+    val offsetY = remember { Animatable(0f) }
+    val scope = rememberCoroutineScope()
+    val haptic = LocalHapticFeedback.current
+
+    Box(
+        modifier = modifier
+            .clipToBounds()
+            .pointerInput(value) {
+                detectVerticalDragGestures(
+                    onVerticalDrag = { change, dragAmount ->
+                        change.consume()
+                        val newOffset = offsetY.value + dragAmount
+                        scope.launch { offsetY.snapTo(newOffset) }
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    },
+                    onDragEnd = {
+                        val steps = (offsetY.value / itemHeightPx).roundToInt()
+                        val target = steps * itemHeightPx
+                        scope.launch {
+                            offsetY.animateTo(target, animationSpec = spring())
+                            val newValue = getWrappedValue(value, -steps, range)
+                            if (newValue != value) onValueChange(newValue)
+                            offsetY.snapTo(0f)
+                            haptic.performHapticFeedback(HapticFeedbackType.GestureEnd)
+                        }
+                    },
+                    onDragCancel = {
+                        scope.launch { offsetY.animateTo(0f, animationSpec = spring()) }
+                    }
+                )
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        val displayRange = -20..20
+        for (i in displayRange) {
+            val displayValue = getWrappedValue(value, i, range)
+            val verticalOffset = (i * itemHeightPx) + offsetY.value
+            val distanceRatio = verticalOffset / itemHeightPx
+            val scale = 1f - (abs(distanceRatio) * 0.15f).coerceAtMost(0.4f)
+            val alpha = 1f - (abs(distanceRatio) * 0.5f).coerceAtMost(1f)
+            val rotationX = -20f * distanceRatio.coerceIn(-2f, 2f)
+
+            Text(
+                text = String.format("%02d", displayValue),
+                style = androidx.compose.ui.text.TextStyle(
+                    fontSize = 32.sp,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center,
+                    color = Color.White
+                ),
+                modifier = Modifier
+                    .height(itemHeight)
+                    .graphicsLayer {
+                        translationY = verticalOffset
+                        scaleX = scale
+                        scaleY = scale
+                        this.alpha = alpha
+                        this.rotationX = rotationX
+                    }
+            )
+        }
+    }
+}
+
+@Composable
+fun RestTimeSelectorDialog(
+    initialRestTimeInMillis: Long,
+    onDismissRequest: () -> Unit,
+    onConfirm: (Long) -> Unit
+) {
+    val initialHours = (initialRestTimeInMillis / (1000 * 60 * 60)) % 24
+    val initialMinutes = (initialRestTimeInMillis / (1000 * 60)) % 60
+    val initialSeconds = (initialRestTimeInMillis / 1000) % 60
+
+    var hours by remember { mutableIntStateOf(initialHours.toInt()) }
+    var minutes by remember { mutableIntStateOf(initialMinutes.toInt()) }
+    var seconds by remember { mutableIntStateOf(initialSeconds.toInt()) }
+
+    val animatedBorderBrush = remember {
+        Brush.linearGradient(
+            colors = listOf(
+                Color(0xFF8B0000).copy(alpha = 0.8f),
+                Color(0xFFFF8800).copy(alpha = 0.6f),
+                Color(0xFF650000).copy(alpha = 0.7f)
+            )
+        )
+    }
+val dialogAlpha by remember {
+    mutableStateOf(if (intensity.value == 0.dp) 1f else 0.79f)
+}
+    Dialog(onDismissRequest = onDismissRequest) {
+        Card(
+            shape = RoundedCornerShape(32.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = Color(0xFF0D0404).copy(alpha = dialogAlpha)
+            ),
+            modifier = Modifier.border(1.5.dp, animatedBorderBrush, RoundedCornerShape(32.dp))
+        ) {
+            Column(
+                modifier = Modifier.padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                Text(
+                    "Set Rest Time",
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceEvenly
+                ) {
+                    DraggableTimePicker(
+                        modifier = Modifier.height(120.dp),
+                        value = hours,
+                        range = 0..23,
+                        onValueChange = { hours = it }
+                    )
+                    Text(":", color = Color.White, style = MaterialTheme.typography.headlineMedium)
+                    DraggableTimePicker(
+                        modifier = Modifier.height(120.dp),
+                        value = minutes,
+                        range = 0..59,
+                        onValueChange = { minutes = it }
+                    )
+                    Text(":", color = Color.White, style = MaterialTheme.typography.headlineMedium)
+                    DraggableTimePicker(
+                        modifier = Modifier.height(120.dp),
+                        value = seconds,
+                        range = 0..59,
+                        onValueChange = { seconds = it }
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly
+                ) {
+                    Button(
+                        onClick = onDismissRequest,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color.Transparent,
+                            contentColor = Color.White.copy(alpha = 0.8f)
+                        )
+                    ) {
+                        Text("Cancel")
+                    }
+                    Button(
+                        onClick = {
+                            val totalMillis = (hours * 3600 + minutes * 60 + seconds) * 1000L
+                            onConfirm(totalMillis)
+                        },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFF650000).copy(alpha = 0.7f)
+                        )
+                    ) {
+                        Text("Confirm")
+                    }
+                }
+            }
+        }
+    }
+}
+
+object GoalSelectionScreen{
+    var blurScreen = mutableStateOf(false)
 }

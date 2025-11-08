@@ -180,9 +180,9 @@ fun EditUserStats(navcontroller: NavController) {
                                 2.dp,
                                 Brush.linearGradient(
                                     listOf(
-                                        Color(0xFFE9473B).copy(alpha = 0.85f),
-                                        Color(0xFFFFA04D).copy(alpha = 0.7f),
-                                        Color(0xFFB31B1B).copy(alpha = 0.9f)
+                                        Color(0xFF8F0A00).copy(alpha = 0.85f),
+                                        Color(0xFF56241E).copy(alpha = 0.7f),
+                                        Color(0xFF620000).copy(alpha = 0.9f)
                                     )
                                 ),
                                 CircleShape
@@ -233,10 +233,10 @@ fun EditUserStats(navcontroller: NavController) {
                     colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
                         focusedContainerColor = Color(0x331F1011),
                         unfocusedContainerColor = Color(0x22161011),
-                        focusedBorderColor = Color(0xFFFF6A4E),
+                        focusedBorderColor = Color(0xFFBE0000),
                         unfocusedBorderColor = Color(0x44FF6A4E),
-                        focusedLabelColor = Color(0xFFFF6A4E),
-                        cursorColor = Color(0xFFFF6A4E),
+                        focusedLabelColor = Color(0xFFB91400),
+                        cursorColor = Color(0xFFFF6161),
                         focusedTextColor = Color.White,
                         unfocusedTextColor = Color.White
                     )
@@ -348,8 +348,8 @@ fun EditUserStats(navcontroller: NavController) {
                             border = FilterChipDefaults.filterChipBorder(
                                 enabled = true,
                                 selected = selected,
-                                borderColor = if (selected) Color(0xFFFF6A4E) else Color(0x44FFFFFF),
-                                selectedBorderColor = Color(0xFFFF6A4E),
+                                borderColor = if (selected) Color(0xFFFF0000) else Color(0x44FFFFFF),
+                                selectedBorderColor = Color(0xFF940000),
                                 borderWidth = 1.dp
                             )
                         )
@@ -392,8 +392,8 @@ fun EditUserStats(navcontroller: NavController) {
                             border = FilterChipDefaults.filterChipBorder(
                                 enabled = true,
                                 selected = selected,
-                                borderColor = if (selected) Color(0xFFFF6A4E) else Color(0x44FFFFFF),
-                                selectedBorderColor = Color(0xFFFF6A4E),
+                                borderColor = if (selected) Color(0xFFFF0000) else Color(0x44FFFFFF),
+                                selectedBorderColor = Color(0xFF960000),
                                 borderWidth = 1.dp
                             )
                         )

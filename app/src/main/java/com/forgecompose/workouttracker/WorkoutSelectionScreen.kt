@@ -40,9 +40,12 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AddTask
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Done
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.outlined.Star
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
@@ -107,7 +110,6 @@ import com.forgecompose.workouttracker.ui.theme.WorkoutTrackerTheme
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeEffect
 import dev.chrisbanes.haze.materials.HazeMaterials
-
 import java.time.LocalTime
 import kotlin.math.PI
 import kotlin.math.cos
@@ -195,6 +197,30 @@ public class PresetUsageTracker(private val context: Context) {
         entries.map { "${it.key}::${it.value.count}::${it.value.lastUsed}" }.toSet()
 }
 
+private val Context.favoritePresetsDataStore by preferencesDataStore("favorite_presets")
+
+object FavoritePresetStore {
+    private val KEY = stringSetPreferencesKey("favorite_names")
+
+    fun flow(context: Context): Flow<Set<String>> =
+        context.favoritePresetsDataStore.data.map { prefs ->
+            prefs[KEY] ?: emptySet()
+        }
+
+    suspend fun toggle(context: Context, name: String) {
+        if (name.isBlank()) return
+        context.favoritePresetsDataStore.edit { prefs ->
+            val currentFavorites = prefs[KEY] ?: emptySet()
+            val newFavorites = currentFavorites.toMutableSet()
+            if (name in newFavorites) {
+                newFavorites.remove(name)
+            } else {
+                newFavorites.add(name)
+            }
+            prefs[KEY] = newFavorites
+        }
+    }
+}
 
 
 @Composable
@@ -323,6 +349,46 @@ private fun CustomPill( modifier: Modifier = Modifier) {
         }
     }
 }
+@Composable
+private fun FavouritePill( modifier: Modifier = Modifier) {
+
+
+
+    val pillShape = remember { RoundedCornerShape(12.dp) }
+
+    Surface(
+        modifier = modifier.border(
+            width = 1.dp,
+            color = Color.White.copy(alpha = 0.2f),
+            shape = pillShape
+        ),
+        shape = pillShape,
+        color = Color(0xFF4A0000).copy(alpha = 0.6f),
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+
+                imageVector = Icons.Filled.Favorite,
+                contentDescription = "Custom Preset",
+                tint = Color.White.copy(alpha = 0.9f),
+                modifier = Modifier.size(14.dp)
+            )
+            Spacer(Modifier.width(4.dp))
+
+            Text(
+                text = "Favorite",
+                color = Color.White.copy(alpha = 0.9f),
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold
+            )
+        }
+    }
+}
 
 
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
@@ -345,6 +411,7 @@ fun WorkoutSelector(
     val usageTracker = remember { PresetUsageTracker(context) }
     val usageMap by usageTracker.usageFlow.collectAsState(initial = emptyMap())
     val customPresets by CustomPresetStore.flow(context).collectAsState(initial = emptyList())
+    val favoritePresets by FavoritePresetStore.flow(context).collectAsState(initial = emptySet())
 
     val abbreviationMap = remember {
         mapOf(
@@ -456,7 +523,7 @@ fun WorkoutSelector(
             }
         }
 
-        val filteredWorkouts by remember(filteredWorkoutsBase, usageMap) {
+        val filteredWorkouts by remember(filteredWorkoutsBase, usageMap, favoritePresets) {
             derivedStateOf {
                 val now = System.currentTimeMillis()
                 val maxCount = (usageMap.values.maxOfOrNull { it.count } ?: 1).coerceAtLeast(1)
@@ -466,10 +533,11 @@ fun WorkoutSelector(
                     return 1f / (1f + days)
                 }
                 filteredWorkoutsBase.sortedWith(
-                    compareByDescending<WorkoutPreset> {
-                        val stat = usageMap[it.name]
-                        if (stat == null) 0f else (stat.count.toFloat() / maxCount) * 0.6f + recencyScore(stat.lastUsed) * 0.4f
-                    }.thenBy { it.name.lowercase() }
+                    compareByDescending<WorkoutPreset> { it.name in favoritePresets }
+                        .thenByDescending {
+                            val stat = usageMap[it.name]
+                            if (stat == null) 0f else (stat.count.toFloat() / maxCount) * 0.6f + recencyScore(stat.lastUsed) * 0.4f
+                        }.thenBy { it.name.lowercase() }
                 )
             }
         }
@@ -684,6 +752,7 @@ fun WorkoutSelector(
                                         Column(modifier = Modifier.weight(1f)) {
                                             Text(text = preset.name, style = MaterialTheme.typography.titleLarge, color = Color.White, fontWeight = FontWeight.Medium)
                                             val stat = usageMap[preset.name]
+                                            val isFavorite = preset.name in favoritePresets
                                             MostUsedPill(stat = stat, modifier = Modifier.padding(top = 6.dp))
                                             if (preset.name in cardioExerciseNames) {
                                                 ExperimentalPill(modifier = Modifier.padding(top = 6.dp))
@@ -691,8 +760,26 @@ fun WorkoutSelector(
                                             if (preset.category == "Custom") {
                                                 CustomPill(modifier = Modifier.padding(top = 6.dp))
                                             }
+                                            if (preset.name in favoritePresets){
+                                                FavouritePill(modifier = Modifier.padding(top = 6.dp))
+                                            }
                                         }
-                                        Icon(imageVector = Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, tint = Color.White.copy(alpha = 0.7f))
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            val isFavorite = preset.name in favoritePresets
+                                            IconButton(onClick = {
+                                                scope.launch {
+                                                    FavoritePresetStore.toggle(context, preset.name)
+                                                    haptics.performHapticFeedback(HapticFeedbackType.KeyboardTap)
+                                                }
+                                            }) {
+                                                Icon(
+                                                    imageVector = if (isFavorite) Icons.Filled.Star else Icons.Outlined.Star,
+                                                    contentDescription = "Favorite",
+                                                    tint = if (isFavorite) Color(0xFFFF0000) else Color.White.copy(alpha = 0.7f)
+                                                )
+                                            }
+                                            Icon(imageVector = Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, tint = Color.White.copy(alpha = 0.7f))
+                                        }
                                     }
                                 }
                             }

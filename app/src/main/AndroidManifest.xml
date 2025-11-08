@@ -41,7 +41,7 @@
         <activity
             android:name=".WorkoutActivity"
             android:exported="false"
-            android:launchMode="singleInstance" />
+            android:launchMode="singleTask" />
 
         <activity
             android:name=".MainActivity"
@@ -79,7 +79,7 @@
 
         <service
             android:name=".HrDataListenerService"
-            android:exported="true">
+            android:exported="false">
             <intent-filter>
                 <action android:name="com.google.android.gms.wearable.DATA_CHANGED" />
                 <data android:scheme="wear" android:host="*" android:pathPrefix="/hr" />
@@ -87,7 +87,7 @@
         </service>
         <service
             android:name=".DataLayerListenerService"
-            android:exported="true">
+            android:exported="false">
             <intent-filter>
                 <action android:name="com.google.android.gms.wearable.MESSAGE_RECEIVED" />
                 <data

@@ -74,6 +74,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.util.lerp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.forgecompose.workouttracker.ConnectedWorkout.CurrentReps
@@ -108,7 +109,7 @@ fun RestScreen(
 ) {
     val haptics = LocalHapticFeedback.current
     val bpm by vm.hr.collectAsState()
-    val initialTotal = rememberSaveable { 60000L }
+    val initialTotal = rememberSaveable { ConnectedWorkout.restTime.longValue }
     PreventBackGesture()
     var remaining by restTimeRemaining
 
@@ -139,10 +140,10 @@ fun RestScreen(
     val hour = remember { LocalTime.now().hour }
     val introColors = remember(hour) {
         when (hour) {
-            in 5..10 -> listOf(Color(0xFF2B1A00), Color(0xFF3C2405), Color(0xFF5A360A), Color(0xFF7A4A12))
-            in 11..16 -> listOf(Color(0xFF332300), Color(0xFF4A3408), Color(0xFF6B4B0F), Color(0xFF8C6217))
-            in 17..20 -> listOf(Color(0xFF1A0614), Color(0xFF2A0A20), Color(0xFF3D0F2D), Color(0xFF52153A))
-            else      -> listOf(Color(0xFF02040A), Color(0xFF0A1324), Color(0xFF15243D), Color(0xFF1E3352))
+            in 5..10 -> listOf(Color(0xFF02121E), Color(0xFF031A28), Color(0xFF06273A), Color(0xFF09324A))
+            in 11..16 -> listOf(Color(0xFF031420), Color(0xFF052133), Color(0xFF073049), Color(0xFF0A3F60))
+            in 17..20 -> listOf(Color(0xFF020914), Color(0xFF041223), Color(0xFF08233E), Color(0xFF0B3356))
+            else      -> listOf(Color(0xFF00040A), Color(0xFF041222), Color(0xFF0A2440), Color(0xFF0F3256))
         }
     }
     var showIntro by remember { mutableStateOf(true) }
@@ -160,7 +161,7 @@ fun RestScreen(
                 animationClock += deltaTime
             }
             lastFrameTime = currentTime
-            delay(42)
+            delay(62)
         }
     }
 
@@ -201,24 +202,39 @@ fun RestScreen(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .blur(
-                    blurAnim
-                )
+                .blur(blurAnim)
                 .drawWithContent {
-                    val bg = Brush.radialGradient(
+                    val base = Brush.radialGradient(
                         colors = listOf(
-                            Color(0xFF3636A4),
-                            Color(0xFF2E3786).copy(alpha = 0.90f + gradientOffset * 0.02f),
+                            Color(0xFF0A0F1A),
+                            Color(0xFF07182A),
+                            Color(0xFF031225),
                             Color(0xFF000000)
                         ),
-                        radius = 1600f + gradientOffset * 600f,
-                        center = Offset(size.width * 0.45f, size.height * 0.82f)
+                        radius = 1800f + gradientOffset * 700f,
+                        center = Offset(size.width * 0.46f, size.height * 0.78f)
                     )
-                    drawRect(bg)
+                    val cyanBloom = Brush.radialGradient(
+                        0f to Color(0xFF1B3A5A).copy(alpha = 0.0f),
+                        0.6f to Color(0xFF1B3A5A).copy(alpha = 0.25f),
+                        1f to Color(0xFF1B3A5A).copy(alpha = 0.0f),
+                        radius = 1200f + gradientOffset * 500f,
+                        center = Offset(size.width * 0.38f, size.height * 0.35f)
+                    )
+                    val vignette = Brush.radialGradient(
+                        0f to Color.Transparent,
+                        0.85f to Color.Transparent,
+                        1f to Color(0xFF000000).copy(alpha = 0.55f),
+                        radius = size.maxDimension * 0.85f,
+                        center = center
+                    )
+                    drawRect(base)
+                    drawRect(cyanBloom)
                     if (introProgress < 1f) drawRect(
-                        brush = Brush.radialGradient(introColors, radius = 1200f, center = Offset(size.width * 0.4f, size.height * 0.28f)),
+                        brush = Brush.radialGradient(introColors, radius = 1400f, center = Offset(size.width * 0.42f, size.height * 0.28f)),
                         alpha = 1f - introProgress
                     )
+                    drawRect(vignette)
                     drawContent()
                 }
                 .padding(horizontal = 24.dp)
@@ -248,7 +264,7 @@ fun RestScreen(
 
                         drawCircle(
                             brush = Brush.radialGradient(
-                                listOf(Color(0xFF0B1117), Color(0xFF0E1620)),
+                                listOf(Color(0xFF0A1420), Color(0xFF0F1E2E)),
                                 center = center,
                                 radius = radius * 1.2f
                             ),
@@ -256,16 +272,38 @@ fun RestScreen(
                             style = Stroke(width = stroke, cap = StrokeCap.Round)
                         )
 
+                        val innerGlowStroke = stroke * 2.2f
+                        drawCircle(
+                            color = Color(0xFF7BD1FF).copy(alpha = 0.10f + 0.07f * glow),
+                            radius = radius,
+                            style = Stroke(width = innerGlowStroke, cap = StrokeCap.Round)
+                        )
+
+                        for (i in 0..100 step 10) {
+                            val a = Math.toRadians((i * 3.6 - 90).toDouble()).toFloat()
+                            val sx = cx + cos(a) * (radius - stroke * 0.6f)
+                            val sy = cy + sin(a) * (radius - stroke * 0.6f)
+                            val ex = cx + cos(a) * (radius + stroke * 0.6f)
+                            val ey = cy + sin(a) * (radius + stroke * 0.6f)
+                            drawLine(
+                                color = Color(0xFF7BD1FF).copy(alpha = if (i % 20 == 0) 0.35f else 0.15f),
+                                start = Offset(sx, sy),
+                                end = Offset(ex, ey),
+                                strokeWidth = if (i % 20 == 0) 4f else 2f,
+                                cap = StrokeCap.Round
+                            )
+                        }
+
                         val sweep = 360f * animatedProgress
                         val arcRect = Rect(
                             Offset(cx - radius, cy - radius),
                             Size(radius * 2, radius * 2)
                         )
                         val arcBrush = Brush.sweepGradient(
-                            0f to Color(0xFF4CA3FF),
-                            0.35f to Color(0xFF66D4FF),
-                            0.7f to Color(0xFF9BE7FF),
-                            1f to Color(0xFF4CA3FF),
+                            0f to Color(0xFF3B9CF8),
+                            0.28f to Color(0xFF54C7FF),
+                            0.64f to Color(0xFF9CEBFF),
+                            1f to Color(0xFF3B9CF8),
                             center = center
                         )
                         drawArc(
@@ -279,11 +317,11 @@ fun RestScreen(
                         )
 
                         drawArc(
-                            color = Color(0xFF7BD1FF).copy(alpha = 0.18f + 0.12f * glow),
+                            color = Color(0xFF7BD1FF).copy(alpha = 0.16f + 0.10f * glow),
                             startAngle = -90f,
                             sweepAngle = sweep,
                             useCenter = false,
-                            style = Stroke(width = stroke * 1.6f, cap = StrokeCap.Round),
+                            style = Stroke(width = stroke * 1.7f, cap = StrokeCap.Round),
                             topLeft = arcRect.topLeft,
                             size = arcRect.size
                         )
@@ -300,7 +338,7 @@ fun RestScreen(
                                 ),
                                 radius = 26f * (0.7f + 0.3f * glow),
                                 center = Offset(px, py),
-                                alpha = 0.8f
+                                alpha = 0.85f
                             )
                             drawCircle(
                                 color = Color(0xFFCCF4FF),
@@ -343,7 +381,7 @@ fun RestScreen(
                             .matchParentSize()
                             .blur(radius = 32.dp),
                         shape = RoundedCornerShape(28.dp),
-                        color = Color.LightGray.copy(alpha = 0.02f)
+                        color = Color(0xFF89D8FF).copy(alpha = 0.04f)
                     ) {}
 
                     Column(
@@ -351,15 +389,20 @@ fun RestScreen(
                             .fillMaxWidth()
                             .animateContentSize()
                             .background(
-                                color = Color.White.copy(alpha = 0.05f),
+                                brush = Brush.verticalGradient(
+                                    0f to Color(0xFFFFFFFF).copy(alpha = 0.06f),
+                                    1f to Color(0xFF000000).copy(alpha = 0.06f)
+                                ),
                                 shape = RoundedCornerShape(28.dp)
                             )
                             .padding(vertical = 12.dp)
                     ) {
                         Row(
                             modifier = Modifier
-                                .clickable { isExpanded = !isExpanded;
-                                    haptics.performHapticFeedback(HapticFeedbackType.ToggleOn)}
+                                .clickable {
+                                    isExpanded = !isExpanded
+                                    haptics.performHapticFeedback(HapticFeedbackType.ToggleOn)
+                                }
                                 .padding(horizontal = 20.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
@@ -367,13 +410,13 @@ fun RestScreen(
                                 text = "Workout Log",
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
-                                color = Color.White.copy(alpha = 0.9f),
+                                color = Color.White.copy(alpha = 0.92f),
                                 modifier = Modifier.weight(1f)
                             )
                             Icon(
                                 imageVector = Icons.Default.KeyboardArrowDown,
                                 contentDescription = if (isExpanded) "Collapse" else "Expand",
-                                tint = Color.White.copy(alpha = 0.7f),
+                                tint = Color.White.copy(alpha = 0.72f),
                                 modifier = Modifier.rotate(rotation)
                             )
                         }
@@ -410,7 +453,6 @@ fun RestScreen(
                     }
                 }
 
-
                 Spacer(Modifier.weight(1f))
 
                 val interactionSource = remember { MutableInteractionSource() }
@@ -434,7 +476,7 @@ fun RestScreen(
                         .padding(horizontal = 32.dp, vertical = 24.dp)
                         .clip(buttonShape)
                         .graphicsLayer {
-                            val liquidScale = lerp(1f, 1.1f, progressAnimation.value)
+                            val liquidScale = lerp(1f, 1.08f, progressAnimation.value)
                             scaleX = scale * liquidScale
                             scaleY = scale * liquidScale
                         }
@@ -443,20 +485,15 @@ fun RestScreen(
                             shape = { buttonShape },
                             effects = {
                                 vibrancy()
-                                blur(4f.dp.toPx())
-                                refraction(height = 24f.dp.toPx(), amount = 48f.dp.toPx(), hasDepthEffect = true)
+                                blur(6f.dp.toPx())
+                                refraction(height = 28f.dp.toPx(), amount = 56f.dp.toPx(), hasDepthEffect = true)
                             },
-
-                            highlight = { Highlight(style = HighlightStyle.Default(angle = uiSensor.gravityAngle)) }
                         ),
-
-
-
                     contentAlignment = Alignment.Center
                 ) {
                     Button(
                         onClick = {
-                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                            haptics.performHapticFeedback(HapticFeedbackType.KeyboardTap)
                             ConnectedWorkout.currentMode.value = WorkoutMode.ACTIVE
                             navController.navigate("WorkoutScreen") {
                                 popUpTo("WorkoutScreen") { inclusive = true }
@@ -467,8 +504,8 @@ fun RestScreen(
                             .height(64.dp),
                         shape = buttonShape,
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = Color.Black.copy(alpha = 0.15f),
-                            contentColor = MaterialTheme.colorScheme.onSurface
+                            containerColor = Color(0xFF0C1A26).copy(alpha = 0.38f),
+                            contentColor = Color(0xFFE6F7FF)
                         ),
                         elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp, pressedElevation = 0.dp),
                         interactionSource = interactionSource

@@ -1,5 +1,10 @@
+@file:Suppress("NAME_SHADOWING", "UnusedImport")
+
 package com.forgecompose.workouttracker
 
+import android.annotation.SuppressLint
+import android.os.Build
+import androidx.annotation.RequiresApi
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateDpAsState
@@ -7,47 +12,23 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.slideInVertically
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.derivedStateOf
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
-import androidx.compose.runtime.withFrameNanos
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.graphics.*
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -55,13 +36,13 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
 import com.forgecompose.workouttracker.blurAnim.intensity
 import com.forgecompose.workouttracker.blurAnim.length
-import kotlinx.coroutines.delay
 import java.time.Instant
+
 import java.time.LocalTime
 import java.util.Calendar
 import java.util.concurrent.TimeUnit
 import kotlin.math.PI
-import kotlin.math.cos
+import kotlin.math.max
 import kotlin.math.sin
 import kotlin.random.Random
 
@@ -74,13 +55,11 @@ fun ProfileMuscleStatusRoute(
 ) {
     val cold = rememberColdStartStages()
     val context = LocalContext.current
-    val performanceOptions by PerformanceOptionsManager.flow(context)
-        .collectAsState(initial = PerformanceOptions.Defaults)
-
+    val density = LocalDensity.current
+    val performanceOptions by PerformanceOptionsManager.flow(context).collectAsState(initial = PerformanceOptions.Defaults)
     val movingEffectsEnabled = performanceOptions.movingGradientAndParticles
     val shouldAnimate = cold.afterFirstFrame
     var animationClock by remember { mutableStateOf(0f) }
-
     LaunchedEffect(shouldAnimate, movingEffectsEnabled) {
         if (shouldAnimate && movingEffectsEnabled) {
             var lastFrameTime = 0L
@@ -91,23 +70,18 @@ fun ProfileMuscleStatusRoute(
                     animationClock += deltaTime
                 }
                 lastFrameTime = currentTime
-                delay(42)
+                kotlinx.coroutines.delay(42)
             }
         }
     }
-
     val fullPi = 2f * PI.toFloat()
-    val waveOffset = (animationClock * fullPi / 22f) % fullPi
     val pulseAlpha = 0.25f + 0.10f * sin(animationClock * fullPi / 8f)
     val glowIntensity = 0.4f + 0.2f * sin(animationClock * fullPi / 6f)
     val gradientProgress = (animationClock / 15f) % 2f
     val gradientOffset = if (gradientProgress > 1f) 2f - gradientProgress else gradientProgress
-
     val clampedGlow by remember { derivedStateOf { glowIntensity.coerceIn(0f, 1f) } }
     val clampedPulse by remember { derivedStateOf { pulseAlpha.coerceIn(0f, 1f) } }
     val clampedGrad by remember { derivedStateOf { gradientOffset.coerceIn(0f, 1f) } }
-
-    val wavePath = remember { Path() }
     val particleSeed = remember { Random(42) }
     val particles = remember {
         List(12) { i ->
@@ -117,7 +91,6 @@ fun ProfileMuscleStatusRoute(
             Triple(baseX, yOff, r)
         }
     }
-
     val hour = remember { LocalTime.now().hour }
     val introColors = remember(hour) {
         when (hour) {
@@ -144,7 +117,6 @@ fun ProfileMuscleStatusRoute(
         showIntro = false
         taskbarOverride.shouldOverrideVisiblity.value = false
     }
-
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val allWorkouts = (uiState as? WorkoutListUiState.Success)?.workouts.orEmpty()
     val recent = remember(uiState) {
@@ -168,60 +140,16 @@ fun ProfileMuscleStatusRoute(
         modifier = Modifier
             .fillMaxSize()
             .blur(blurAnim)
+            .redGridBackground(
+                animationClock = if (movingEffectsEnabled && shouldAnimate) animationClock else 0f,
+                clampedPulse = clampedPulse,
+                clampedGlow = clampedGlow,
+                clampedGrad = clampedGrad,
+                density = density
+            )
             .drawWithCache {
-                val bgBrush = Brush.radialGradient(
-                    colors = listOf(
-                        Color(0xFF702727).copy(alpha = 0.85f + clampedGrad * 0.45f),
-                        Color(0xFF3A1515).copy(alpha = 0.7f + clampedGrad * 0.3f),
-                        Color(0xFF2A0D0D).copy(alpha = 0.8f + clampedGrad * 0.2f),
-                        Color(0xFF1A0808).copy(alpha = 0.9f + clampedGrad * 0.1f),
-                        Color(0xFF0D0404)
-                    ),
-                    radius = 1200f + (clampedGrad * 400f),
-                    center = Offset(0.3f + clampedGrad * 0.4f, 0.2f + clampedGrad * 0.3f)
-                )
+                val introBrush = introBrush
                 onDrawBehind {
-                    drawRect(bgBrush)
-                    if (cold.after600ms && shouldAnimate && movingEffectsEnabled) {
-                        val baseAlpha = clampedPulse
-                        val g = clampedGlow
-                        val w = size.width
-                        val h = size.height
-                        for (layer in 0..2) {
-                            val layerOffset = waveOffset + (layer * PI.toFloat() / 4)
-                            val layerAlpha = baseAlpha * (0.25f + layer * 0.12f) * g
-                            val layerColor = when (layer) {
-                                0 -> Color(0xFF4A1A1A).copy(alpha = layerAlpha)
-                                1 -> Color(0xFF3A1515).copy(alpha = layerAlpha * 0.8f)
-                                else -> Color(0xFF2A0D0D).copy(alpha = layerAlpha * 0.6f)
-                            }
-                            wavePath.reset()
-                            val baseY = h * (0.22f + layer * 0.16f)
-                            val step = (w / 36f).coerceAtLeast(10f)
-                            var x = 0f
-                            val waveHeight = 90f
-                            while (x <= w) {
-                                val t = x / w
-                                val phase = t * 3f * PI.toFloat() + layerOffset
-                                val y =
-                                    baseY + sin(phase) * waveHeight * (0.55f + layer * 0.22f) * g
-                                wavePath.lineTo(x, y)
-                                x += step
-                            }
-                            wavePath.lineTo(w, h)
-                            wavePath.lineTo(0f, h)
-                            wavePath.close()
-                            drawPath(path = wavePath, color = layerColor)
-                        }
-                        particles.forEachIndexed { i, (baseX, yOff, r) ->
-                            val px = w * baseX + sin(waveOffset * 0.7f + i) * 60f * g
-                            val py =
-                                h * yOff + cos(waveOffset * 0.5f + i * 0.3f) * 60f
-                            val alpha =
-                                baseAlpha * (0.35f + sin(waveOffset + i) * 0.25f) * g
-                            drawCircle(Color.White.copy(alpha = alpha), r, Offset(px, py))
-                        }
-                    }
                     if (introProgress < 1f) {
                         drawRect(brush = introBrush, alpha = 1f - introProgress)
                     }
@@ -252,7 +180,6 @@ fun ProfileMuscleStatusRoute(
             },
             containerColor = Color.Transparent,
             modifier = Modifier.fillMaxSize()
-
         ) { padding ->
             Box(modifier = Modifier.fillMaxSize()) {
                 val haptics = LocalHapticFeedback.current
@@ -297,7 +224,6 @@ fun ProfileMuscleStatusRoute(
                                                     allWorkouts.count { it.date in start until end }
                                                 } ?: 0
                                                 val streak = if (allWorkouts.isEmpty()) 0 else computeStreak(System.currentTimeMillis(), allWorkouts)
-
                                                 LabeledStat("This Week", thisWeekCount.toString())
                                                 LabeledStat("Streak", "${streak}d")
                                                 LabeledStat("Total", allWorkouts.size.toString())
@@ -321,8 +247,9 @@ fun ProfileMuscleStatusRoute(
                                                     nowEpochMillis = System.currentTimeMillis(),
                                                     modifier = Modifier.fillMaxWidth(),
                                                     weeklySummaryAvailable = hasRoomForButton,
-                                                    onOpenWeeklySummary = { navController.navigate("WeeklySummary")
-                                                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                    onOpenWeeklySummary = {
+                                                        navController.navigate("WeeklySummary")
+                                                        haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
                                                     }
                                                 )
                                             }
@@ -330,7 +257,6 @@ fun ProfileMuscleStatusRoute(
                                     }
                                 }
                             }
-
                             item { Spacer(Modifier.height(32.dp)) }
                         }
                     }
@@ -348,3 +274,92 @@ fun ProfileMuscleStatusRoute(
         }
     }
 }
+
+fun Modifier.redGridBackground(
+    animationClock: Float,
+    clampedPulse: Float,
+    clampedGlow: Float,
+    clampedGrad: Float,
+    density: androidx.compose.ui.unit.Density
+): Modifier = this.then(
+    Modifier.drawWithCache {
+        val minSpacingPx = with(density) { 36.dp.toPx() }
+        val majorEvery = 4
+        val thin = with(density) { 0.75.dp.toPx() }
+        val thick = with(density) { 1.5.dp.toPx() }
+        val bgDeep = Color(0xFF100606).copy(alpha = 0.65f)
+        val bgMid = Color(0xFF1A0808).copy(alpha = 0.65f)
+        val gridMinor = Color(0xFF5C2A2A)
+        val gridMajor = Color(0xFF7A3333)
+        val fullPi = (2f * PI).toFloat()
+        val driftPx = if (animationClock == 0f) 0f else 16f * sin(animationClock * fullPi / 18f)
+        val driftDiag = driftPx * 0.7f
+        val minorAlpha = (0.10f + 0.08f * clampedPulse).coerceIn(0.06f, 0.20f)
+        val majorAlpha = (0.16f + 0.16f * clampedGlow).coerceIn(0.12f, 0.32f)
+        val vignette = Brush.radialGradient(
+            colors = listOf(
+                bgMid.copy(alpha = 0.95f),
+                bgDeep.copy(alpha = 1f)
+            ),
+            center = Offset(
+                size.width * (0.30f + 0.40f * clampedGrad),
+                size.height * (0.22f + 0.28f * clampedGrad)
+            ),
+            radius = max(size.width, size.height) * (0.9f + 0.15f * clampedGrad)
+        )
+        val pathMinor = Path()
+        val pathMajor = Path()
+        fun buildGridPaths() {
+            pathMinor.reset()
+            pathMajor.reset()
+            val cols = max(1, (size.width / minSpacingPx).toInt() + 2)
+            val rows = max(1, (size.height / minSpacingPx).toInt() + 2)
+            val x0 = -minSpacingPx * 2
+            val y0 = -minSpacingPx * 2
+            for (i in 0..cols) {
+                val x = x0 + i * minSpacingPx
+                val target = if (i % majorEvery == 0) pathMajor else pathMinor
+                target.moveTo(x, y0)
+                target.lineTo(x, size.height + minSpacingPx * 2)
+            }
+            for (j in 0..rows) {
+                val y = y0 + j * minSpacingPx
+                val target = if (j % majorEvery == 0) pathMajor else pathMinor
+                target.moveTo(x0, y)
+                target.lineTo(size.width + minSpacingPx * 2, y)
+            }
+        }
+        buildGridPaths()
+        val strokeMinor = Stroke(width = thin)
+        val strokeMajor = Stroke(width = thick)
+        val sheen = Brush.linearGradient(
+            colors = listOf(
+                Color.Transparent,
+                Color.White.copy(alpha = 0.02f),
+                Color.Transparent
+            ),
+            start = Offset.Zero,
+            end = Offset(size.width, size.height)
+        )
+        onDrawWithContent {
+            drawRect(color = bgDeep)
+            drawRect(brush = vignette)
+            withTransform({
+                translate(driftDiag, driftDiag)
+            }) {
+                drawPath(
+                    path = pathMinor,
+                    color = gridMinor.copy(alpha = minorAlpha),
+                    style = strokeMinor
+                )
+                drawPath(
+                    path = pathMajor,
+                    color = gridMajor.copy(alpha = majorAlpha),
+                    style = strokeMajor
+                )
+            }
+            drawRect(brush = sheen)
+            drawContent()
+        }
+    }
+)

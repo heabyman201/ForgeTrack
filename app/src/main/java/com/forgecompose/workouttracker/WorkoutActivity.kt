@@ -138,6 +138,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -219,6 +220,8 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.health.connect.client.records.ExerciseSessionRecord
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.forgecompose.workouttracker.ConnectedWorkout.GoalDistance
@@ -983,6 +986,349 @@ fun DistanceProgressTracker(
         }
     }
 }
+@SuppressLint("WakelockTimeout")
+suspend fun continuousStepDetectionAndDistanceCalculation(
+    context: Context,
+    onStepDetected: () -> Unit,
+    onUpdate: (distanceKm: Double) -> Unit
+) {
+    val sensorManager = context.getSystemService(Context.SENSOR_SERVICE) as? SensorManager ?: return
+    val accel = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER) ?: return
+    val stepDetector = sensorManager.getDefaultSensor(Sensor.TYPE_STEP_DETECTOR)
+
+    val mainHandler = Handler(Looper.getMainLooper())
+    val sensorThread = try { HandlerThread("step-detector").apply { start() } } catch (_: Throwable) { return }
+    val sensorHandler = Handler(sensorThread.looper)
+
+    // Registration flags
+    var isAccelRegistered = false
+    var isStepRegistered = false
+
+    // Distance & cadence/stride state
+    var distanceMeters = 0.0
+    fun safeInc(meters: Double) {
+        if (meters.isFinite()) {
+            val nm = distanceMeters + meters
+            if (nm.isFinite() && nm >= 0.0) distanceMeters = nm
+        }
+    }
+
+    // Gravity (LPF) state
+    var gx = 0.0; var gy = 0.0; var gz = 0.0
+    val tauSec = 0.8
+
+    // Streaming stats (variance/entropy proxy)
+    var mean = 0.0; var meanSq = 0.0
+    val beta = 0.02
+    var sampleCount = 0
+
+    // Peak detection state
+    var prev2 = 0.0; var prev1 = 0.0
+    var lastValley = Double.POSITIVE_INFINITY
+    var lastTimestampNs: Long? = null
+    var lastStepTimeNs = 0L
+    val minStepNs = 250_000_000L
+    val maxStepNs = 2_000_000_000L
+
+    // HW step suppression window
+    var lastHwStepNs = 0L
+
+    // Cadence & stride blending
+    // EWMA cadence (steps per second)
+    var cadenceEwma = 0.0
+    var lastCadenceTickNs = 0L
+    fun updateCadence(nowNs: Long) {
+        if (lastCadenceTickNs != 0L) {
+            val dt = (nowNs - lastCadenceTickNs).coerceAtLeast(1L).toDouble() / 1e9
+            val inst = (1.0 / dt).coerceIn(0.25, 4.0) // 15–240 spm range
+            val gamma = 0.25
+            cadenceEwma = if (cadenceEwma == 0.0) inst else (1 - gamma) * cadenceEwma + gamma * inst
+        }
+        lastCadenceTickNs = nowNs
+    }
+
+    // UI update coalescing
+    var lastPushValue = Double.NaN
+    var lastPushMs = 0L
+    var updateThrottleMs = 600L
+    fun fastRound3(x: Double): Double {
+        if (!x.isFinite()) return Double.NaN
+        val t = x * 1000.0
+        return kotlin.math.round(t) / 1000.0
+    }
+    fun pushUpdate(force: Boolean = false) {
+        val km = distanceMeters / 1000.0
+        val rounded = fastRound3(km)
+        val now = SystemClock.uptimeMillis()
+        if (!rounded.isFinite()) return
+        if (force || rounded != lastPushValue || now - lastPushMs >= updateThrottleMs) {
+            lastPushValue = rounded
+            lastPushMs = now
+            mainHandler.post {
+                try { onUpdate(rounded) } catch (_: Throwable) {}
+            }
+        }
+    }
+
+    // Power/lifecycle state
+    val pm = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
+    val wakeLock = try {
+        // Only keep a partial wakelock if HW step sensor is unavailable
+        if (stepDetector == null) pm?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "wt:step")
+            ?.apply { setReferenceCounted(false); acquire() } else null
+    } catch (_: Throwable) { null }
+
+    var lastEventUptimeMs = SystemClock.uptimeMillis()
+    var idleSinceMs = lastEventUptimeMs
+    var lowMotion = false
+
+    // Start with moderate rate; adapt down if HW steps flowing or motion low
+    var accelRateUs = 20_000           // ~50 Hz
+    var accelLatencyUs = 200_000       // 0.2 s batch
+    var maxLatencyLowUs = 800_000      // 0.8 s batch when idle
+
+    // Re-register helper (will be reassigned)
+    var reRegisterAccel: ((Int, Int) -> Unit)? = null
+
+    // ---- Accelerometer listener (fallback step detection + motion scoring) ----
+    val accelListener = object : SensorEventListener {
+        override fun onSensorChanged(e: SensorEvent?) {
+            lastEventUptimeMs = SystemClock.uptimeMillis()
+            try {
+                e ?: return
+                val vals = e.values ?: return
+                if (vals.size < 3) return
+                val ts = e.timestamp
+
+                // Time step & LPF for gravity
+                val dtNs = lastTimestampNs?.let { d -> (ts - d).takeIf { it > 0L } ?: 20_000_000L } ?: 20_000_000L
+                lastTimestampNs = ts
+                val dtSec = (dtNs.toDouble() / 1e9).coerceIn(1e-6, 1.0)
+                val alpha = (tauSec / (tauSec + dtSec)).coerceIn(0.0, 1.0)
+
+                val vx = vals.getOrNull(0)?.toDouble() ?: return
+                val vy = vals.getOrNull(1)?.toDouble() ?: return
+                val vz = vals.getOrNull(2)?.toDouble() ?: return
+
+                gx = alpha * gx + (1.0 - alpha) * vx
+                gy = alpha * gy + (1.0 - alpha) * vy
+                gz = alpha * gz + (1.0 - alpha) * vz
+
+                val lx = vx - gx
+                val ly = vy - gy
+                val lz = vz - gz
+
+                var mag = (lx * lx + ly * ly + lz * lz)
+                if (!mag.isFinite() || mag <= 0.0) return
+                mag = kotlin.math.sqrt(mag)
+                if (!mag.isFinite()) return
+
+                // Motion statistics
+                mean = (1 - beta) * mean + beta * mag
+                meanSq = (1 - beta) * meanSq + beta * (mag * mag)
+                sampleCount++
+
+                val variance = (meanSq - mean * mean).let { if (it.isFinite() && it >= 0.0) it else 0.0 }
+                val sigma = kotlin.math.sqrt(variance).let { if (it.isFinite()) it else 0.0 }
+
+                // Dynamic threshold for peaks
+                val dynamicThreshold = max(1.05, (mean + 1.10 * sigma).coerceIn(0.8, 20.0))
+                val curr = mag
+
+                if (curr < prev1) lastValley = min(lastValley, curr)
+                val isPeak = (sampleCount > 25) && prev1 > prev2 && prev1 > curr && prev1 > dynamicThreshold
+
+                if (isPeak) {
+                    val dtSinceLast = ts - lastStepTimeNs
+                    if (lastStepTimeNs == 0L) {
+                        lastStepTimeNs = ts
+                        lastValley = curr
+                    } else if (dtSinceLast in minStepNs..maxStepNs) {
+                        // Suppress if HW step very recently fired (prefer HW to avoid double counting)
+                        val suppressByHw = (ts - lastHwStepNs) in 0L..150_000_000L
+                        if (!suppressByHw) {
+                            mainHandler.post(onStepDetected)
+                            updateCadence(ts)
+
+                            // Amplitude & cadence blended stride (clamped)
+                            val amplitude = (prev1 - lastValley).coerceAtLeast(0.0)
+                            val ampTerm = 0.54 * min(amplitude, 12.0).pow(0.25)
+                            // cadenceEwma is steps/sec; rough stride growth up to ~1.0m at high cadence
+                            val cadTerm = (0.48 + 0.18 * cadenceEwma.coerceIn(0.0, 3.0))
+                            val stepLen = (0.5 * ampTerm + 0.5 * cadTerm).coerceIn(0.45, 0.95)
+
+                            safeInc(stepLen)
+                            lastStepTimeNs = ts
+                            lastValley = curr
+                            pushUpdate()
+                        } else {
+                            lastStepTimeNs = ts
+                            lastValley = curr
+                        }
+                    } else if (dtSinceLast <= 0L || dtSinceLast > 5_000_000_000L) {
+                        lastStepTimeNs = ts
+                        lastValley = curr
+                    }
+                }
+
+                prev2 = prev1
+                prev1 = curr
+
+                // Adaptive power policy
+                val now = SystemClock.uptimeMillis()
+                val wasLow = lowMotion
+                lowMotion = sigma < 0.08
+
+                // If HW steps are present and recent, keep accel in low-rate "guard" mode.
+                val hwRecent = (ts - lastHwStepNs) in 0L..2_000_000_000L
+
+                when {
+                    // Deep idle: low motion & no HW steps recently → slow + long batch
+                    lowMotion && !hwRecent && (accelRateUs != 33_000 || accelLatencyUs != maxLatencyLowUs || updateThrottleMs != 900L) -> {
+                        accelRateUs = 33_000      // ~30 Hz
+                        accelLatencyUs = maxLatencyLowUs
+                        updateThrottleMs = 900L
+                        reRegisterAccel?.invoke(accelRateUs, accelLatencyUs)
+                    }
+                    // HW steps flowing → keep accel very cheap to validate motion shape
+                    hwRecent && (accelRateUs != 40_000 || accelLatencyUs != 600_000 || updateThrottleMs != 800L) -> {
+                        accelRateUs = 40_000      // ~25 Hz
+                        accelLatencyUs = 600_000
+                        updateThrottleMs = 800L
+                        reRegisterAccel?.invoke(accelRateUs, accelLatencyUs)
+                    }
+                    // Active motion spike or we just exited low motion → faster refresh & shorter batch
+                    (!lowMotion && (wasLow || accelRateUs != 20_000 || accelLatencyUs != 200_000 || updateThrottleMs != 600L)) -> {
+                        accelRateUs = 20_000      // ~50 Hz
+                        accelLatencyUs = 200_000
+                        updateThrottleMs = 600L
+                        reRegisterAccel?.invoke(accelRateUs, accelLatencyUs)
+                    }
+                }
+
+                if (!lowMotion) idleSinceMs = now
+            } catch (_: Throwable) { /* swallow */ }
+        }
+        override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+    }
+
+    // Helper to (re)register accelerometer with given params
+    reRegisterAccel = { newRateUs: Int, newLatencyUs: Int ->
+        try { sensorManager.unregisterListener(accelListener) } catch (_: Throwable) {}
+        try {
+            isAccelRegistered = sensorManager.registerListener(
+                accelListener,
+                accel,
+                newRateUs,
+                newLatencyUs,
+                sensorHandler
+            )
+        } catch (_: Throwable) { isAccelRegistered = false }
+    }
+
+    // ---- Hardware Step Detector (primary when available) ----
+    val stepListener = object : SensorEventListener {
+        override fun onSensorChanged(e: SensorEvent?) {
+            lastEventUptimeMs = SystemClock.uptimeMillis()
+            try {
+                e ?: return
+                val v = e.values
+                if (v.isEmpty()) return
+                if (v[0] == 1f) {
+                    val ts = e.timestamp
+                    lastHwStepNs = ts
+                    mainHandler.post(onStepDetected)
+                    updateCadence(ts)
+
+                    // Cadence-biased default stride; HW lacks amplitude → use cadence EWMA with safe clamp
+                    val stride = (0.60 + 0.20 * cadenceEwma.coerceIn(0.0, 3.0)).coerceIn(0.55, 0.90)
+                    safeInc(stride)
+                    pushUpdate()
+
+                    // When HW is active, keep accel cheap (guard mode). Slight nudge handled in accel listener.
+                }
+            } catch (_: Throwable) { /* swallow */ }
+        }
+        override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+    }
+
+    fun registerAll() {
+        try {
+            isAccelRegistered = sensorManager.registerListener(
+                accelListener,
+                accel,
+                accelRateUs,
+                accelLatencyUs,
+                sensorHandler
+            )
+        } catch (_: Throwable) { isAccelRegistered = false }
+
+        try {
+            isStepRegistered = stepDetector?.let {
+                sensorManager.registerListener(
+                    stepListener,
+                    it,
+                    SensorManager.SENSOR_DELAY_NORMAL,
+                    /* maxReportLatencyUs */ 1_000_000, // 1s batch for HW steps (good balance)
+                    sensorHandler
+                )
+            } ?: false
+        } catch (_: Throwable) { isStepRegistered = false }
+    }
+
+    fun unregisterAll() {
+        try { if (isAccelRegistered) sensorManager.unregisterListener(accelListener) } catch (_: Throwable) {}
+        try { if (isStepRegistered) sensorManager.unregisterListener(stepListener) } catch (_: Throwable) {}
+        isAccelRegistered = false
+        isStepRegistered = false
+    }
+
+    // ---- Watchdog with exponential backoff (fewer wakeups) ----
+    var wdIntervalMs = 12_000L
+    val wdMaxMs = 60_000L
+    val watchdog = object : Runnable {
+        override fun run() {
+            try {
+                val now = SystemClock.uptimeMillis()
+                // If nothing delivered for a while, bounce drivers.
+                if (now - lastEventUptimeMs > wdIntervalMs) {
+                    unregisterAll()
+                    registerAll()
+                    lastEventUptimeMs = now
+                    pushUpdate(force = true)
+                    // Back off next checks to avoid thrashing when sensors misbehave.
+                    wdIntervalMs = (wdIntervalMs * 1.5).toLong().coerceAtMost(wdMaxMs)
+                } else {
+                    // If stream is healthy, slowly relax toward max.
+                    wdIntervalMs = (wdIntervalMs + 2_000L).coerceAtMost(wdMaxMs)
+                }
+            } catch (_: Throwable) {
+            } finally {
+                try { sensorHandler.postDelayed(this, wdIntervalMs) } catch (_: Throwable) {}
+            }
+        }
+    }
+
+    try {
+        registerAll()
+        try { sensorHandler.postDelayed(watchdog, wdIntervalMs) } catch (_: Throwable) {}
+
+        // If nothing registered, exit cleanly
+        if (!isAccelRegistered && !isStepRegistered) {
+            try { sensorThread.quitSafely() } catch (_: Throwable) {}
+            try { wakeLock?.release() } catch (_: Throwable) {}
+            return
+        }
+
+        pushUpdate(force = true)
+        awaitCancellation()
+    } finally {
+        try { sensorHandler.removeCallbacksAndMessages(null) } catch (_: Throwable) {}
+        unregisterAll()
+        try { sensorThread.quitSafely() } catch (_: Throwable) {}
+        try { wakeLock?.release() } catch (_: Throwable) {}
+    }
+}
 
 @RequiresApi(Build.VERSION_CODES.TIRAMISU)
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalTime::class)
@@ -1008,12 +1354,14 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
         if (lastStepTimestamp > 0) {
             isStepping = true
             while (SystemClock.uptimeMillis() - lastStepTimestamp < 1500) {
-                delay(100)
+                delay(150)
             }
             isStepping = false
         }
     }
+
     PreventBackGesture()
+
     val uiState by viewModel.uiState.collectAsState()
     val workouts: List<Workout> = (uiState as? WorkoutListUiState.Success)?.workouts.orEmpty()
 
@@ -1062,7 +1410,6 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                     GoalReps.intValue = 0
                     GoalTime.value = 0
                     scope.launch(Dispatchers.IO) {
-
                         isPaused = false
                         delay(10000)
                         hours = 0; minutes = 0; seconds = 0
@@ -1073,19 +1420,14 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
             "Distance" -> {
                 if (currentDistance.value >= GoalDistance.value) {
                     showCompletionAnimation = true
-
                     GoalDistance.value = 0.0
                     currentDistance.value = 0.0
                 }
             }
             else -> {
-                if (CurrentTime.value >= GoalTime.value) {
-                    hours = 0
-                    CurrentTime.value = 0
-                    minutes = 0
-                    seconds = 0
+                if (CurrentTime.value >= GoalTime.value && !showCompletionAnimation) {
                     showCompletionAnimation = true
-                    isPaused = false
+                    isPaused = true
                 }
             }
         }
@@ -1097,244 +1439,6 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
         } else {
             ConnectedWorkout.currentMode.value = WorkoutMode.RESTING
             navController.navigate("RestScreen") { popUpTo("RestScreen") { inclusive = true } }
-        }
-    }
-
-    @SuppressLint("WakelockTimeout")
-    suspend fun continuousStepDetectionAndDistanceCalculation(
-        context: Context,
-        onStepDetected: () -> Unit,
-        onUpdate: (distanceKm: Double) -> Unit
-    ) {
-        val sensorManager = context.getSystemService(Context.SENSOR_SERVICE) as? SensorManager ?: return
-        val accel = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER) ?: return
-        val stepDetector = sensorManager.getDefaultSensor(Sensor.TYPE_STEP_DETECTOR)
-        val mainHandler = Handler(Looper.getMainLooper())
-        val sensorThread = try { HandlerThread("step-detector").apply { start() } } catch (_: Throwable) { return }
-        val sensorHandler = Handler(sensorThread.looper)
-        var isAccelRegistered = false
-        var isStepRegistered = false
-        var distanceMeters = 0.0
-        var gx = 0.0; var gy = 0.0; var gz = 0.0
-        val tauSec = 0.8
-        var mean = 0.0; var meanSq = 0.0
-        val beta = 0.02
-        var sampleCount = 0
-        var prev2 = 0.0; var prev1 = 0.0
-        var lastValley = Double.POSITIVE_INFINITY
-        var lastTimestampNs: Long? = null
-        var lastStepTimeNs = 0L
-        val minStepNs = 250_000_000L
-        val maxStepNs = 2_000_000_000L
-        var lastEventUptimeMs = SystemClock.uptimeMillis()
-        var lastPushValue = Double.NaN
-        var lastPushMs = 0L
-        var lastHwStepNs = 0L
-        val pm = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
-        val wakeLock = try {
-            if (stepDetector == null) pm?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "wt:step")?.apply { setReferenceCounted(false); acquire() } else null
-        } catch (_: Throwable) { null }
-        var idleSinceMs = SystemClock.uptimeMillis()
-        var lowMotion = false
-        var accelLatencyUs = 200_000
-        var accelRateUs = 20_000
-        var updateThrottleMs = 600L
-        var reRegisterAccel: ((Int, Int) -> Unit)? = null
-        fun fastRound3(x: Double): Double {
-            if (!x.isFinite()) return Double.NaN
-            val t = x * 1000.0
-            return round(t) / 1000.0
-        }
-        fun safeInc(meters: Double) {
-            if (meters.isFinite()) {
-                val nm = distanceMeters + meters
-                if (nm.isFinite() && nm >= 0.0) distanceMeters = nm
-            }
-        }
-        fun pushUpdate(force: Boolean = false) {
-            val km = distanceMeters / 1000.0
-            val rounded = fastRound3(km)
-            val now = SystemClock.uptimeMillis()
-            if (!rounded.isFinite()) return
-            if (force || rounded != lastPushValue || now - lastPushMs >= updateThrottleMs) {
-                lastPushValue = rounded
-                lastPushMs = now
-                mainHandler.post {
-                    try { onUpdate(rounded) } catch (_: Throwable) {}
-                }
-            }
-        }
-        val accelListener = object : SensorEventListener {
-            override fun onSensorChanged(e: SensorEvent?) {
-                lastEventUptimeMs = SystemClock.uptimeMillis()
-                try {
-                    e ?: return
-                    val vals = e.values ?: return
-                    if (vals.size < 3) return
-                    val ts = e.timestamp
-                    val dtNs = lastTimestampNs?.let { val d = ts - it; if (d > 0L) d else 20_000_000L } ?: 20_000_000L
-                    lastTimestampNs = ts
-                    val dtSec = (dtNs.toDouble() / 1e9).coerceIn(1e-6, 1.0)
-                    val alpha = (tauSec / (tauSec + dtSec)).coerceIn(0.0, 1.0)
-                    val vx = vals.getOrNull(0)?.toDouble() ?: return
-                    val vy = vals.getOrNull(1)?.toDouble() ?: return
-                    val vz = vals.getOrNull(2)?.toDouble() ?: return
-                    gx = alpha * gx + (1.0 - alpha) * vx
-                    gy = alpha * gy + (1.0 - alpha) * vy
-                    gz = alpha * gz + (1.0 - alpha) * vz
-                    val lx = vx - gx
-                    val ly = vy - gy
-                    val lz = vz - gz
-                    var mag = (lx * lx + ly * ly + lz * lz)
-                    if (!mag.isFinite() || mag <= 0.0) return
-                    mag = sqrt(mag)
-                    if (!mag.isFinite()) return
-                    mean = (1 - beta) * mean + beta * mag
-                    meanSq = (1 - beta) * meanSq + beta * (mag * mag)
-                    sampleCount++
-                    val variance = (meanSq - mean * mean).let { if (it.isFinite() && it >= 0.0) it else 0.0 }
-                    val sigma = sqrt(variance).let { if (it.isFinite()) it else 0.0 }
-                    val dynamicThreshold = max(1.05, (mean + 1.10 * sigma).coerceIn(0.8, 20.0))
-                    val curr = mag
-                    if (curr < prev1) lastValley = min(lastValley, curr)
-                    val isPeak = (sampleCount > 25) && prev1 > prev2 && prev1 > curr && prev1 > dynamicThreshold
-                    if (isPeak) {
-                        val dtSinceLast = ts - lastStepTimeNs
-                        if (lastStepTimeNs == 0L) {
-                            lastStepTimeNs = ts
-                            lastValley = curr
-                        } else if (dtSinceLast in minStepNs..maxStepNs) {
-                            val suppressByHw = (ts - lastHwStepNs) in 0L..150_000_000L
-                            if (!suppressByHw) {
-                                mainHandler.post(onStepDetected)
-                                val amplitude = (prev1 - lastValley).coerceAtLeast(0.0)
-                                val k = 0.54
-                                val stepLen = (k * (min(amplitude, 12.0).pow(0.25))).coerceIn(0.45, 0.95)
-                                safeInc(stepLen)
-                                lastStepTimeNs = ts
-                                lastValley = curr
-                                pushUpdate()
-                            } else {
-                                lastStepTimeNs = ts
-                                lastValley = curr
-                            }
-                        } else if (dtSinceLast <= 0L || dtSinceLast > 5_000_000_000L) {
-                            lastStepTimeNs = ts
-                            lastValley = curr
-                        }
-                    }
-                    prev2 = prev1
-                    prev1 = curr
-                    val now = SystemClock.uptimeMillis()
-                    val motionScore = sigma
-                    val wasLow = lowMotion
-                    lowMotion = motionScore < 0.08
-                    if (lowMotion && now - idleSinceMs > 10_000L && (accelRateUs != 33_000 || accelLatencyUs != 400_000)) {
-                        accelRateUs = 33_000
-                        accelLatencyUs = 400_000
-                        updateThrottleMs = 900L
-                        reRegisterAccel?.invoke(accelRateUs, accelLatencyUs)
-                    } else if (!lowMotion && (wasLow || accelRateUs != 20_000 || accelLatencyUs != 200_000)) {
-                        idleSinceMs = now
-                        accelRateUs = 20_000
-                        accelLatencyUs = 200_000
-                        updateThrottleMs = 600L
-                        reRegisterAccel?.invoke(accelRateUs, accelLatencyUs)
-                    }
-                    if (!lowMotion) idleSinceMs = now
-                } catch (_: Throwable) {}
-            }
-            override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
-        }
-        reRegisterAccel = { newRateUs: Int, newLatencyUs: Int ->
-            try { sensorManager.unregisterListener(accelListener) } catch (_: Throwable) {}
-            try {
-                isAccelRegistered = sensorManager.registerListener(
-                    accelListener,
-                    accel,
-                    newRateUs,
-                    newLatencyUs,
-                    sensorHandler
-                )
-            } catch (_: Throwable) { isAccelRegistered = false }
-        }
-        val stepListener = object : SensorEventListener {
-            override fun onSensorChanged(e: SensorEvent?) {
-                lastEventUptimeMs = SystemClock.uptimeMillis()
-                try {
-                    e ?: return
-                    val v = e.values
-                    if (v.isEmpty()) return
-                    if (v[0] == 1f) {
-                        mainHandler.post(onStepDetected)
-                        val ts = e.timestamp
-                        lastHwStepNs = ts
-                        safeInc(0.72)
-                        pushUpdate()
-                    }
-                } catch (_: Throwable) {}
-            }
-            override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
-        }
-        fun registerAll() {
-            try {
-                isAccelRegistered = sensorManager.registerListener(
-                    accelListener,
-                    accel,
-                    accelRateUs,
-                    accelLatencyUs,
-                    sensorHandler
-                )
-            } catch (_: Throwable) { isAccelRegistered = false }
-            try {
-                isStepRegistered = stepDetector?.let {
-                    sensorManager.registerListener(
-                        stepListener,
-                        it,
-                        SensorManager.SENSOR_DELAY_NORMAL,
-                        1_000_000,
-                        sensorHandler
-                    )
-                } ?: false
-            } catch (_: Throwable) { isStepRegistered = false }
-        }
-        fun unregisterAll() {
-            try { if (isAccelRegistered) sensorManager.unregisterListener(accelListener) } catch (_: Throwable) {}
-            try { if (isStepRegistered) sensorManager.unregisterListener(stepListener) } catch (_: Throwable) {}
-            isAccelRegistered = false
-            isStepRegistered = false
-        }
-        val watchdog = object : Runnable {
-            override fun run() {
-                try {
-                    val now = SystemClock.uptimeMillis()
-                    if (now - lastEventUptimeMs > 12_000L) {
-                        unregisterAll()
-                        registerAll()
-                        lastEventUptimeMs = now
-                        pushUpdate(force = true)
-                    }
-                } catch (_: Throwable) {
-                } finally {
-                    try { sensorHandler.postDelayed(this, 12_000L) } catch (_: Throwable) {}
-                }
-            }
-        }
-        try {
-            registerAll()
-            try { sensorHandler.postDelayed(watchdog, 12_000L) } catch (_: Throwable) {}
-            if (!isAccelRegistered && !isStepRegistered) {
-                try { sensorThread.quitSafely() } catch (_: Throwable) {}
-                try { wakeLock?.release() } catch (_: Throwable) {}
-                return
-            }
-            pushUpdate(force = true)
-            awaitCancellation()
-        } finally {
-            try { sensorHandler.removeCallbacksAndMessages(null) } catch (_: Throwable) {}
-            unregisterAll()
-            try { sensorThread.quitSafely() } catch (_: Throwable) {}
-            try { wakeLock?.release() } catch (_: Throwable) {}
         }
     }
 
@@ -1383,7 +1487,7 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
             }
         }
     }
-    val hype by animateFloatAsState(targetValue = easeOutExpo(unified), label = "hype", animationSpec = tween(1200))
+    val hype by animateFloatAsState(targetValue = easeOutExpo(unified), label = "hype", animationSpec = tween(900))
 
     var lastMilestone by remember { mutableStateOf(0) }
     LaunchedEffect(unified) {
@@ -1401,14 +1505,12 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
         }
     }
 
-    val animatedProgress by animateFloatAsState(targetValue = progress, label = "p", animationSpec = tween(900))
-    val animatedProgressDistance by animateFloatAsState(targetValue = progressDistance, label = "pd", animationSpec = tween(900))
+    val animatedProgress by animateFloatAsState(targetValue = progress, label = "p", animationSpec = tween(700))
+    val animatedProgressDistance by animateFloatAsState(targetValue = progressDistance, label = "pd", animationSpec = tween(700))
 
     val startAt = rememberSaveable { mutableLongStateOf(SystemClock.elapsedRealtime()) }
     var accMs by rememberSaveable { mutableLongStateOf(0L) }
-    LaunchedEffect(Unit) {
-        accMs = ((hours * 3600L + minutes * 60L + seconds) * 1000L)
-    }
+    LaunchedEffect(Unit) { accMs = ((hours * 3600L + minutes * 60L + seconds) * 1000L) }
     fun incrementTime() {
         if (!isPaused) {
             val now = SystemClock.elapsedRealtime()
@@ -1419,27 +1521,23 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
             hours = totalSec / 3600
         }
     }
+
     var showCountdown by remember { mutableStateOf(false) }
     var countdownValue by remember { mutableIntStateOf(3) }
 
     LaunchedEffect(Unit) {
         val isStartingFresh = (hours == 0 && minutes == 0 && seconds == 0 && accMs == 0L)
-
         if (isStartingFresh) {
             showCountdown = true
             isPaused = true
-
             haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-            delay(1000)
+            delay(900)
             countdownValue = 2
-
-            delay(1000)
+            delay(900)
             countdownValue = 1
-
-            delay(1000)
+            delay(900)
             countdownValue = 0
-
-            delay(500)
+            delay(400)
             showCountdown = false
             isPaused = false
             startAt.longValue = SystemClock.elapsedRealtime()
@@ -1470,33 +1568,30 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
         onDispose { job?.cancel() }
     }
 
-    var animationClock by remember { mutableStateOf(0f) }
-
-    LaunchedEffect(Unit) {
-        var lastFrameTime = 0L
-        while (isActive) {
-            val currentTime = withFrameNanos { it }
-            if (lastFrameTime != 0L) {
-                val deltaTime = (currentTime - lastFrameTime) / 1_000_000_000f
-                animationClock += deltaTime
-            }
-            lastFrameTime = currentTime
-            delay(19)
-        }
-    }
+    val infinite = rememberInfiniteTransition(label = "bg")
+    val clockSlow by infinite.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(animation = tween(12000, easing = LinearEasing)),
+        label = "clockSlow"
+    )
+    val clockFast by infinite.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(animation = tween(4000, easing = LinearEasing)),
+        label = "clockFast"
+    )
 
     val setCompletionProgress by remember {
         derivedStateOf {
             if (GoalType == "Reps" && GoalSets.intValue > 0) {
                 (CurrentSets.intValue.toFloat() / GoalSets.intValue.toFloat()).coerceIn(0f, 1f)
-            } else {
-                0f
-            }
+            } else 0f
         }
     }
     val riseEffectProgress by animateFloatAsState(
         targetValue = setCompletionProgress,
-        animationSpec = tween(durationMillis = 1500, easing = LinearOutSlowInEasing),
+        animationSpec = tween(durationMillis = 1200, easing = LinearOutSlowInEasing),
         label = "riseEffectProgress"
     )
 
@@ -1510,22 +1605,45 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
         }
     }
     val introBrush = remember(introColors) {
-        Brush.radialGradient(
-            colors = introColors,
-            center = Offset(0.5f, 0.5f),
-            radius = 2000f
-        )
+        Brush.radialGradient(colors = introColors, center = Offset(0.5f, 0.5f), radius = 2000f)
     }
     var showIntro by remember { mutableStateOf(true) }
-    val introProgress by animateFloatAsState(
-        targetValue = if (showIntro) 0f else 1f,
-        animationSpec = tween(750, easing = LinearEasing),
-        label = "introFade"
-    )
+    val introProgress by animateFloatAsState(targetValue = if (showIntro) 0f else 1f, animationSpec = tween(650, easing = LinearEasing), label = "introFade")
     LaunchedEffect(Unit) { showIntro = false }
 
-    val glowColor = Color(0xFFB71C1C)
+    val glowColor = Color(0xFF3B0E0E)
     val deepColor = Color(0xFF0D0404)
+
+    val particlesCount = remember(movingGradientAndParticlesEnabled) {
+        if (movingGradientAndParticlesEnabled) 4 else 0
+    }
+    val particleSeeds = remember(particlesCount) { List(particlesCount) { it * 37.123f + 0.123f } }
+
+    val screenOn by remember {
+        snapshotFlow { ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED) }
+    }.collectAsState(initial = true)
+
+    val aiEnabled = dynamicModel.personaConfig.value.enabled
+    LaunchedEffect(aiEnabled) {
+        if (!aiEnabled) return@LaunchedEffect
+        while (true) {
+            val uVal =
+                if (CurrentWeight.value > 0) "current weight is ${CurrentWeight.value}Kg"
+                else if (GoalType == "Distance") "current distance walked or ran is ${currentDistance.value}km"
+                else "current time elapsed is ${CurrentTime.value}"
+            generateAdvice(
+                """
+The user is performing ${workout.value}.
+They have completed ${CurrentReps.intValue}/${GoalReps.intValue} reps and ${CurrentSets.intValue}/${GoalSets.intValue} sets.
+Respond with energetic, focused encouragement only — no questions, no analysis.
+Output ≤1 line, purely motivational.
+""".trimIndent(),
+                "",
+                uVal
+            )
+            delay(60000)
+        }
+    }
 
     WorkoutTrackerTheme {
         Scaffold(
@@ -1551,29 +1669,52 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .drawBehind {
-                        val currentHype = if (movingGradientAndParticlesEnabled) hype else 0f
-                        val radiusMultiplier = 1.0f + 0.5f * currentHype
+                    .drawWithCache {
+                        val currentHype = if (movingGradientAndParticlesEnabled && screenOn) hype else 0f
+                        val radiusMultiplier = 1.0f + 0.45f * currentHype
                         val verticalShift = size.height * 0.1f
-
-                        drawRect(
-                            brush = Brush.radialGradient(
-                                colors = listOf(glowColor.copy(alpha = 0.40f + 0.30f * currentHype), deepColor),
-                                center = Offset(size.width / 2f, size.height + verticalShift),
-                                radius = (size.width * 1.15f) * radiusMultiplier,
-                                tileMode = TileMode.Clamp
-                            )
+                        val bgBrush = Brush.radialGradient(
+                            colors = listOf(glowColor.copy(alpha = 0.42f + 0.30f * currentHype), deepColor),
+                            center = Offset(size.width / 2f, size.height + verticalShift),
+                            radius = (size.width * 1.12f) * radiusMultiplier
                         )
+                        onDrawBehind { drawRect(brush = bgBrush) }
                     }
             ) {
-                Box(modifier = Modifier.fillMaxSize()) {
+                if (movingGradientAndParticlesEnabled && screenOn) {
                     Canvas(
                         modifier = Modifier
                             .fillMaxSize()
-                            .graphicsLayer { alpha = (0.08f + 0.22f * hype) * riseEffectProgress }
+                            .graphicsLayer { alpha = (0.10f + 0.26f * hype) * riseEffectProgress }
+                    ) {
+                        val w = size.width
+                        val h = size.height
+                        val baseAlpha = (0.28f + 0.28f * hype) * riseEffectProgress
+                        particleSeeds.forEachIndexed { i, s ->
+                            val spd = 0.18f + ((s + i) % 0.32f)
+                            val phase = ((clockSlow * spd + (s * 0.013f)) % 1f)
+                            val y = h * (1f - phase)
+                            val baseX = ((s % 1f) * w)
+                            val wobblePhase = (clockFast + (s * 0.07f)) % 1f
+                            val tri = 1f - kotlin.math.abs(2f * wobblePhase - 1f)
+                            val wobble = (14f + 22f * (1f - phase)) * (tri * 2f - 1f)
+                            val x = (baseX + wobble).coerceIn(-32f, w + 32f)
+                            val r = 6f + ((s % 1f) * 16f) * (0.45f + 0.55f * (1f - phase))
+                            val a = (baseAlpha * (0.6f + 0.4f * (1f - phase))).coerceIn(0f, 1f)
+                            drawCircle(Color(0xFFF44336).copy(alpha = a), r, Offset(x, y))
+                            drawCircle(Color(0x66EF5350).copy(alpha = (a * 0.55f).coerceIn(0f, 1f)), r * 1.6f, Offset(x, y + r * 0.2f))
+                        }
+                    }
+                }
+
+                if (riseEffectProgress > 0f && screenOn) {
+                    Canvas(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer { alpha = (0.10f + 0.24f * hype) * riseEffectProgress }
                     ) {
                         val h = size.height
-                        val startY = h * (1f - 0.65f * riseEffectProgress)
+                        val startY = h * (1f - 0.62f * riseEffectProgress)
                         val endY = h
                         drawRect(
                             brush = Brush.verticalGradient(
@@ -1588,31 +1729,8 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                             size = size
                         )
                     }
-                    if (movingGradientAndParticlesEnabled) {
-                        Canvas(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .graphicsLayer { alpha = (0.10f + 0.30f * hype) * riseEffectProgress }
-                        ) {
-                            val n = 6
-                            val w = size.width
-                            val h = size.height
-                            for (i in 0 until n) {
-                                val s = (i * 37.123f) % 1000f
-                                val speed = 0.25f + (s % 0.35f)
-                                val phase = (animationClock * speed + (s * 0.013f)) % 1f
-                                val y = h * (1f - phase)
-                                val baseX = (s % 1f) * w
-                                val wobble = sin((animationClock * (0.8f + (s % 0.7f))) * 6.28318f + s) * (16f + 28f * (1f - phase))
-                                val x = (baseX + wobble).coerceIn(-40f, w + 40f)
-                                val r = 6f + (s % 1f) * 18f * (0.4f + 0.6f * (1f - phase))
-                                val a = (0.30f + 0.70f * (1f - phase)) * riseEffectProgress
-                                drawCircle(Color(0xFFF44336).copy(alpha = a.coerceIn(0f, 1f)), r, Offset(x, y))
-                                drawCircle(Color(0x66EF5350).copy(alpha = (a * 0.6f).coerceIn(0f, 1f)), r * 1.8f, Offset(x, y + r * 0.2f))
-                            }
-                        }
-                    }
                 }
+
                 if (introProgress < 1f) {
                     Box(
                         modifier = Modifier
@@ -1620,6 +1738,7 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                             .background(introBrush, alpha = 1f - introProgress)
                     )
                 }
+
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
@@ -1630,13 +1749,11 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                     if (showCompletionAnimation) {
                         GoalCompletionAnimation(
                             onAnimationFinished = {
-
                                 val healthConnectManager = HealthConnectManager(context.applicationContext)
                                 val cardioExerciseNames = listOf(
                                     "Running (Treadmill)", "Stair Climber", "Elliptical Trainer",
                                     "Rowing Machine", "Stationary Bike", "Swimming"
                                 )
-
                                 scope.launch(Dispatchers.IO) {
                                     viewModel.addSampleWorkout(
                                         workout.value, WorkoutStatus.COMPLETED,
@@ -1652,7 +1769,6 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                                         CurrentReps.intValue,
                                         CurrentSets.intValue,
                                         currentDistance.value.toFloat()
-
                                     )
                                     if (healthConnectManager.hasAllPermissions()) {
                                         val endInstant = Clock.System.now().toJavaInstant()
@@ -1669,14 +1785,12 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                                         )
                                         healthConnectManager.writeWorkout(workoutDetails)
                                     }
-
                                 }
                                 WorkoutLog.sets.clear()
                                 WorkoutForegroundService.stop(context)
                                 ConnectedWorkout.currentMode.value = WorkoutMode.INACTIVE
                                 context.startActivity(intent)
                                 activity?.finishAffinity()
-
                                 hours = 0
                                 minutes = 0
                                 seconds = 0
@@ -1701,7 +1815,6 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                             .height(250.dp),
                         contentAlignment = Alignment.Center
                     ) {
-
                         Text(
                             text = String.format("%02d:%02d:%02d", hours, minutes, seconds),
                             fontSize = 72.sp,
@@ -1717,7 +1830,6 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                             ),
                         )
                     }
-
 
                     Spacer(modifier = Modifier.height(16.dp))
 
@@ -1743,8 +1855,9 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                     }
 
                     Spacer(modifier = Modifier.weight(1f))
-                    val aiEnabled = dynamicModel.personaConfig.value.enabled
-                    if (aiEnabled) {
+
+                    val aiEnabledNow = dynamicModel.personaConfig.value.enabled
+                    if (aiEnabledNow) {
                         AdviceSection(
                             advice = advice,
                             modifier = Modifier.fillMaxWidth(),
@@ -1752,8 +1865,9 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                         )
                     }
 
-
-                    Spacer(modifier = Modifier.weight(1f).height(32.dp))
+                    Spacer(modifier = Modifier
+                        .weight(1f)
+                        .height(32.dp))
 
                     if (GoalType == "Reps") {
                         val interactionSource = remember { MutableInteractionSource() }
@@ -1765,53 +1879,17 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                                     Color(0xFF8B0000),
                                     Color(0xFF7A285A),
                                     riseEffectProgress
-                                ).copy(alpha = (0.70f + 0.22f * hype).coerceIn(0f, 1f))
+                                ).copy(alpha = (0.68f + 0.20f * hype).coerceIn(0f, 1f))
                             } else {
                                 lerp(
                                     Color(0xFF650000),
                                     Color(0xFF5C1D4D),
                                     riseEffectProgress
-                                ).copy(alpha = (0.45f + 0.30f * hype).coerceIn(0f, 1f))
+                                ).copy(alpha = (0.44f + 0.28f * hype).coerceIn(0f, 1f))
                             },
                             label = "btnBg"
                         )
-//                        val bpm by vm.hr.collectAsStateWithLifecycle(0)
-//
-//                        LaunchedEffect(Unit) { vm.start() }
-                        LaunchedEffect(Unit) {
 
-                            while (true) {
-                                val uVal =
-                                    if (CurrentWeight.value > 0) "current weight is ${CurrentWeight.value}Kg"
-                                    else if (CurrentTime.value < 0) "current distance walked or ran is ${currentDistance.value}km"
-                                    else "current time elapsed is ${CurrentTime.value}"
-                                generateAdvice(
-                                    """
-The user is performing ${workout.value}.
-They have completed ${CurrentReps.intValue}/${GoalReps.intValue} reps and ${CurrentSets.intValue}/${GoalSets.intValue} sets.
-Respond with energetic, focused encouragement only — no questions, no analysis.
-Examples:
-• “Keep that rhythm — power through the last few reps!”
-• “Perfect pace — lock in, finish strong!”
-• “Explosive form — stay tight, last push!”
-The output doesn't have to be like the examples but stay in a similar layout.
-Output ≤1 line, purely motivational.
-""".trimIndent(),
-                                    "",
-                                    uVal
-                                )
-
-                                delay(60000)
-                            }
-                        }
-
-
-//                        HeartbeatEcgCenterStrip(
-//                            bpm = bpm,
-//                            height = 120.dp,
-//                            lineThickness = 4.dp,
-//                            label = true
-//                        )
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -1825,10 +1903,10 @@ Output ≤1 line, purely motivational.
                                     2.dp,
                                     Brush.linearGradient(
                                         listOf(
-                                            lerp(Color(0xFFFF7A7A), Color(0xFFD966FF), riseEffectProgress)
-                                                .copy(alpha = (0.65f + 0.30f * hype).coerceIn(0f, 1f)),
-                                            lerp(Color(0xFF4A1515), Color(0xFF9A32FF), riseEffectProgress)
-                                                .copy(alpha = (0.45f + 0.35f * hype).coerceIn(0f, 1f))
+                                            lerp(Color(0xFFFF7A7A), Color(0xFFFF3D3D), riseEffectProgress)
+                                                .copy(alpha = (0.66f + 0.24f * hype).coerceIn(0f, 1f)),
+                                            lerp(Color(0xFF4A1515), Color(0xFF7A1F1F), riseEffectProgress)
+                                                .copy(alpha = (0.52f + 0.26f * hype).coerceIn(0f, 1f))
                                         )
                                     ),
                                     CircleShape
@@ -1853,8 +1931,6 @@ Output ≤1 line, purely motivational.
                                 color = Color.White
                             )
                         }
-
-
                     }
 
                     Spacer(modifier = Modifier.height(24.dp))
@@ -1880,34 +1956,32 @@ Output ≤1 line, purely motivational.
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = lerp(Color(0xFF4A2515), Color(0xFF4A1F3D), riseEffectProgress).copy(alpha = 0.5f + 0.15f * hype),
                                 contentColor = Color.White
-                            )
+                            ),
+                            modifier = Modifier.animateContentSize(animationSpec = tween(250, easing = FastOutSlowInEasing))
                         ) { Text(pauseText, fontSize = 18.sp, fontWeight = FontWeight.SemiBold) }
 
                         Button(
-                            onClick = {
-
-                                showSyncDialog.showSyncDialog.value = true
-
-                            },
+                            onClick = { showSyncDialog.showSyncDialog.value = true },
                             enabled = isPaused,
                             shape = RoundedCornerShape(25.dp),
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = lerp(Color(0xFF8B0000), Color(0xFF6C1A52), riseEffectProgress).copy(alpha = 0.7f),
+                                containerColor = lerp(Color(0xFF8B0000), Color(0xFF6C1A52), riseEffectProgress).copy(alpha = 0.78f),
                                 contentColor = Color.White,
                                 disabledContainerColor = Color(0xFF2A0D0D).copy(alpha = 0.4f),
                                 disabledContentColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
-                            )
+                            ),
+                            modifier = Modifier.animateContentSize(animationSpec = tween(250, easing = FastOutSlowInEasing))
                         ) { Text("End Workout", fontSize = 18.sp, fontWeight = FontWeight.SemiBold) }
                     }
 
                     Spacer(modifier = Modifier.height(16.dp))
                 }
+
                 if (showCountdown) {
                     CountdownOverlay(countdownValue = countdownValue)
                 }
-                if (
-                    showSyncDialog.showSyncDialog.value
-                ){
+
+                if (showSyncDialog.showSyncDialog.value) {
                     val cardioExerciseNames = listOf(
                         "Running (Treadmill)", "Stair Climber", "Elliptical Trainer",
                         "Rowing Machine", "Stationary Bike", "Swimming"
@@ -1936,17 +2010,13 @@ Output ≤1 line, purely motivational.
                                     CurrentReps.intValue,
                                     CurrentSets.intValue,
                                     currentDistance.value.toFloat()
-
                                 )
-
                             }
                             haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                             activity?.finishAffinity()
-
                             val intent = Intent(context, MainActivity::class.java)
                             intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
                             context.startActivity(intent)
-
                         },
                         onDismiss = { showSyncDialog.showSyncDialog.value = false },
                         onConfirm = {
@@ -1971,9 +2041,7 @@ Output ≤1 line, purely motivational.
                                         CurrentReps.intValue,
                                         CurrentSets.intValue,
                                         currentDistance.value.toFloat()
-
                                     )
-
                                 }
                                 if (healthConnectManager.hasAllPermissions()) {
                                     val endInstant = Clock.System.now().toJavaInstant()
@@ -1995,24 +2063,14 @@ Output ≤1 line, purely motivational.
                                 val intent = Intent(context, MainActivity::class.java)
                                 intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
                                 context.startActivity(intent)
-
-
                             }
-
                         },
-                        )
+                    )
                 }
-
             }
         }
     }
 }
-
-
-
-
-
-
 
 @Composable
 fun SetProgressDetails(
@@ -2029,7 +2087,6 @@ fun SetProgressDetails(
     ) {
         Box(
             modifier = Modifier
-
                 .padding(horizontal = 20.dp, vertical = 20.dp)
         ) {
             Column(
@@ -2045,13 +2102,13 @@ fun SetProgressDetails(
                     Column(
                         modifier = Modifier
                             .weight(1f)
-                            .background(Color(0xFF3D0000).copy(0.05f), RoundedCornerShape(18.dp))
+                            .background(Color(0xFF3D0000).copy(0.12f), RoundedCornerShape(18.dp))
                             .padding(vertical = 14.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Text(
                             "Reps",
-                            color = Color.White.copy(alpha = 0.65f),
+                            color = Color.White.copy(alpha = 0.70f),
                             style = MaterialTheme.typography.labelLarge
                         )
                         Text(
@@ -2064,13 +2121,13 @@ fun SetProgressDetails(
                     Column(
                         modifier = Modifier
                             .weight(1f)
-                            .background(Color(0xFF3D0000).copy(0.05f), RoundedCornerShape(18.dp))
+                            .background(Color(0xFF3D0000).copy(0.12f), RoundedCornerShape(18.dp))
                             .padding(vertical = 14.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Text(
                             "Set",
-                            color = Color.White.copy(alpha = 0.65f),
+                            color = Color.White.copy(alpha = 0.70f),
                             style = MaterialTheme.typography.labelLarge
                         )
                         Text(
@@ -2097,29 +2154,25 @@ fun DetailedSetsProgressBar(currentSet: Int, goalSets: Int, modifier: Modifier =
     val progress by animateFloatAsState(
         targetValue = target,
         label = "SetProgressBarProgress",
-        animationSpec = tween(600, easing = FastOutSlowInEasing)
+        animationSpec = tween(550, easing = FastOutSlowInEasing)
     )
 
-    var animationClock by remember { mutableStateOf(0f) }
-
-    LaunchedEffect(Unit) {
-        var lastFrameTime = 0L
-        while (isActive) {
-            val currentTime = withFrameNanos { it }
-            if (lastFrameTime != 0L) {
-                val deltaTime = (currentTime - lastFrameTime) / 1_000_000_000f
-                animationClock += deltaTime
-            }
-            lastFrameTime = currentTime
-            delay(42)
-        }
-    }
-
-    val shimmer = (animationClock / 1.8f) % 1.4f - 0.2f
-    val pulse = 1.05f + 0.15f * sin(animationClock * 2 * PI.toFloat())
+    val infinite = rememberInfiniteTransition(label = "setsBar")
+    val shimmer by infinite.animateFloat(
+        initialValue = -0.2f,
+        targetValue = 1.2f,
+        animationSpec = infiniteRepeatable(animation = tween(1800, easing = LinearEasing)),
+        label = "shimmer"
+    )
+    val pulse by infinite.animateFloat(
+        initialValue = 1f,
+        targetValue = 1.15f,
+        animationSpec = infiniteRepeatable(animation = tween(1200, easing = FastOutLinearInEasing), repeatMode = RepeatMode.Reverse),
+        label = "pulse"
+    )
 
     val accent = Color(0xFF8B0000)
-    val accentBright = Color(0xFFFF6666).copy(alpha = 0.9f)
+    val accentBright = Color(0xFFFF6666).copy(alpha = 0.95f)
 
     Canvas(
         modifier = modifier
@@ -2151,12 +2204,11 @@ fun DetailedSetsProgressBar(currentSet: Int, goalSets: Int, modifier: Modifier =
                 cap = StrokeCap.Round
             )
         }
-        val shProg = shimmer
-        val shWidth = w * 0.4f
-        val shStart = (w + shWidth) * shProg - shWidth + startPad
+        val shWidth = w * 0.38f
+        val shStart = (w + shWidth) * shimmer - shWidth + startPad
         drawLine(
             brush = Brush.linearGradient(
-                listOf(Color.Transparent, Color.White.copy(0.18f), Color.Transparent),
+                listOf(Color.Transparent, Color.White.copy(0.16f), Color.Transparent),
                 start = Offset(shStart, y),
                 end = Offset(shStart + shWidth, y)
             ),
@@ -2181,6 +2233,7 @@ fun DetailedSetsProgressBar(currentSet: Int, goalSets: Int, modifier: Modifier =
         }
     }
 }
+
 
 
 
@@ -2562,7 +2615,7 @@ private val SoftRed = Color(0x33DC143C)
 @Composable
 private fun segmentContainerBrush(selected: Boolean, pressed: Boolean): Brush {
     return if (selected) {
-        // Deep maroon base with a subtle crimson lift
+
         Brush.linearGradient(
             listOf(
                 DarkMaroon.copy(alpha = if (pressed) 0.95f else 0.90f),
@@ -2570,7 +2623,7 @@ private fun segmentContainerBrush(selected: Boolean, pressed: Boolean): Brush {
             )
         )
     } else {
-        // Ultra subtle wash on press; otherwise transparent
+
         val start = if (pressed) Crimson.copy(alpha = 0.10f) else Color.Transparent
         val end = if (pressed) DarkMaroon.copy(alpha = 0.06f) else Color.Transparent
         Brush.linearGradient(listOf(start, end))
@@ -3211,6 +3264,7 @@ object ConnectedWorkout{
     var GoalType = "Reps"
     val workoutGoalTypeMap = mutableMapOf<String, String>()
     var selectedWorkout: MutableState<String> = mutableStateOf("")
+    var restTime = mutableLongStateOf(60000L)
     var interHour = mutableIntStateOf(0)
     var healthConnectEnabled = mutableStateOf(false)
     var interMinute = mutableIntStateOf(0)

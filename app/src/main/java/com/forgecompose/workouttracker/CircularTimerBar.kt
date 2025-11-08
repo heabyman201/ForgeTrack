@@ -44,18 +44,6 @@ import kotlinx.coroutines.launch
 import kotlin.math.cos
 import kotlin.math.sin
 
-private val Context.appearanceDataStore by preferencesDataStore("appearance_options")
-
-@Immutable
-data class AppearanceOptions(
-    val selectedTheme: ColorThemeApp
-) {
-    companion object {
-        val Defaults = AppearanceOptionsAppTheme(
-            selectedTheme = ColorThemeApp.Default
-        )
-    }
-}
 
 enum class ColorTheme(val themeName: String, val colors: ColorSchemeAppTheme) {
     Default(
@@ -84,51 +72,6 @@ enum class ColorTheme(val themeName: String, val colors: ColorSchemeAppTheme) {
             tertiary = Color(0xFFCDDC39),
             background = Color(0xFF121212)
         )
-    )
-}
-
-@Immutable
-data class ColorScheme(
-    val primary: Color,
-    val secondary: Color,
-    val tertiary: Color,
-    val background: Color
-)
-
-object AppearanceOptionsManager {
-    private val keySelectedTheme = stringPreferencesKey("selectedTheme")
-
-    private val snapshot = MutableStateFlow(AppearanceOptionsAppTheme.Defaults)
-    val current: StateFlow<AppearanceOptionsAppTheme> = snapshot
-
-    private var initJob: Job? = null
-
-    fun initialize(context: Context) {
-        if (initJob != null) return
-        initJob = kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
-            context.appearanceDataStore.data
-                .map { p ->
-                    val themeName = p[keySelectedTheme] ?: AppearanceOptionsAppTheme.Defaults.selectedTheme.name
-                    val theme = try {
-                        ColorThemeApp.valueOf(themeName)
-                    } catch (e: IllegalArgumentException) {
-                        AppearanceOptionsAppTheme.Defaults.selectedTheme
-                    }
-                    AppearanceOptionsAppTheme(selectedTheme = theme)
-                }
-                .collectLatest { snapshot.value = it }
-        }
-    }
-
-    fun flow(context: Context): Flow<AppearanceOptionsAppTheme> = current
-}
-
-class AppearanceViewModel(app: Application) : AndroidViewModel(app) {
-    private val ctx = app.applicationContext
-    val options = AppearanceOptionsManagerAppTheme.flow(ctx).stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5000),
-        initialValue = AppearanceOptionsAppTheme.Defaults
     )
 }
 
