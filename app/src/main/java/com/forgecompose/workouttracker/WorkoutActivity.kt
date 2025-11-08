@@ -130,6 +130,7 @@ import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateListOf
@@ -138,7 +139,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -220,8 +220,6 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.health.connect.client.records.ExerciseSessionRecord
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.forgecompose.workouttracker.ConnectedWorkout.GoalDistance
@@ -455,26 +453,19 @@ fun AdviceSection(
     isLoading: Boolean,
     modifier: Modifier = Modifier
 ) {
-    val glowTransition = rememberInfiniteTransition(label = "adviceGlow")
-    val glow by glowTransition.animateFloat(
-        initialValue = 0.35f,
-        targetValue = 0.9f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(4000, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "glow"
-    )
+    var glow by remember { mutableFloatStateOf(0.35f) }
+    var glowDir by remember { mutableStateOf(1) }
+    var starRotation by remember { mutableFloatStateOf(0f) }
 
-    val starRotation by glowTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 360f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(6000, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "starRotation"
-    )
+    LaunchedEffect(Unit) {
+        while (true) {
+            glow += glowDir * 0.01f
+            if (glow >= 0.9f) glowDir = -1
+            if (glow <= 0.35f) glowDir = 1
+            starRotation = (starRotation + 1.5f) % 360f
+            delay(1000L / 24L)
+        }
+    }
 
     val cardShape = RoundedCornerShape(20.dp)
 
@@ -554,6 +545,7 @@ fun AdviceSection(
         }
     }
 }
+
 
 
 @Composable
@@ -1354,14 +1346,12 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
         if (lastStepTimestamp > 0) {
             isStepping = true
             while (SystemClock.uptimeMillis() - lastStepTimestamp < 1500) {
-                delay(150)
+                delay(100)
             }
             isStepping = false
         }
     }
-
     PreventBackGesture()
-
     val uiState by viewModel.uiState.collectAsState()
     val workouts: List<Workout> = (uiState as? WorkoutListUiState.Success)?.workouts.orEmpty()
 
@@ -1425,6 +1415,7 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                 }
             }
             else -> {
+
                 if (CurrentTime.value >= GoalTime.value && !showCompletionAnimation) {
                     showCompletionAnimation = true
                     isPaused = true
@@ -1487,7 +1478,7 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
             }
         }
     }
-    val hype by animateFloatAsState(targetValue = easeOutExpo(unified), label = "hype", animationSpec = tween(900))
+    val hype by animateFloatAsState(targetValue = easeOutExpo(unified), label = "hype", animationSpec = tween(1200))
 
     var lastMilestone by remember { mutableStateOf(0) }
     LaunchedEffect(unified) {
@@ -1505,12 +1496,14 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
         }
     }
 
-    val animatedProgress by animateFloatAsState(targetValue = progress, label = "p", animationSpec = tween(700))
-    val animatedProgressDistance by animateFloatAsState(targetValue = progressDistance, label = "pd", animationSpec = tween(700))
+    val animatedProgress by animateFloatAsState(targetValue = progress, label = "p", animationSpec = tween(900))
+    val animatedProgressDistance by animateFloatAsState(targetValue = progressDistance, label = "pd", animationSpec = tween(900))
 
     val startAt = rememberSaveable { mutableLongStateOf(SystemClock.elapsedRealtime()) }
     var accMs by rememberSaveable { mutableLongStateOf(0L) }
-    LaunchedEffect(Unit) { accMs = ((hours * 3600L + minutes * 60L + seconds) * 1000L) }
+    LaunchedEffect(Unit) {
+        accMs = ((hours * 3600L + minutes * 60L + seconds) * 1000L)
+    }
     fun incrementTime() {
         if (!isPaused) {
             val now = SystemClock.elapsedRealtime()
@@ -1521,23 +1514,27 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
             hours = totalSec / 3600
         }
     }
-
     var showCountdown by remember { mutableStateOf(false) }
     var countdownValue by remember { mutableIntStateOf(3) }
 
     LaunchedEffect(Unit) {
         val isStartingFresh = (hours == 0 && minutes == 0 && seconds == 0 && accMs == 0L)
+
         if (isStartingFresh) {
             showCountdown = true
             isPaused = true
+
             haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-            delay(900)
+            delay(1000)
             countdownValue = 2
-            delay(900)
+
+            delay(1000)
             countdownValue = 1
-            delay(900)
+
+            delay(1000)
             countdownValue = 0
-            delay(400)
+
+            delay(500)
             showCountdown = false
             isPaused = false
             startAt.longValue = SystemClock.elapsedRealtime()
@@ -1568,30 +1565,33 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
         onDispose { job?.cancel() }
     }
 
-    val infinite = rememberInfiniteTransition(label = "bg")
-    val clockSlow by infinite.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(animation = tween(12000, easing = LinearEasing)),
-        label = "clockSlow"
-    )
-    val clockFast by infinite.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(animation = tween(4000, easing = LinearEasing)),
-        label = "clockFast"
-    )
+    var animationClock by remember { mutableStateOf(0f) }
+
+    LaunchedEffect(Unit) {
+        var lastFrameTime = 0L
+        while (isActive) {
+            val currentTime = withFrameNanos { it }
+            if (lastFrameTime != 0L) {
+                val deltaTime = (currentTime - lastFrameTime) / 1_000_000_000f
+                animationClock += deltaTime
+            }
+            lastFrameTime = currentTime
+            delay(19)
+        }
+    }
 
     val setCompletionProgress by remember {
         derivedStateOf {
             if (GoalType == "Reps" && GoalSets.intValue > 0) {
                 (CurrentSets.intValue.toFloat() / GoalSets.intValue.toFloat()).coerceIn(0f, 1f)
-            } else 0f
+            } else {
+                0f
+            }
         }
     }
     val riseEffectProgress by animateFloatAsState(
         targetValue = setCompletionProgress,
-        animationSpec = tween(durationMillis = 1200, easing = LinearOutSlowInEasing),
+        animationSpec = tween(durationMillis = 1500, easing = LinearOutSlowInEasing),
         label = "riseEffectProgress"
     )
 
@@ -1605,45 +1605,22 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
         }
     }
     val introBrush = remember(introColors) {
-        Brush.radialGradient(colors = introColors, center = Offset(0.5f, 0.5f), radius = 2000f)
+        Brush.radialGradient(
+            colors = introColors,
+            center = Offset(0.5f, 0.5f),
+            radius = 2000f
+        )
     }
     var showIntro by remember { mutableStateOf(true) }
-    val introProgress by animateFloatAsState(targetValue = if (showIntro) 0f else 1f, animationSpec = tween(650, easing = LinearEasing), label = "introFade")
+    val introProgress by animateFloatAsState(
+        targetValue = if (showIntro) 0f else 1f,
+        animationSpec = tween(750, easing = LinearEasing),
+        label = "introFade"
+    )
     LaunchedEffect(Unit) { showIntro = false }
 
     val glowColor = Color(0xFF3B0E0E)
     val deepColor = Color(0xFF0D0404)
-
-    val particlesCount = remember(movingGradientAndParticlesEnabled) {
-        if (movingGradientAndParticlesEnabled) 4 else 0
-    }
-    val particleSeeds = remember(particlesCount) { List(particlesCount) { it * 37.123f + 0.123f } }
-
-    val screenOn by remember {
-        snapshotFlow { ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED) }
-    }.collectAsState(initial = true)
-
-    val aiEnabled = dynamicModel.personaConfig.value.enabled
-    LaunchedEffect(aiEnabled) {
-        if (!aiEnabled) return@LaunchedEffect
-        while (true) {
-            val uVal =
-                if (CurrentWeight.value > 0) "current weight is ${CurrentWeight.value}Kg"
-                else if (GoalType == "Distance") "current distance walked or ran is ${currentDistance.value}km"
-                else "current time elapsed is ${CurrentTime.value}"
-            generateAdvice(
-                """
-The user is performing ${workout.value}.
-They have completed ${CurrentReps.intValue}/${GoalReps.intValue} reps and ${CurrentSets.intValue}/${GoalSets.intValue} sets.
-Respond with energetic, focused encouragement only — no questions, no analysis.
-Output ≤1 line, purely motivational.
-""".trimIndent(),
-                "",
-                uVal
-            )
-            delay(60000)
-        }
-    }
 
     WorkoutTrackerTheme {
         Scaffold(
@@ -1669,52 +1646,28 @@ Output ≤1 line, purely motivational.
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .drawWithCache {
-                        val currentHype = if (movingGradientAndParticlesEnabled && screenOn) hype else 0f
-                        val radiusMultiplier = 1.0f + 0.45f * currentHype
+                    .drawBehind {
+                        val currentHype = if (movingGradientAndParticlesEnabled) hype else 0f
+                        val radiusMultiplier = 1.0f + 0.5f * currentHype
                         val verticalShift = size.height * 0.1f
-                        val bgBrush = Brush.radialGradient(
-                            colors = listOf(glowColor.copy(alpha = 0.42f + 0.30f * currentHype), deepColor),
-                            center = Offset(size.width / 2f, size.height + verticalShift),
-                            radius = (size.width * 1.12f) * radiusMultiplier
+                        drawRect(
+                            brush = Brush.radialGradient(
+                                colors = listOf(glowColor.copy(alpha = 0.46f + 0.32f * currentHype), deepColor),
+                                center = Offset(size.width / 2f, size.height + verticalShift),
+                                radius = (size.width * 1.15f) * radiusMultiplier,
+                                tileMode = TileMode.Clamp
+                            )
                         )
-                        onDrawBehind { drawRect(brush = bgBrush) }
                     }
             ) {
-                if (movingGradientAndParticlesEnabled && screenOn) {
+                Box(modifier = Modifier.fillMaxSize()) {
                     Canvas(
                         modifier = Modifier
                             .fillMaxSize()
                             .graphicsLayer { alpha = (0.10f + 0.26f * hype) * riseEffectProgress }
                     ) {
-                        val w = size.width
                         val h = size.height
-                        val baseAlpha = (0.28f + 0.28f * hype) * riseEffectProgress
-                        particleSeeds.forEachIndexed { i, s ->
-                            val spd = 0.18f + ((s + i) % 0.32f)
-                            val phase = ((clockSlow * spd + (s * 0.013f)) % 1f)
-                            val y = h * (1f - phase)
-                            val baseX = ((s % 1f) * w)
-                            val wobblePhase = (clockFast + (s * 0.07f)) % 1f
-                            val tri = 1f - kotlin.math.abs(2f * wobblePhase - 1f)
-                            val wobble = (14f + 22f * (1f - phase)) * (tri * 2f - 1f)
-                            val x = (baseX + wobble).coerceIn(-32f, w + 32f)
-                            val r = 6f + ((s % 1f) * 16f) * (0.45f + 0.55f * (1f - phase))
-                            val a = (baseAlpha * (0.6f + 0.4f * (1f - phase))).coerceIn(0f, 1f)
-                            drawCircle(Color(0xFFF44336).copy(alpha = a), r, Offset(x, y))
-                            drawCircle(Color(0x66EF5350).copy(alpha = (a * 0.55f).coerceIn(0f, 1f)), r * 1.6f, Offset(x, y + r * 0.2f))
-                        }
-                    }
-                }
-
-                if (riseEffectProgress > 0f && screenOn) {
-                    Canvas(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .graphicsLayer { alpha = (0.10f + 0.24f * hype) * riseEffectProgress }
-                    ) {
-                        val h = size.height
-                        val startY = h * (1f - 0.62f * riseEffectProgress)
+                        val startY = h * (1f - 0.65f * riseEffectProgress)
                         val endY = h
                         drawRect(
                             brush = Brush.verticalGradient(
@@ -1729,8 +1682,31 @@ Output ≤1 line, purely motivational.
                             size = size
                         )
                     }
+                    if (movingGradientAndParticlesEnabled) {
+                        Canvas(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .graphicsLayer { alpha = (0.12f + 0.32f * hype) * riseEffectProgress }
+                        ) {
+                            val n = 6
+                            val w = size.width
+                            val h = size.height
+                            for (i in 0 until n) {
+                                val s = (i * 37.123f) % 1000f
+                                val speed = 0.25f + (s % 0.35f)
+                                val phase = (animationClock * speed + (s * 0.013f)) % 1f
+                                val y = h * (1f - phase)
+                                val baseX = (s % 1f) * w
+                                val wobble = sin((animationClock * (0.8f + (s % 0.7f))) * 6.28318f + s) * (16f + 28f * (1f - phase))
+                                val x = (baseX + wobble).coerceIn(-40f, w + 40f)
+                                val r = 6f + (s % 1f) * 18f * (0.4f + 0.6f * (1f - phase))
+                                val a = (0.30f + 0.70f * (1f - phase)) * riseEffectProgress
+                                drawCircle(Color(0xFFF44336).copy(alpha = a.coerceIn(0f, 1f)), r, Offset(x, y))
+                                drawCircle(Color(0x66EF5350).copy(alpha = (a * 0.6f).coerceIn(0f, 1f)), r * 1.8f, Offset(x, y + r * 0.2f))
+                            }
+                        }
+                    }
                 }
-
                 if (introProgress < 1f) {
                     Box(
                         modifier = Modifier
@@ -1738,7 +1714,6 @@ Output ≤1 line, purely motivational.
                             .background(introBrush, alpha = 1f - introProgress)
                     )
                 }
-
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
@@ -1812,7 +1787,7 @@ Output ≤1 line, purely motivational.
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(250.dp),
+                            .height(125.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
@@ -1831,7 +1806,7 @@ Output ≤1 line, purely motivational.
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(2.dp))
 
                     if (GoalType == "Reps") {
                         SetProgressDetails(
@@ -1854,10 +1829,9 @@ Output ≤1 line, purely motivational.
                         )
                     }
 
-                    Spacer(modifier = Modifier.weight(1f))
-
-                    val aiEnabledNow = dynamicModel.personaConfig.value.enabled
-                    if (aiEnabledNow) {
+                    Spacer(modifier = Modifier.weight(0.75f))
+                    val aiEnabled = dynamicModel.personaConfig.value.enabled
+                    if (aiEnabled) {
                         AdviceSection(
                             advice = advice,
                             modifier = Modifier.fillMaxWidth(),
@@ -1866,8 +1840,8 @@ Output ≤1 line, purely motivational.
                     }
 
                     Spacer(modifier = Modifier
-                        .weight(1f)
-                        .height(32.dp))
+                        .weight(0.65f)
+                        .height(2.dp))
 
                     if (GoalType == "Reps") {
                         val interactionSource = remember { MutableInteractionSource() }
@@ -1879,16 +1853,40 @@ Output ≤1 line, purely motivational.
                                     Color(0xFF8B0000),
                                     Color(0xFF7A285A),
                                     riseEffectProgress
-                                ).copy(alpha = (0.68f + 0.20f * hype).coerceIn(0f, 1f))
+                                ).copy(alpha = (0.70f + 0.22f * hype).coerceIn(0f, 1f))
                             } else {
                                 lerp(
                                     Color(0xFF650000),
                                     Color(0xFF5C1D4D),
                                     riseEffectProgress
-                                ).copy(alpha = (0.44f + 0.28f * hype).coerceIn(0f, 1f))
+                                ).copy(alpha = (0.45f + 0.30f * hype).coerceIn(0f, 1f))
                             },
                             label = "btnBg"
                         )
+                        LaunchedEffect(Unit) {
+                            while (true) {
+                                val uVal =
+                                    if (CurrentWeight.value > 0) "current weight is ${CurrentWeight.value}Kg"
+                                    else if (CurrentTime.value < 0) "current distance walked or ran is ${currentDistance.value}km"
+                                    else "current time elapsed is ${CurrentTime.value}"
+                                generateAdvice(
+                                    """
+The user is performing ${workout.value}.
+They have completed ${CurrentReps.intValue}/${GoalReps.intValue} reps and ${CurrentSets.intValue}/${GoalSets.intValue} sets.
+Respond with energetic, focused encouragement only — no questions, no analysis.
+Examples:
+• “Keep that rhythm — power through the last few reps!”
+• “Perfect pace — lock in, finish strong!”
+• “Explosive form — stay tight, last push!”
+The output doesn't have to be like the examples but stay in a similar layout.
+Output ≤1 line, purely motivational.
+""".trimIndent(),
+                                    "",
+                                    uVal
+                                )
+                                delay(60000)
+                            }
+                        }
 
                         Box(
                             modifier = Modifier
@@ -1904,9 +1902,9 @@ Output ≤1 line, purely motivational.
                                     Brush.linearGradient(
                                         listOf(
                                             lerp(Color(0xFFFF7A7A), Color(0xFFFF3D3D), riseEffectProgress)
-                                                .copy(alpha = (0.66f + 0.24f * hype).coerceIn(0f, 1f)),
+                                                .copy(alpha = (0.70f + 0.26f * hype).coerceIn(0f, 1f)),
                                             lerp(Color(0xFF4A1515), Color(0xFF7A1F1F), riseEffectProgress)
-                                                .copy(alpha = (0.52f + 0.26f * hype).coerceIn(0f, 1f))
+                                                .copy(alpha = (0.55f + 0.28f * hype).coerceIn(0f, 1f))
                                         )
                                     ),
                                     CircleShape
@@ -1933,7 +1931,7 @@ Output ≤1 line, purely motivational.
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(24.dp))
+                    Spacer(modifier = Modifier.height(8.dp))
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -1957,7 +1955,9 @@ Output ≤1 line, purely motivational.
                                 containerColor = lerp(Color(0xFF4A2515), Color(0xFF4A1F3D), riseEffectProgress).copy(alpha = 0.5f + 0.15f * hype),
                                 contentColor = Color.White
                             ),
-                            modifier = Modifier.animateContentSize(animationSpec = tween(250, easing = FastOutSlowInEasing))
+                            modifier = Modifier.animateContentSize(
+                                animationSpec = tween(300, easing = FastOutSlowInEasing)
+                            )
                         ) { Text(pauseText, fontSize = 18.sp, fontWeight = FontWeight.SemiBold) }
 
                         Button(
@@ -1965,22 +1965,22 @@ Output ≤1 line, purely motivational.
                             enabled = isPaused,
                             shape = RoundedCornerShape(25.dp),
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = lerp(Color(0xFF8B0000), Color(0xFF6C1A52), riseEffectProgress).copy(alpha = 0.78f),
+                                containerColor = lerp(Color(0xFF8B0000), Color(0xFF6C1A52), riseEffectProgress).copy(alpha = 0.8f),
                                 contentColor = Color.White,
                                 disabledContainerColor = Color(0xFF2A0D0D).copy(alpha = 0.4f),
                                 disabledContentColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
                             ),
-                            modifier = Modifier.animateContentSize(animationSpec = tween(250, easing = FastOutSlowInEasing))
+                            modifier = Modifier.animateContentSize(
+                                animationSpec = tween(300, easing = FastOutSlowInEasing)
+                            )
                         ) { Text("End Workout", fontSize = 18.sp, fontWeight = FontWeight.SemiBold) }
                     }
 
                     Spacer(modifier = Modifier.height(16.dp))
                 }
-
                 if (showCountdown) {
                     CountdownOverlay(countdownValue = countdownValue)
                 }
-
                 if (showSyncDialog.showSyncDialog.value) {
                     val cardioExerciseNames = listOf(
                         "Running (Treadmill)", "Stair Climber", "Elliptical Trainer",
@@ -2154,85 +2154,159 @@ fun DetailedSetsProgressBar(currentSet: Int, goalSets: Int, modifier: Modifier =
     val progress by animateFloatAsState(
         targetValue = target,
         label = "SetProgressBarProgress",
-        animationSpec = tween(550, easing = FastOutSlowInEasing)
+        animationSpec = tween(600, easing = FastOutSlowInEasing)
     )
 
-    val infinite = rememberInfiniteTransition(label = "setsBar")
-    val shimmer by infinite.animateFloat(
-        initialValue = -0.2f,
-        targetValue = 1.2f,
-        animationSpec = infiniteRepeatable(animation = tween(1800, easing = LinearEasing)),
-        label = "shimmer"
-    )
-    val pulse by infinite.animateFloat(
-        initialValue = 1f,
-        targetValue = 1.15f,
-        animationSpec = infiniteRepeatable(animation = tween(1200, easing = FastOutLinearInEasing), repeatMode = RepeatMode.Reverse),
-        label = "pulse"
-    )
+    var animationClock by remember { mutableStateOf(0f) }
+
+    LaunchedEffect(Unit) {
+        var lastFrameTime = 0L
+        while (isActive) {
+            val currentTime = withFrameNanos { it }
+            if (lastFrameTime != 0L) {
+                val deltaTime = (currentTime - lastFrameTime) / 1_000_000_000f
+                animationClock += deltaTime
+            }
+            lastFrameTime = currentTime
+            delay(42)
+        }
+    }
+
+    val shimmer = (animationClock / 1.8f) % 1.4f - 0.2f
+    val pulse = 1.05f + 0.15f * sin(animationClock * 2 * PI.toFloat())
 
     val accent = Color(0xFF8B0000)
     val accentBright = Color(0xFFFF6666).copy(alpha = 0.95f)
 
-    Canvas(
-        modifier = modifier
-            .fillMaxWidth()
-            .height(44.dp)
-    ) {
-        val y = size.height / 2f
-        val base = 6.dp.toPx()
-        val prog = 9.dp.toPx()
-        val dot = 8.dp.toPx()
-        val startPad = dot
-        val endPad = dot
-        val w = size.width - startPad - endPad
+    if (goalSets <= 8) {
+        Canvas(
+            modifier = modifier
+                .fillMaxWidth()
+                .height(44.dp)
+        ) {
+            val y = size.height / 2f
+            val base = 6.dp.toPx()
+            val prog = 9.dp.toPx()
+            val dot = 8.dp.toPx()
+            val startPad = dot
+            val endPad = dot
+            val w = size.width - startPad - endPad
 
-        drawLine(
-            color = Color.White.copy(0.1f),
-            start = Offset(startPad, y),
-            end = Offset(startPad + w, y),
-            strokeWidth = base,
-            cap = StrokeCap.Round
-        )
-        if (progress > 0f) {
-            val endX = startPad + w * progress
             drawLine(
-                brush = Brush.horizontalGradient(listOf(accent, accentBright)),
+                color = Color.White.copy(0.1f),
                 start = Offset(startPad, y),
-                end = Offset(endX, y),
-                strokeWidth = prog,
+                end = Offset(startPad + w, y),
+                strokeWidth = base,
                 cap = StrokeCap.Round
             )
+            if (progress > 0f) {
+                val endX = startPad + w * progress
+                drawLine(
+                    brush = Brush.horizontalGradient(listOf(accent, accentBright)),
+                    start = Offset(startPad, y),
+                    end = Offset(endX, y),
+                    strokeWidth = prog,
+                    cap = StrokeCap.Round
+                )
+            }
+            val shProg = shimmer
+            val shWidth = w * 0.4f
+            val shStart = (w + shWidth) * shProg - shWidth + startPad
+            drawLine(
+                brush = Brush.linearGradient(
+                    listOf(Color.Transparent, Color.White.copy(0.18f), Color.Transparent),
+                    start = Offset(shStart, y),
+                    end = Offset(shStart + shWidth, y)
+                ),
+                start = Offset(startPad, y),
+                end = Offset(startPad + w, y),
+                strokeWidth = base,
+                cap = StrokeCap.Round
+            )
+            (1..goalSets).forEach { i ->
+                val x = if (goalSets > 1) startPad + (w * ((i - 1).toFloat() / (goalSets - 1))) else size.width / 2f
+                val completed = i < currentSet
+                val current = i == currentSet
+                val dotR = 8.dp.toPx()
+                if (completed) {
+                    drawCircle(color = accent, radius = dotR, center = Offset(x, y))
+                } else if (current) {
+                    val r = dotR * pulse
+                    drawCircle(color = Color.White, radius = r, center = Offset(x, y))
+                    drawCircle(color = accent.copy(0.6f), radius = r * 1.5f, center = Offset(x, y))
+                } else {
+                    drawCircle(color = Color.White.copy(0.4f), radius = dotR, center = Offset(x, y))
+                }
+            }
         }
-        val shWidth = w * 0.38f
-        val shStart = (w + shWidth) * shimmer - shWidth + startPad
-        drawLine(
-            brush = Brush.linearGradient(
-                listOf(Color.Transparent, Color.White.copy(0.16f), Color.Transparent),
-                start = Offset(shStart, y),
-                end = Offset(shStart + shWidth, y)
-            ),
-            start = Offset(startPad, y),
-            end = Offset(startPad + w, y),
-            strokeWidth = base,
-            cap = StrokeCap.Round
-        )
-        (1..goalSets).forEach { i ->
-            val x = if (goalSets > 1) startPad + (w * ((i - 1).toFloat() / (goalSets - 1))) else size.width / 2f
-            val completed = i < currentSet
-            val current = i == currentSet
-            if (completed) {
-                drawCircle(color = accent, radius = dot, center = Offset(x, y))
-            } else if (current) {
-                val r = dot * pulse
-                drawCircle(color = Color.White, radius = r, center = Offset(x, y))
-                drawCircle(color = accent.copy(0.6f), radius = r * 1.5f, center = Offset(x, y))
-            } else {
-                drawCircle(color = Color.White.copy(0.4f), radius = dot, center = Offset(x, y))
+    } else {
+        Canvas(
+            modifier = modifier
+                .fillMaxWidth()
+                .height(220.dp)
+        ) {
+            val strokeBase = 8.dp.toPx()
+            val strokeProg = 10.dp.toPx()
+            val dotR = 6.dp.toPx()
+            val pad = 16.dp.toPx()
+            val radius = (min(size.width, size.height) / 2f) - (strokeProg + pad)
+            val center = Offset(size.width / 2f, size.height / 2f)
+            val startAngle = -90f
+            val sweep = 360f
+            drawCircle(
+                color = Color.White.copy(0.1f),
+                radius = radius,
+                center = center,
+                style = Stroke(width = strokeBase, cap = StrokeCap.Round)
+            )
+            if (progress > 0f) {
+                drawArc(
+                    color = accent,
+                    startAngle = startAngle,
+                    sweepAngle = sweep * progress,
+                    useCenter = false,
+                    topLeft = Offset(center.x - radius, center.y - radius),
+                    size = androidx.compose.ui.geometry.Size(radius * 2, radius * 2),
+                    style = Stroke(width = strokeProg, cap = StrokeCap.Round)
+                )
+            }
+            val shAngle = ((shimmer.coerceIn(0f, 1f)) * 360f)
+//            drawArc(
+//                brush = Brush.sweepGradient(
+//                    listOf(
+//                        Color.Transparent,
+//                        Color.White.copy(0.18f),
+//                        Color.Transparent
+//                    )
+//                ),
+//                startAngle = startAngle + shAngle - 20f,
+//                sweepAngle = 40f,
+//                useCenter = false,
+//                topLeft = Offset(center.x - radius, center.y - radius),
+//                size = androidx.compose.ui.geometry.Size(radius * 2, radius * 2),
+//                style = Stroke(width = strokeBase)
+//            )
+            (1..goalSets).forEach { i ->
+                val t = if (goalSets > 1) (i - 1).toFloat() / (goalSets - 1).toFloat() else 0.5f
+                val ang = Math.toRadians((startAngle + t * sweep).toDouble())
+                val cx = (center.x + cos(ang).toFloat() * radius)
+                val cy = (center.y + sin(ang).toFloat() * radius)
+                val completed = i < currentSet
+                val current = i == currentSet
+                if (completed) {
+                    drawCircle(color = accent, radius = dotR, center = Offset(cx, cy))
+                } else if (current) {
+                    val r = dotR * pulse
+                    drawCircle(color = Color.White, radius = r, center = Offset(cx, cy))
+                    drawCircle(color = accent.copy(0.6f), radius = r * 1.5f, center = Offset(cx, cy))
+                } else {
+                    drawCircle(color = Color.White.copy(0.4f), radius = dotR, center = Offset(cx, cy))
+                }
             }
         }
     }
 }
+
 
 
 

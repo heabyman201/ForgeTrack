@@ -11,7 +11,9 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -33,6 +35,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -89,35 +92,48 @@ fun CircularTimerProgressBar(
     val STEP = 0.25f
     val lastStepIdx = remember { mutableIntStateOf(-1) }
     val lastProgress = remember { mutableStateOf(0f) }
-    val ripple = remember { Animatable(0f) }
+    val displayedProgress = remember { mutableFloatStateOf(0f) }
+    val rippleProgress = remember { mutableFloatStateOf(0f) }
+    val rippleActive = remember { mutableStateOf(false) }
+    val rippleStartNs = remember { mutableLongStateOf(0L) }
     val haptics = LocalHapticFeedback.current
 
-    LaunchedEffect(progress) {
-        val pNow = progress.coerceIn(0f, 1f)
-        val pPrev = lastProgress.value
-        lastProgress.value = pNow
-
-        if (pNow > pPrev + 1e-4f) {
-            val idx = (pNow / STEP).toInt()
-            if (idx > lastStepIdx.intValue) {
-                lastStepIdx.intValue = idx
-                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-
-                launch {
-                    ripple.snapTo(0f)
-                    ripple.animateTo(
-                        targetValue = 1f,
-                        animationSpec = tween(durationMillis = 500, easing = LinearOutSlowInEasing)
-                    )
-                    ripple.snapTo(0f)
+    LaunchedEffect(Unit) {
+        var i = 0
+        while (true) {
+            val pNow = progress.coerceIn(0f, 1f)
+            val pPrev = lastProgress.value
+            if (pNow > pPrev + 1e-4f) {
+                val idx = (pNow / STEP).toInt()
+                if (idx > lastStepIdx.intValue) {
+                    lastStepIdx.intValue = idx
+                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                    rippleActive.value = true
+                    rippleStartNs.longValue = System.nanoTime()
                 }
             }
+            lastProgress.value = pNow
+            displayedProgress.value = pNow
+
+            if (rippleActive.value) {
+                val elapsedMs = (System.nanoTime() - rippleStartNs.longValue) / 1_000_000f
+                val r = (elapsedMs / 500f).coerceIn(0f, 1f)
+                rippleProgress.value = r
+                if (r >= 1f) {
+                    rippleActive.value = false
+                    rippleProgress.value = 0f
+                }
+            }
+
+            val delayMs = if (i % 3 == 2) 41L else 42L
+            i++
+            delay(delayMs)
         }
     }
 
     Canvas(modifier = modifier) {
         val strokeWidth = 20.dp.toPx()
-        val p = progress.coerceIn(0f, 1f)
+        val p = displayedProgress.value.coerceIn(0f, 1f)
 
         val safeInset = minOf(strokeWidth / 2f, size.minDimension / 2f - 1f)
         inset(safeInset) {
@@ -208,7 +224,7 @@ fun CircularTimerProgressBar(
                 drawCircle(color = Color.White, radius = strokeWidth / 3f, center = capCenter)
             }
 
-            val rv = ripple.value
+            val rv = rippleProgress.value
             if (rv > 0f) {
                 val startR = radius + strokeWidth * 0.1f
                 val endR = radius * 1.6f

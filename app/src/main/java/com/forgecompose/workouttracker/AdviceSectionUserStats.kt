@@ -32,6 +32,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.Flag
 import androidx.compose.material.icons.rounded.FlagCircle
 import androidx.compose.material.icons.rounded.OutlinedFlag
 import androidx.compose.material3.Divider
@@ -158,7 +159,7 @@ fun AdviceSectionUser(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Icon(
-                            imageVector = if (aiEnabled) Icons.Rounded.OutlinedFlag else Icons.Default.Flag,
+                            imageVector = if (aiEnabled) Icons.Rounded.Flag else Icons.Default.Flag,
                             contentDescription = null,
                             tint = accent,
                             modifier = Modifier.size(42.dp)

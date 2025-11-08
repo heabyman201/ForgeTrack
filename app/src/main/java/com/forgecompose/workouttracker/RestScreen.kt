@@ -4,7 +4,6 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -54,7 +53,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
@@ -147,21 +145,17 @@ fun RestScreen(
         }
     }
     var showIntro by remember { mutableStateOf(true) }
-    val introProgress by animateFloatAsState(if (showIntro) 0f else 1f, tween(2000, easing = LinearEasing), label = "introFade")
+    val introProgress by animateFloatAsState(if (showIntro) 0f else 1f, tween(2000), label = "introFade")
     LaunchedEffect(Unit) { showIntro = false }
 
     var animationClock by remember { mutableStateOf(0f) }
 
     LaunchedEffect(Unit) {
-        var lastFrameTime = 0L
+        var i = 0
         while (isActive) {
-            val currentTime = withFrameNanos { it }
-            if (lastFrameTime != 0L) {
-                val deltaTime = (currentTime - lastFrameTime) / 1_000_000_000f
-                animationClock += deltaTime
-            }
-            lastFrameTime = currentTime
-            delay(62)
+            animationClock += (1f / 24f)
+            i++
+            delay(if (i % 3 == 0) 41 else 42)
         }
     }
 

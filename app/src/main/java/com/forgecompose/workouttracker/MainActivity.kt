@@ -818,15 +818,19 @@ fun WorkoutListScreen(
     var animationClock by remember { mutableStateOf(0f) }
     LaunchedEffect(shouldAnimate, movingEffectsEnabled) {
         if (shouldAnimate && movingEffectsEnabled) {
-            var lastFrameTime = 0L
+            val frameNs = 41_666_667L
+            var nextTick = System.nanoTime() + frameNs
             while (true) {
-                val currentTime = withFrameNanos { it }
-                if (lastFrameTime != 0L) {
-                    val deltaTime = (currentTime - lastFrameTime) / 1_000_000_000f
-                    animationClock += deltaTime
+                val now = System.nanoTime()
+                if (now >= nextTick) {
+                    animationClock += 1f / 24f
+                    withFrameNanos { }
+                    nextTick += frameNs
+                    if (now - nextTick > frameNs * 4) nextTick = now + frameNs
+                } else {
+                    val sleepMs = ((nextTick - now) / 1_000_000L).coerceAtLeast(0L)
+                    if (sleepMs > 0L) delay(sleepMs)
                 }
-                lastFrameTime = currentTime
-                delay(62)
             }
         }
     }
@@ -1429,6 +1433,7 @@ No extra text or interaction.
         }
     }
 }
+
 
 @Composable
 fun SectionTitle(title: String) {
