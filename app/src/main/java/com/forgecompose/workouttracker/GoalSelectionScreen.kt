@@ -306,8 +306,10 @@ val blurAnimation by animateDpAsState(
                         colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
                         navigationIcon = {
                             IconButton(onClick = {
-                                navController.popBackStack()
-                                    context.startActivity(Intent(context, MainActivity::class.java)) }) {
+                                activity?.finish()
+                                    context.startActivity(intent
+
+                                    ) }) {
                                 Icon(
                                     Icons.Default.ArrowBack,
                                     contentDescription = "Back",
