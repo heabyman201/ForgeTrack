@@ -50,31 +50,25 @@ fun GlassCard(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .background(
-                brush = Brush.linearGradient(
-                    colors = listOf(
-                        Color(0xFF130000).copy(alpha = 0.75f),
-                        Color(0xFF100404).copy(alpha = 0.75f)
-                    )
-                ),
-                shape = RoundedCornerShape(cornerRadius)
-            )
             .drawWithCache {
-                val cornerPx = cornerRadius.toPx()
-                val borderPx = borderWidth.toPx()
-                val borderBrush = Brush.linearGradient(
-                    colors = listOf(
+                val r = cornerRadius.toPx()
+                val bw = borderWidth.toPx()
+                val fill = Brush.linearGradient(
+                    listOf(
+                        Color(0xFF130000).copy(alpha = 0.65f),
+                        Color(0xFF100404).copy(alpha = 0.65f)
+                    )
+                )
+                val stroke = Brush.linearGradient(
+                    listOf(
                         Color(0xFFFF5555).copy(alpha = 0.2f),
                         Color(0xFF8B0000).copy(alpha = 0.1f)
                     )
                 )
                 onDrawWithContent {
+                    drawRoundRect(brush = fill, cornerRadius = CornerRadius(r))
                     drawContent()
-                    drawRoundRect(
-                        brush = borderBrush,
-                        style = Stroke(width = borderPx),
-                        cornerRadius = CornerRadius(cornerPx)
-                    )
+                    drawRoundRect(brush = stroke, style = Stroke(width = bw), cornerRadius = CornerRadius(r))
                 }
             }
             .padding(16.dp)
@@ -84,17 +78,29 @@ fun GlassCard(
 }
 
 @Composable
- fun InfoChip(label: String, icon: ImageVector) {
+fun InfoChip(label: String, icon: ImageVector) {
     Row(
         modifier = Modifier
-            .clip(RoundedCornerShape(999.dp))
-            .background(Color.White.copy(alpha = 0.05f))
-            .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(999.dp))
+            .drawWithCache {
+                onDrawWithContent {
+                    val r = size.height / 2f
+                    drawRoundRect(
+                        color = Color.White.copy(alpha = 0.05f),
+                        cornerRadius = CornerRadius(r)
+                    )
+                    drawRoundRect(
+                        color = Color.White.copy(alpha = 0.1f),
+                        style = Stroke(width = 1.dp.toPx()),
+                        cornerRadius = CornerRadius(r)
+                    )
+                    drawContent()
+                }
+            }
             .padding(horizontal = 8.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Icon(icon, contentDescription = null, tint = Color.White.copy(alpha = 0.7f), modifier = Modifier.size(20.dp))
+        Icon(icon, null, tint = Color.White.copy(alpha = 0.7f), modifier = Modifier.size(20.dp))
         Text(label, color = Color.White.copy(alpha = 0.9f), maxLines = 1)
     }
 }
@@ -109,9 +115,21 @@ fun StatusChip(status: WorkoutStatus) {
     }
     Box(
         modifier = Modifier
-            .clip(RoundedCornerShape(999.dp))
-            .background(bg.copy(alpha = 0.3f))
-            .border(1.dp, fg.copy(alpha = 0.4f), RoundedCornerShape(999.dp))
+            .drawWithCache {
+                onDrawWithContent {
+                    val r = size.height / 2f
+                    drawRoundRect(
+                        color = bg.copy(alpha = 0.3f),
+                        cornerRadius = CornerRadius(r)
+                    )
+                    drawRoundRect(
+                        color = fg.copy(alpha = 0.4f),
+                        style = Stroke(width = 1.dp.toPx()),
+                        cornerRadius = CornerRadius(r)
+                    )
+                    drawContent()
+                }
+            }
             .padding(horizontal = 16.dp, vertical = 8.dp)
     ) {
         Text(
@@ -122,8 +140,9 @@ fun StatusChip(status: WorkoutStatus) {
         )
     }
 }
+
 @Composable
- fun LabeledStat(label: String, value: String) {
+fun LabeledStat(label: String, value: String) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text(
             text = value,
@@ -140,26 +159,29 @@ fun StatusChip(status: WorkoutStatus) {
 }
 
 @Composable
- fun LoadingBlock(padding: PaddingValues) {
+fun LoadingBlock(padding: PaddingValues) {
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .padding(padding), contentAlignment = Alignment.Center
+            .padding(padding),
+        contentAlignment = Alignment.Center
     ) {
         CircularProgressIndicator(color = Color(0xFFFF3B30))
     }
 }
 
 @Composable
- fun ErrorBlock(padding: PaddingValues) {
+fun ErrorBlock(padding: PaddingValues) {
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .padding(padding), contentAlignment = Alignment.Center
+            .padding(padding),
+        contentAlignment = Alignment.Center
     ) {
         Text("Error loading workouts.", color = Color.White.copy(alpha = 0.7f))
     }
 }
+
 @Composable
 fun MissingBlock(padding: PaddingValues) {
     Box(
@@ -171,6 +193,7 @@ fun MissingBlock(padding: PaddingValues) {
         Text("Workout not found.", color = Color.White.copy(alpha = 0.85f))
     }
 }
+
 @Composable
 fun EmptyState() {
     Box(
@@ -194,9 +217,7 @@ fun EmptyState() {
                             colors = listOf(accent.copy(alpha = 0.3f), Color.Transparent),
                             radius = size.width * 0.7f
                         )
-                        onDrawBehind {
-                            drawCircle(glow)
-                        }
+                        onDrawBehind { drawCircle(glow) }
                     },
                 tint = accent.copy(alpha = 0.8f)
             )
@@ -208,41 +229,36 @@ fun EmptyState() {
         }
     }
 }
+
 @Composable
- fun GlowingCard(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+fun GlowingCard(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
     val cornerRadius = 22.dp
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(cornerRadius))
             .drawWithCache {
-                val cornerRpx = cornerRadius.toPx()
-                val bgBrush = Brush.radialGradient(
+                val r = cornerRadius.toPx()
+                val bg = Brush.radialGradient(
                     colors = listOf(Color(0xFF1A0808), Color(0xFF100404)),
                     center = Offset(size.width / 2f, size.height * 0.1f),
                     radius = size.width * 1.5f
                 )
-                val borderBrush = Brush.linearGradient(
+                val stroke = Brush.linearGradient(
                     colors = listOf(
                         Color(0xFFFF5555).copy(alpha = 0.2f),
                         Color(0xFF8B0000).copy(alpha = 0.1f)
                     )
                 )
                 onDrawBehind {
-                    drawRoundRect(
-                        brush = bgBrush,
-                        cornerRadius = CornerRadius(cornerRpx)
-                    )
-                    drawRoundRect(
-                        brush = borderBrush,
-                        style = Stroke(width = 1.dp.toPx()),
-                        cornerRadius = CornerRadius(cornerRpx)
-                    )
+                    drawRoundRect(brush = bg, cornerRadius = CornerRadius(r))
+                    drawRoundRect(brush = stroke, style = Stroke(width = 1.dp.toPx()), cornerRadius = CornerRadius(r))
                 }
             }
     ) {
         content()
     }
 }
+
 @Composable
 fun ThemedConfirmationDialog(
     title: String,

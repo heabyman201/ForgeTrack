@@ -111,76 +111,19 @@ fun WorkoutHistory(
             else -> listOf(Color(0xFF02040A), Color(0xFF0A1324), Color(0xFF15243D), Color(0xFF1E3352))
         }
     }
-    val introBrush = remember(introColors) {
-        Brush.linearGradient(colors = introColors)
-    }
+    val introBrush = remember(introColors) { Brush.linearGradient(colors = introColors) }
     var showIntro by remember { mutableStateOf(true) }
     val introProgress by animateFloatAsState(targetValue = if (showIntro) 0f else 1f, animationSpec = tween(650, easing = LinearEasing), label = "introFade")
     LaunchedEffect(Unit) { showIntro = false }
-    val blurAnim by animateDpAsState(
-        if (showIntro) intensity.value else 0.dp,
-        animationSpec = tween(length.value.toInt()),
-        label = "blur"
-    )
-
+    val blurAnim by animateDpAsState(if (showIntro) intensity.value else 0.dp, animationSpec = tween(length.value.toInt()), label = "blur")
 
     val context = LocalContext.current
-    val performanceOptions by PerformanceOptionsManager.flow(context)
-        .collectAsState(initial = PerformanceOptions.Defaults)
-
+    val performanceOptions by PerformanceOptionsManager.flow(context).collectAsState(initial = PerformanceOptions.Defaults)
     val movingEffectsEnabled = performanceOptions.movingGradientAndParticles
-
     val stages = rememberColdStartStages()
+    val enableAnim = remember(movingEffectsEnabled, stages.afterFirstFrame) { movingEffectsEnabled && stages.afterFirstFrame }
 
-
-    val shouldAnimate = stages.afterFirstFrame
-    var animationClock by remember { mutableStateOf(0f) }
-
-    LaunchedEffect(shouldAnimate, movingEffectsEnabled) {
-        if (shouldAnimate && movingEffectsEnabled) {
-            var lastFrameTime = 0L
-            while (true) {
-                val currentTime = withFrameNanos { it }
-                if (lastFrameTime != 0L) {
-                    val deltaTime = (currentTime - lastFrameTime) / 1_000_000_000f
-                    animationClock += deltaTime
-                }
-                lastFrameTime = currentTime
-                delay(42)
-            }
-        }
-    }
-
-    val fullPi = 2f * PI.toFloat()
-    val waveOffset = (animationClock * fullPi / 22f) % fullPi
-    val pulseAlpha = 0.25f + 0.10f * sin(animationClock * fullPi / 8f)
-    val glowIntensity = 0.4f + 0.2f * sin(animationClock * fullPi / 6f)
-    val gradientProgress = (animationClock / 15f) % 2f
-    val gradientOffset = if (gradientProgress > 1f) 2f - gradientProgress else gradientProgress
-
-    val clampedGlow by remember { derivedStateOf { glowIntensity.coerceIn(0f, 1f) } }
-    val clampedPulse by remember { derivedStateOf { pulseAlpha.coerceIn(0f, 1f) } }
-    val clampedGrad by remember { derivedStateOf { gradientOffset.coerceIn(0f, 1f) } }
-
-    val wavePath = remember { Path() }
-    val particleSeed = remember { Random(42) }
-    val particles = remember {
-        List(12) { i ->
-            val baseX = i / 12f
-            val yOff = 0.15f + particleSeed.nextFloat() * 0.25f
-            val r = 1.8f + particleSeed.nextFloat() * 2.0f
-            Triple(baseX, yOff, r)
-        }
-    }
-
-
-    fun NavController.openWorkout(id: Long) {
-        navigate("${Routes.DetailedWorkout}/$id")
-    }
-
-    LaunchedEffect(Unit) {
-        taskbarOverride.shouldOverrideVisiblity.value = false
-    }
+    LaunchedEffect(Unit) { taskbarOverride.shouldOverrideVisiblity.value = false }
 
     Scaffold(
         topBar = {
@@ -236,66 +179,18 @@ fun WorkoutHistory(
         modifier = Modifier
             .fillMaxSize()
             .blur(blurAnim)
-            .drawWithCache {
-                val bgBrush = Brush.radialGradient(
-                    colors = listOf(
-                        Color(0xFF702727).copy(alpha = 0.85f + clampedGrad * 0.45f),
-                        Color(0xFF3A1515).copy(alpha = 0.7f + clampedGrad * 0.3f),
-                        Color(0xFF2A0D0D).copy(alpha = 0.8f + clampedGrad * 0.2f),
-                        Color(0xFF1A0808).copy(alpha = 0.9f + clampedGrad * 0.1f),
-                        Color(0xFF0D0404)
-                    ),
-                    radius = 1200f + (clampedGrad * 400f),
-                    center = Offset(0.3f + clampedGrad * 0.4f, 0.2f + clampedGrad * 0.3f)
-                )
-                onDrawBehind {
-                    drawRect(bgBrush)
-                    if (stages.after600ms && shouldAnimate && movingEffectsEnabled) {
-                        val baseAlpha = clampedPulse
-                        val g = clampedGlow
-                        val w = size.width
-                        val h = size.height
-                        for (layer in 0..2) {
-                            val layerOffset = waveOffset + (layer * PI.toFloat() / 4)
-                            val layerAlpha = baseAlpha * (0.25f + layer * 0.12f) * g
-                            val layerColor = when (layer) {
-                                0 -> Color(0xFF4A1A1A).copy(alpha = layerAlpha)
-                                1 -> Color(0xFF3A1515).copy(alpha = layerAlpha * 0.8f)
-                                else -> Color(0xFF2A0D0D).copy(alpha = layerAlpha * 0.6f)
-                            }
-                            wavePath.reset()
-                            val baseY = h * (0.22f + layer * 0.16f)
-                            val step = (w / 36f).coerceAtLeast(10f)
-                            var x = 0f
-                            val waveHeight = 90f
-                            while (x <= w) {
-                                val t = x / w
-                                val phase = t * 3f * PI.toFloat() + layerOffset
-                                val y =
-                                    baseY + sin(phase) * waveHeight * (0.55f + layer * 0.22f) * g
-                                wavePath.lineTo(x, y)
-                                x += step
-                            }
-                            wavePath.lineTo(w, h)
-                            wavePath.lineTo(0f, h)
-                            wavePath.close()
-                            drawPath(path = wavePath, color = layerColor)
-                        }
-                        particles.forEachIndexed { i, (baseX, yOff, r) ->
-                            val px = w * baseX + sin(waveOffset * 0.7f + i) * 60f * g
-                            val py = h * yOff + cos(waveOffset * 0.5f + i * 0.3f) * 60f
-                            val alpha = baseAlpha * (0.35f + sin(waveOffset + i) * 0.25f) * g
-                            drawCircle(Color.White.copy(alpha = alpha), r, Offset(px, py))
-                        }
-                    }
-                    if (introProgress < 1f) {
-                        drawRect(introBrush, alpha = 1f - introProgress)
-                    }
-                }
-                // --- End of Replaced Block ---
-            }
     ) { paddingValues ->
         Box(modifier = Modifier.fillMaxSize()) {
+            AnimatedBackdrop(
+                modifier = Modifier
+                    .matchParentSize()
+                    .padding(paddingValues),
+                introBrush = introBrush,
+                introAlpha = 1f - introProgress,
+                enableWaves = stages.after600ms && enableAnim,
+                enableAnimation = enableAnim,
+
+            )
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -321,8 +216,7 @@ fun WorkoutHistory(
                     ),
                     singleLine = true,
                     keyboardOptions = KeyboardOptions.Default.copy(imeAction = ImeAction.Search),
-                    )
-
+                )
 
                 when (val state = uiState) {
                     is WorkoutListUiState.Loading -> {
@@ -338,26 +232,17 @@ fun WorkoutHistory(
                     is WorkoutListUiState.Success -> {
                         val workouts = state.workouts
                         val filteredAndSortedWorkouts = remember(workouts, searchQuery, sortAscending) {
-                            val filtered = workouts.filter {
-                                it.name.contains(searchQuery, ignoreCase = true)
-                            }
-                            if (sortAscending) {
-                                filtered.sortedBy { it.id }
-                            } else {
-                                filtered.sortedByDescending { it.id }
-                            }
+                            val filtered = workouts.filter { it.name.contains(searchQuery, ignoreCase = true) }
+                            if (sortAscending) filtered.sortedBy { it.id } else filtered.sortedByDescending { it.id }
                         }
-
                         if (filteredAndSortedWorkouts.isEmpty()) {
                             EmptyState()
                         } else {
                             WorkoutHistoryList(
                                 workouts = filteredAndSortedWorkouts,
                                 onWorkoutClicked = { workout ->
-                                    navController.currentBackStackEntry
-                                        ?.savedStateHandle
-                                        ?.set("selectedWorkoutId", workout.id)
-                                    navController.openWorkout(workout.id.toLong())
+                                    navController.currentBackStackEntry?.savedStateHandle?.set("selectedWorkoutId", workout.id)
+                                    navController.navigate("${Routes.DetailedWorkout}/${workout.id}")
                                 },
                                 onDeleteClicked = { workout ->
                                     scope.launch(Dispatchers.IO) { viewModel.deleteWorkout(workout) }
@@ -414,10 +299,7 @@ private fun WorkoutHistoryList(
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 100.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        items(
-            items = workouts,
-            key = { it.id }
-        ) { workout ->
+        items(items = workouts, key = { it.id }) { workout ->
             WorkoutHistoryItem(
                 workout = workout,
                 onClick = {
@@ -443,7 +325,6 @@ private fun WorkoutHistoryItem(
     var isPressed by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(targetValue = if (isPressed) 0.98f else 1f, label = "scale")
-
     val durationText = remember(workout.durationMillis) {
         val safe = workout.durationMillis ?: 0L
         val hours = (safe / 3_600_000).toInt()
@@ -455,10 +336,7 @@ private fun WorkoutHistoryItem(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .graphicsLayer {
-                scaleX = scale
-                scaleY = scale
-            }
+            .graphicsLayer { scaleX = scale; scaleY = scale }
             .clip(RoundedCornerShape(cornerRadius))
             .drawWithCache {
                 val cornerRpx = cornerRadius.toPx()
@@ -516,14 +394,13 @@ private fun WorkoutHistoryItem(
                 } else {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         OutlinedButton(
-                            onClick = { confirmDelete = false
+                            onClick = {
+                                confirmDelete = false
                                 haptics.performHapticFeedback(HapticFeedbackType.Reject)
                             },
                             border = BorderStroke(1.dp, Color.White.copy(alpha = 0.4f)),
                             colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
-                        ) {
-                            Text("Cancel")
-                        }
+                        ) { Text("Cancel") }
                         Spacer(modifier = Modifier.width(12.dp))
                         Button(
                             onClick = {
@@ -535,9 +412,7 @@ private fun WorkoutHistoryItem(
                                 containerColor = Color(0xFFFF3535),
                                 contentColor = Color.White
                             )
-                        ) {
-                            Text("Delete")
-                        }
+                        ) { Text("Delete") }
                     }
                 }
             }

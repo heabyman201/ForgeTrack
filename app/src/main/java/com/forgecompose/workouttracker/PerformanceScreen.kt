@@ -95,12 +95,12 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.distinctUntilChanged
 
 private val Context.perfDataStore by preferencesDataStore("performance_options")
 
@@ -211,10 +211,31 @@ object PerformanceOptionsManager {
         }
         saved.value = v
     }
+
+    suspend fun setBlurEnabled(context: Context, enabled: Boolean) {
+        context.perfDataStore.edit { it[keyBlurEnabled] = enabled }
+        saved.value = saved.value.copy(blurEnabled = enabled)
+    }
+
+    suspend fun setTaskbarAnimations(context: Context, enabled: Boolean) {
+        context.perfDataStore.edit { it[keyTaskbarAnimations] = enabled }
+        saved.value = saved.value.copy(taskbarAnimations = enabled)
+    }
+
+    suspend fun setMovingGradientAndParticles(context: Context, enabled: Boolean) {
+        context.perfDataStore.edit { it[keyMovingGradientParticles] = enabled }
+        saved.value = saved.value.copy(movingGradientAndParticles = enabled)
+    }
+
+    suspend fun setBlurLengthMs(context: Context, ms: Long) {
+        context.perfDataStore.edit { it[keyBlurLengthMs] = ms }
+        saved.value = saved.value.copy(blurLengthMs = ms)
+    }
 }
 
 class PerformanceOptionsViewModel(app: Application) : AndroidViewModel(app) {
     private val ctx = app.applicationContext
+
     val savedOptions = PerformanceOptionsManager.flow(ctx).stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
@@ -225,11 +246,26 @@ class PerformanceOptionsViewModel(app: Application) : AndroidViewModel(app) {
         started = SharingStarted.WhileSubscribed(5000),
         initialValue = PerformanceOptions.Defaults
     )
+
     fun update(transform: (PerformanceOptions) -> PerformanceOptions) {
         val next = transform(savedOptions.value)
         viewModelScope.launch(Dispatchers.IO) { PerformanceOptionsManager.set(ctx, next) }
     }
+
+    fun setBlurEnabled(b: Boolean) = viewModelScope.launch(Dispatchers.IO) {
+        PerformanceOptionsManager.setBlurEnabled(ctx, b)
+    }
+    fun setTaskbarAnimations(b: Boolean) = viewModelScope.launch(Dispatchers.IO) {
+        PerformanceOptionsManager.setTaskbarAnimations(ctx, b)
+    }
+    fun setMovingGradientAndParticles(b: Boolean) = viewModelScope.launch(Dispatchers.IO) {
+        PerformanceOptionsManager.setMovingGradientAndParticles(ctx, b)
+    }
+    fun setBlurLengthMs(ms: Long) = viewModelScope.launch(Dispatchers.IO) {
+        PerformanceOptionsManager.setBlurLengthMs(ctx, ms.coerceIn(300L, 1200L))
+    }
 }
+
 private enum class ResourceImpact(val label: String, val icon: ImageVector, val color: Color) {
     CPU("CPU", Icons.Default.Architecture, Color(0xFFF2994A)),
     GPU("GPU", Icons.Default.DataObject, Color(0xFF2D9CDB)),
@@ -242,10 +278,16 @@ fun PerformanceOptionsScreen(
     navController: NavController,
     vm: PerformanceOptionsViewModel = viewModel(),
 ) {
-    val opts by vm.effectiveOptions.collectAsState()
+    val saved by vm.savedOptions.collectAsState()
+    val effective by vm.effectiveOptions.collectAsState()
     val scope = rememberCoroutineScope()
+
     var showIntro by remember { mutableStateOf(true) }
-    val introProgress by animateFloatAsState(targetValue = if (showIntro) 0f else 1f, animationSpec = tween(650, easing = LinearEasing), label = "introFade")
+    val introProgress by animateFloatAsState(
+        targetValue = if (showIntro) 0f else 1f,
+        animationSpec = tween(650, easing = LinearEasing),
+        label = "introFade"
+    )
     LaunchedEffect(Unit) { showIntro = false }
 
     val staticGradientBrush = remember {
@@ -255,19 +297,29 @@ fun PerformanceOptionsScreen(
             center = Offset(0.5f, 0.4f)
         )
     }
-    val blurAnim by animateDpAsState(if (showIntro) intensity.value else 0.dp, animationSpec = tween(length.value.toInt()), label = "blur")
+
+    val blurTarget: Dp = if (effective.blurEnabled) intensity.value else 0.dp
+    val blurAnim by animateDpAsState(
+        targetValue = blurTarget,
+        animationSpec = tween(length.value.toInt()),
+        label = "blur"
+    )
+
+    val movingEffectsEnabled = effective.movingGradientAndParticles
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .blur(blurAnim)
-            .drawWithCache {
-                onDrawBehind {
-                    drawRect(Color(0xFF060202))
-                    drawRect(staticGradientBrush)
-                }
-            }
+
     ) {
+        AnimatedBackdrop(
+            modifier = Modifier.fillMaxSize(),
+            introBrush = staticGradientBrush,
+            introAlpha = 1f - introProgress,
+            enableWaves = movingEffectsEnabled,
+            enableAnimation = movingEffectsEnabled,
+        )
+
         Scaffold(
             containerColor = Color.Transparent,
             topBar = {
@@ -300,34 +352,32 @@ fun PerformanceOptionsScreen(
                     SettingsSectionCard(title = "Display & Animation") {
                         PerformanceToggleRow(
                             label = "Enable Blur",
-                            checked = opts.blurEnabled,
+                            checked = saved.blurEnabled,
                             icon = Icons.Default.BlurOn,
                             impacts = listOf(ResourceImpact.GPU)
-                        ) { b -> vm.update { it.copy(blurEnabled = b) } }
+                        ) { b -> vm.setBlurEnabled(b) }
 
                         Spacer(Modifier.height(6.dp))
 
                         BlurLengthRow(
-                            enabled = opts.blurEnabled,
-                            currentMs = opts.blurLengthMs,
-                            onChange = { newMs ->
-                                vm.update { it.copy(blurLengthMs = newMs.coerceIn(300L, 1200L)) }
-                            }
+                            enabled = saved.blurEnabled,
+                            currentMs = saved.blurLengthMs,
+                            onChange = { ms -> vm.setBlurLengthMs(ms) }
                         )
 
                         PerformanceToggleRow(
                             label = "Taskbar Animations",
-                            checked = opts.taskbarAnimations,
+                            checked = saved.taskbarAnimations,
                             icon = Icons.Default.Animation,
                             impacts = listOf(ResourceImpact.GPU)
-                        ) { b -> vm.update { it.copy(taskbarAnimations = b) } }
+                        ) { b -> vm.setTaskbarAnimations(b) }
 
                         PerformanceToggleRow(
                             label = "Moving Background Gradient & Particles",
-                            checked = opts.movingGradientAndParticles,
+                            checked = saved.movingGradientAndParticles,
                             icon = Icons.Default.Grain,
                             impacts = listOf(ResourceImpact.GPU, ResourceImpact.BATTERY)
-                        ) { b -> vm.update { it.copy(movingGradientAndParticles = b) } }
+                        ) { b -> vm.setMovingGradientAndParticles(b) }
                     }
                 }
                 item {
@@ -336,7 +386,9 @@ fun PerformanceOptionsScreen(
                         onClick = {
                             scope.launch { PerformanceOptionsManager.set(context, PerformanceOptions.Defaults) }
                         },
-                        modifier = Modifier.fillMaxWidth().height(50.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(50.dp),
                         shape = RoundedCornerShape(16.dp),
                         colors = ButtonDefaults.buttonColors(
                             containerColor = Color.White.copy(alpha = 0.1f),

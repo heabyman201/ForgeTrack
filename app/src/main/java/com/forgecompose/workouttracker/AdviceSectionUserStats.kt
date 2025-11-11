@@ -76,22 +76,9 @@ fun AdviceSectionUser(
     navController: NavController
 ) {
     val aiEnabled = dynamicModel.personaConfig.value.enabled
-
     val cold = rememberColdStartStages()
-    val glowTransition = rememberInfiniteTransition(label = "adviceGlow")
-    val glow by glowTransition.animateFloat(
-        initialValue = 0.35f,
-        targetValue = 0.9f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(2000, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "glow"
-    )
 
     var isLoading by remember { mutableStateOf(aiEnabled) }
-    val cardShape = remember { RoundedCornerShape(16.dp) }
-
     LaunchedEffect(aiEnabled) {
         isLoading = aiEnabled
         if (aiEnabled) {
@@ -100,20 +87,24 @@ fun AdviceSectionUser(
         }
     }
 
+    val glow: Float = if (aiEnabled && isLoading) {
+        val t = rememberInfiniteTransition(label = "adviceGlow")
+        t.animateFloat(
+            initialValue = 0.35f,
+            targetValue = 0.9f,
+            animationSpec = infiniteRepeatable(animation = tween(2000, easing = FastOutSlowInEasing), repeatMode = RepeatMode.Reverse),
+            label = "glow"
+        ).value
+    } else 0.35f
+
+    val cardShape = remember { RoundedCornerShape(16.dp) }
     val accent = if (aiEnabled) Color(0xFFFF3B30) else Color(0xFFAB4747)
-    val borderGlow = if (aiEnabled) glow else 0.35f
+    val borderGlow = glow
 
     Surface(
-        modifier = modifier
-            .fillMaxWidth()
-            .shadow(
-                elevation = 8.dp,
-                shape = cardShape,
-                ambientColor = Color(0xFF8B0000),
-                spotColor = Color(0xFF8B0000)
-            ),
+        modifier = modifier.fillMaxWidth(),
         shape = cardShape,
-        color = Color(0xFF120707).copy(alpha = 0.75f)
+        color = Color(0xFF120707).copy(alpha = 0.52f)
     ) {
         Box(
             modifier = Modifier
@@ -165,110 +156,49 @@ fun AdviceSectionUser(
                             modifier = Modifier.size(42.dp)
                         )
                         Spacer(modifier = Modifier.size(10.dp))
-
-//                        if (aiEnabled) {
-//                            AnimatedContent(
-//                                targetState = isLoading,
-//                                transitionSpec = {
-//                                    fadeIn(animationSpec = tween(800, easing = FastOutSlowInEasing)) togetherWith
-//                                            fadeOut(animationSpec = tween(800))
-//                                },
-//                                modifier = Modifier
-//                                    .weight(1f)
-//                                    .heightIn(min = 24.dp),
-//                                label = "textMorphAnimation"
-//                            ) { loading ->
-//                                if (loading) {
-//                                    Box(
-//                                        modifier = Modifier
-//                                            .fillMaxWidth()
-//                                            .height(24.dp)
-//                                            .drawWithCache {
-//                                                onDrawBehind {
-//                                                    val lineWidth = size.width / 3
-//                                                    val lineHeight = 4.dp.toPx()
-//                                                    val spacing = 8.dp.toPx()
-//                                                    drawIntoCanvas {
-//                                                        repeat(3) { i ->
-//                                                            drawRect(
-//                                                                color = Color(0xFFFF3B30).copy(alpha = glow),
-//                                                                topLeft = androidx.compose.ui.geometry.Offset(
-//                                                                    x = i * (lineWidth + spacing),
-//                                                                    y = (size.height - lineHeight) / 2
-//                                                                ),
-//                                                                size = androidx.compose.ui.geometry.Size(
-//                                                                    width = lineWidth,
-//                                                                    height = lineHeight
-//                                                                ),
-//                                                                style = Stroke(
-//                                                                    width = 2.dp.toPx(),
-//                                                                    cap = StrokeCap.Round
-//                                                                )
-//                                                            )
-//                                                        }
-//                                                    }
-//                                                }
-//                                            }
-//                                    )
-//                                } else {
-//                                    Text(
-//                                        text = advice,
-//                                        color = Color.White,
-//                                        overflow = TextOverflow.Ellipsis,
-//                                        maxLines = 10
-//                                    )
-//                                }
-//                            }
-//                        }
-//                        else {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = "Last workout:",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = Color.White.copy(alpha = 0.7f)
-                                )
-                                Spacer(modifier = Modifier.height(2.dp))
-                                Text(
-                                    text = lastWorkoutName.ifBlank { "None" },
-                                    style = MaterialTheme.typography.titleLarge.copy(
-                                        fontWeight = FontWeight.Bold
-                                    ),
-                                    color = Color(0xFFFABEC2),
-                                    overflow = TextOverflow.Visible
-                                )
-
-                                val linesToShow = remember(extraLines, maxExtraLines) {
-                                    extraLines.filter { it.isNotBlank() }.take(maxExtraLines)
-                                }
-
-                                AnimatedVisibility(
-                                    visible = linesToShow.isNotEmpty(),
-                                    enter = fadeIn() + expandVertically(clip = false),
-                                    exit = fadeOut() + shrinkVertically(clip = false)
-                                ) {
-                                    Column {
-                                        Spacer(modifier = Modifier.height(10.dp))
-                                        Divider(color = accent.copy(alpha = 0.3f), thickness = 1.dp)
-                                        Spacer(modifier = Modifier.height(10.dp))
-                                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                            linesToShow.forEach { line ->
-                                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                                    Icon(
-                                                        imageVector = Icons.Filled.ChevronRight,
-                                                        contentDescription = null,
-                                                        tint = accent.copy(alpha = 0.7f),
-                                                        modifier = Modifier.size(20.dp)
-                                                    )
-                                                    Spacer(modifier = Modifier.width(6.dp))
-                                                    Text(
-                                                        text = line,
-                                                        style = MaterialTheme.typography.bodyLarge,
-                                                        fontWeight = FontWeight.Bold,
-                                                        color = Color.White.copy(alpha = 0.9f),
-                                                        maxLines = 1,
-                                                        overflow = TextOverflow.Ellipsis
-                                                    )
-                                                }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Last workout:",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = Color.White.copy(alpha = 0.7f)
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = lastWorkoutName.ifBlank { "None" },
+                                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                                color = Color(0xFFFABEC2),
+                                overflow = TextOverflow.Visible
+                            )
+                            val linesToShow = remember(extraLines, maxExtraLines) {
+                                extraLines.filter { it.isNotBlank() }.take(maxExtraLines)
+                            }
+                            AnimatedVisibility(
+                                visible = linesToShow.isNotEmpty(),
+                                enter = fadeIn() + expandVertically(clip = false),
+                                exit = fadeOut() + shrinkVertically(clip = false)
+                            ) {
+                                Column {
+                                    Spacer(modifier = Modifier.height(10.dp))
+                                    Divider(color = accent.copy(alpha = 0.3f), thickness = 1.dp)
+                                    Spacer(modifier = Modifier.height(10.dp))
+                                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        linesToShow.forEach { line ->
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Icon(
+                                                    imageVector = Icons.Filled.ChevronRight,
+                                                    contentDescription = null,
+                                                    tint = accent.copy(alpha = 0.7f),
+                                                    modifier = Modifier.size(20.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text(
+                                                    text = line,
+                                                    style = MaterialTheme.typography.bodyLarge,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = Color.White.copy(alpha = 0.9f),
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
                                             }
                                         }
                                     }
@@ -276,7 +206,6 @@ fun AdviceSectionUser(
                             }
                         }
                     }
-
                     if (aiEnabled && isLoading) {
                         Spacer(modifier = Modifier.height(8.dp))
                         LinearProgressIndicator(
@@ -291,3 +220,5 @@ fun AdviceSectionUser(
             }
         }
     }
+}
+

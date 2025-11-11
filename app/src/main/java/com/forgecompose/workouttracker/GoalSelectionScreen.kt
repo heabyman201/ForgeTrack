@@ -1,6 +1,7 @@
 package com.forgecompose.workouttracker
 
 import android.annotation.SuppressLint
+import android.app.Activity
 import android.content.Intent
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.Animatable
@@ -101,6 +102,7 @@ import com.forgecompose.workouttracker.blurAnim.length
 import com.forgecompose.workouttracker.ui.theme.WorkoutTrackerTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.math.RoundingMode
 import java.time.LocalTime
 import java.time.format.TextStyle
 import kotlin.math.PI
@@ -273,21 +275,26 @@ val blurAnimation by animateDpAsState(
             Color(0xFF0D0404).copy(alpha = 0.8f + intensePulse * 0.1f)
         }
         val context = LocalContext.current
+        val intent = remember { Intent(context, MainActivity::class.java) }
+        val activity = remember { context as? Activity }
+
+        val performanceOptions by PerformanceOptionsManager.flow(context).collectAsState(initial = PerformanceOptions.Defaults)
+        val movingEnabled = performanceOptions.movingGradientAndParticles
+
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .blur(blurAnim)
-                .drawWithCache {
-                    onDrawBehind {
-                        drawRect(brush = aggressiveGradientBrush)
-                        drawRect(brush = secondaryGradientBrush)
-                        drawRect(color = animatedContainerColor)
-                        if (introProgress < 1f) {
-                            drawRect(brush = introBrush, alpha = 1f - introProgress)
-                        }
-                    }
-                }
+
         ) {
+            AnimatedBackdrop(
+                modifier = Modifier.fillMaxSize(),
+                introBrush = introBrush,
+                introAlpha = 1f - introProgress,
+                enableWaves = movingEnabled,
+                enableAnimation = movingEnabled
+
+            )
             Scaffold(
                 containerColor = Color.Transparent,
                 modifier = Modifier.fillMaxSize().blur(
@@ -434,11 +441,11 @@ val blurAnimation by animateDpAsState(
                                         GoalReps.intValue = totalGoalReps
                                     }
                                     scope.launch {
-                                        val roundedWeight = (CurrentWeight.value * 10).roundToInt() / 10f
+                                        val roundedWeight = CurrentWeight.value.roundToInt()
                                         PresetStateRepo.upsert(
                                             context = ctx,
                                             presetName = workout.value,
-                                            weightKg =  roundedWeight,
+                                            weightKg =  roundedWeight.toFloat(),
                                             goalReps = null,
                                             goalSets = GoalSets.intValue,
                                             goalTimeMillis = null
@@ -449,11 +456,11 @@ val blurAnimation by animateDpAsState(
                                 }
                                 "Time" -> if (GoalTime.value != 0L) {
                                     scope.launch {
-                                        val roundedWeight = (CurrentWeight.value * 10).roundToInt() / 10f
+                                        val roundedWeight = CurrentWeight.value.roundToInt()
                                         PresetStateRepo.upsert(
                                             context = ctx,
                                             presetName = workout.value,
-                                            weightKg = roundedWeight,
+                                            weightKg = roundedWeight.toFloat(),
                                             goalReps = null,
                                             goalSets = null,
                                             goalTimeMillis = GoalTime.value

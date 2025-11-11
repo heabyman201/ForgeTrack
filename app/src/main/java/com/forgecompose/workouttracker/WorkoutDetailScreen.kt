@@ -1,8 +1,11 @@
 package com.forgecompose.workouttracker
 
+import android.graphics.RenderEffect
+import android.graphics.Shader
 import android.util.Log
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -52,6 +55,8 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.asComposeRenderEffect
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -61,6 +66,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
+import com.forgecompose.workouttracker.blurAnim.length
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.time.LocalTime
@@ -261,7 +267,13 @@ fun WorkoutDetailScreen(
         return p.category.equals("Cardio", ignoreCase = true)
     }
     val isCardio = isCardioName(selectedWorkout?.name)
-
+    val blurLength = length.value.toInt()
+    val blurEnabled = performanceOptions.blurEnabled
+    val blurIntro by animateDpAsState(
+        if (showIntro && blurEnabled) 32.dp else 0.dp,
+        animationSpec = tween(durationMillis = blurLength, easing = LinearEasing),
+        label = "blurIntro"
+    )
     Scaffold(
         topBar = {
             TopAppBar(
@@ -305,65 +317,26 @@ fun WorkoutDetailScreen(
         containerColor = Color.Transparent,
         modifier = Modifier
             .fillMaxSize()
-            .drawWithCache {
-                val bgBrush = Brush.radialGradient(
-                    colors = listOf(
-                        Color(0xFF702727).copy(alpha = 0.85f + clampedGrad * 0.45f),
-                        Color(0xFF3A1515).copy(alpha = 0.7f + clampedGrad * 0.3f),
-                        Color(0xFF2A0D0D).copy(alpha = 0.8f + clampedGrad * 0.2f),
-                        Color(0xFF1A0808).copy(alpha = 0.9f + clampedGrad * 0.1f),
-                        Color(0xFF0D0404)
-                    ),
-                    radius = 1200f + (clampedGrad * 400f),
-                    center = Offset(0.3f + clampedGrad * 0.4f, 0.2f + clampedGrad * 0.3f)
-                )
-                onDrawBehind {
-                    drawRect(bgBrush)
-                    if (stages.after600ms && shouldAnimate && movingEffectsEnabled) {
-                        val baseAlpha = clampedPulse
-                        val g = clampedGlow
-                        val w = size.width
-                        val h = size.height
-                        for (layer in 0..2) {
-                            val layerOffset = waveOffset + (layer * PI.toFloat() / 4)
-                            val layerAlpha = baseAlpha * (0.25f + layer * 0.12f) * g
-                            val layerColor = when (layer) {
-                                0 -> Color(0xFF4A1A1A).copy(alpha = layerAlpha)
-                                1 -> Color(0xFF3A1515).copy(alpha = layerAlpha * 0.8f)
-                                else -> Color(0xFF2A0D0D).copy(alpha = layerAlpha * 0.6f)
-                            }
-                            wavePath.reset()
-                            val baseY = h * (0.22f + layer * 0.16f)
-                            val step = (w / 36f).coerceAtLeast(10f)
-                            var x = 0f
-                            val waveHeight = 90f
-                            while (x <= w) {
-                                val t = x / w
-                                val phase = t * 3f * PI.toFloat() + layerOffset
-                                val y =
-                                    baseY + sin(phase) * waveHeight * (0.55f + layer * 0.22f) * g
-                                wavePath.lineTo(x, y)
-                                x += step
-                            }
-                            wavePath.lineTo(w, h)
-                            wavePath.lineTo(0f, h)
-                            wavePath.close()
-                            drawPath(path = wavePath, color = layerColor)
-                        }
-                        particles.forEachIndexed { i, (baseX, yOff, r) ->
-                            val px = w * baseX + sin(waveOffset * 0.7f + i) * 60f * g
-                            val py = h * yOff + cos(waveOffset * 0.5f + i * 0.3f) * 60f
-                            val alpha = baseAlpha * (0.35f + sin(waveOffset + i) * 0.25f) * g
-                            drawCircle(Color.White.copy(alpha = alpha), r, Offset(px, py))
-                        }
-                    }
-                    if (introProgress < 1f) {
-                        drawRect(introBrush, alpha = 1f - introProgress)
-                    }
-                }
-            }
+
+
     ) { padding ->
-        Box(modifier = Modifier.fillMaxSize()) {
+
+        Box(modifier = Modifier.fillMaxSize()
+            .graphicsLayer{
+                renderEffect = RenderEffect.createBlurEffect(blurIntro.value,blurIntro.value,Shader.TileMode.DECAL)
+                    .asComposeRenderEffect()
+            }
+
+        ) {
+            AnimatedBackdrop(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding),
+                introBrush = introBrush,
+                introAlpha = 1f- introProgress,
+                enableWaves = movingEffectsEnabled,
+                enableAnimation = movingEffectsEnabled
+            )
             when (uiState) {
                 is WorkoutListUiState.Loading -> LoadingBlock(padding)
                 is WorkoutListUiState.Error -> ErrorBlock(padding)

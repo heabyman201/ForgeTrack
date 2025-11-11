@@ -114,15 +114,15 @@ fun OneRepMaxEstimator(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .drawWithCache {
-                val base = Color(0xFF0D0404).copy(alpha = 0.8f)
-                onDrawBehind {
-                    drawRect(base)
-                    drawRect(staticGradientBrush)
-                    drawRect(secondaryStaticBrush)
-                }
-            }
+
     ) {
+        AnimatedBackdrop(
+            modifier = Modifier.fillMaxSize(),
+            introBrush = staticGradientBrush,
+            introAlpha = 0f,
+            enableWaves = false,
+            enableAnimation = false
+        )
         Scaffold(
             containerColor = Color.Transparent,
             topBar = {

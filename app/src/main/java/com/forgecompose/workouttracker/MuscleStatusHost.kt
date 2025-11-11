@@ -140,21 +140,21 @@ fun ProfileMuscleStatusRoute(
         modifier = Modifier
             .fillMaxSize()
             .blur(blurAnim)
-            .redGridBackground(
-                animationClock = if (movingEffectsEnabled && shouldAnimate) animationClock else 0f,
-                clampedPulse = clampedPulse,
-                clampedGlow = clampedGlow,
-                clampedGrad = clampedGrad,
-                density = density
-            )
-            .drawWithCache {
-                val introBrush = introBrush
-                onDrawBehind {
-                    if (introProgress < 1f) {
-                        drawRect(brush = introBrush, alpha = 1f - introProgress)
-                    }
-                }
-            }
+//            .redGridBackground(
+//                animationClock = if (movingEffectsEnabled && shouldAnimate) animationClock else 0f,
+//                clampedPulse = clampedPulse,
+//                clampedGlow = clampedGlow,
+//                clampedGrad = clampedGrad,
+//                density = density
+//            )
+//            .drawWithCache {
+//                val introBrush = introBrush
+//                onDrawBehind {
+//                    if (introProgress < 1f) {
+//                        drawRect(brush = introBrush, alpha = 1f - introProgress)
+//                    }
+//                }
+//            }
     ) {
         Scaffold(
             topBar = {
@@ -181,6 +181,14 @@ fun ProfileMuscleStatusRoute(
             containerColor = Color.Transparent,
             modifier = Modifier.fillMaxSize()
         ) { padding ->
+            AnimatedBackdrop(
+                    modifier = Modifier,
+                    introBrush = introBrush,
+                    introAlpha = 1f - introProgress,
+                    enableWaves = movingEffectsEnabled,
+                    enableAnimation =  movingEffectsEnabled
+
+            )
             Box(modifier = Modifier.fillMaxSize()) {
                 val haptics = LocalHapticFeedback.current
                 when (uiState) {
@@ -249,7 +257,7 @@ fun ProfileMuscleStatusRoute(
                                                     weeklySummaryAvailable = hasRoomForButton,
                                                     onOpenWeeklySummary = {
                                                         navController.navigate("WeeklySummary")
-                                                        haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                                                        haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.KeyboardTap)
                                                     }
                                                 )
                                             }
@@ -287,19 +295,54 @@ fun Modifier.redGridBackground(
         val majorEvery = 4
         val thin = with(density) { 0.75.dp.toPx() }
         val thick = with(density) { 1.5.dp.toPx() }
-        val bgDeep = Color(0xFF100606).copy(alpha = 0.65f)
-        val bgMid = Color(0xFF1A0808).copy(alpha = 0.65f)
-        val gridMinor = Color(0xFF5C2A2A)
-        val gridMajor = Color(0xFF7A3333)
         val fullPi = (2f * PI).toFloat()
         val driftPx = if (animationClock == 0f) 0f else 16f * sin(animationClock * fullPi / 18f)
         val driftDiag = driftPx * 0.7f
-        val minorAlpha = (0.10f + 0.08f * clampedPulse).coerceIn(0.06f, 0.20f)
-        val majorAlpha = (0.16f + 0.16f * clampedGlow).coerceIn(0.12f, 0.32f)
+
+        val baseLinear = Brush.linearGradient(
+            colors = listOf(
+                Color(0xFF1A0505),
+                Color(0xFF2A0A0A),
+                Color(0xFF3A0F0F),
+                Color(0xFF1A0505)
+            ),
+            start = Offset(0f, size.height * (0.15f + 0.15f * clampedGrad)),
+            end = Offset(size.width, size.height * (0.85f - 0.15f * clampedGrad))
+        )
+        val radialCore = Brush.radialGradient(
+            colors = listOf(
+                Color(0xFF9B111E).copy(alpha = 0.35f + 0.25f * clampedGlow),
+                Color.Transparent
+            ),
+            center = Offset(
+                size.width * (0.28f + 0.44f * clampedGrad),
+                size.height * (0.18f + 0.30f * clampedGrad)
+            ),
+            radius = max(size.width, size.height) * (0.55f + 0.25f * clampedGrad)
+        )
+        val radialHalo = Brush.radialGradient(
+            colors = listOf(
+                Color(0xFFFF4D4D).copy(alpha = 0.10f + 0.12f * clampedPulse),
+                Color.Transparent
+            ),
+            center = Offset(
+                size.width * (0.50f - 0.20f * clampedGrad),
+                size.height * (0.65f - 0.20f * clampedGrad)
+            ),
+            radius = max(size.width, size.height) * (0.75f + 0.15f * clampedGlow)
+        )
+        val sweepGlow = Brush.sweepGradient(
+            0f to Color.Transparent,
+            0.25f to Color(0xFFFFA8A8).copy(alpha = 0.06f + 0.08f * clampedPulse),
+            0.5f to Color.Transparent,
+            0.75f to Color(0xFFFF7A7A).copy(alpha = 0.04f + 0.06f * clampedGlow),
+            1f to Color.Transparent,
+            center = Offset(size.width * 0.5f, size.height * 0.5f)
+        )
         val vignette = Brush.radialGradient(
             colors = listOf(
-                bgMid.copy(alpha = 0.95f),
-                bgDeep.copy(alpha = 1f)
+                Color(0xFF1A0808).copy(alpha = 0.95f),
+                Color(0xFF100606)
             ),
             center = Offset(
                 size.width * (0.30f + 0.40f * clampedGrad),
@@ -307,9 +350,14 @@ fun Modifier.redGridBackground(
             ),
             radius = max(size.width, size.height) * (0.9f + 0.15f * clampedGrad)
         )
+
+        val gridMinor = Color(0xFF5C2A2A)
+        val gridMajor = Color(0xFF7A3333)
+        val minorAlpha = (0.10f + 0.08f * clampedPulse).coerceIn(0.06f, 0.20f)
+        val majorAlpha = (0.16f + 0.16f * clampedGlow).coerceIn(0.12f, 0.32f)
         val pathMinor = Path()
         val pathMajor = Path()
-        fun buildGridPaths() {
+        run {
             pathMinor.reset()
             pathMajor.reset()
             val cols = max(1, (size.width / minSpacingPx).toInt() + 2)
@@ -329,7 +377,6 @@ fun Modifier.redGridBackground(
                 target.lineTo(size.width + minSpacingPx * 2, y)
             }
         }
-        buildGridPaths()
         val strokeMinor = Stroke(width = thin)
         val strokeMajor = Stroke(width = thick)
         val sheen = Brush.linearGradient(
@@ -341,25 +388,20 @@ fun Modifier.redGridBackground(
             start = Offset.Zero,
             end = Offset(size.width, size.height)
         )
+
         onDrawWithContent {
-            drawRect(color = bgDeep)
+            drawRect(brush = baseLinear)
+            drawRect(brush = radialCore)
+            drawRect(brush = radialHalo)
+            drawRect(brush = sweepGlow)
             drawRect(brush = vignette)
-            withTransform({
-                translate(driftDiag, driftDiag)
-            }) {
-                drawPath(
-                    path = pathMinor,
-                    color = gridMinor.copy(alpha = minorAlpha),
-                    style = strokeMinor
-                )
-                drawPath(
-                    path = pathMajor,
-                    color = gridMajor.copy(alpha = majorAlpha),
-                    style = strokeMajor
-                )
+            withTransform({ translate(driftDiag, driftDiag) }) {
+                drawPath(path = pathMinor, color = gridMinor.copy(alpha = minorAlpha), style = strokeMinor)
+                drawPath(path = pathMajor, color = gridMajor.copy(alpha = majorAlpha), style = strokeMajor)
             }
             drawRect(brush = sheen)
             drawContent()
         }
     }
 )
+

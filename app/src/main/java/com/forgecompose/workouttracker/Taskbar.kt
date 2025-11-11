@@ -50,12 +50,17 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AddCircle
+import androidx.compose.material.icons.filled.AddCircleOutline
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.FitnessCenter
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.PlayCircle
+import androidx.compose.material.icons.filled.Start
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
@@ -235,7 +240,7 @@ fun FloatingTaskbar(
                     }
                 }
             } else {
-                val baseIsVisible = uiState is WorkoutListUiState.Success && uiState.workouts.isNotEmpty() && !taskbarOverride.shouldOverrideVisiblity.value
+                val baseIsVisible = uiState is WorkoutListUiState.Success && !taskbarOverride.shouldOverrideVisiblity.value
                 var isDismissedByUser by remember { mutableStateOf(false) }
                 val offsetY = remember { Animatable(0f) }
                 val scope = rememberCoroutineScope()
@@ -253,8 +258,8 @@ fun FloatingTaskbar(
                     ) {
                         val items = remember {
                             listOf(
-                                "WorkoutHistory" to Icons.Filled.History,
                                 "HomeScreen" to Icons.Filled.Home,
+                                "WorkoutSelector" to Icons.Filled.AddCircle,
                                 "MuscleGroup" to Icons.Filled.FitnessCenter,
                                 "UserProfile" to Icons.Filled.Person
                             )
@@ -373,7 +378,7 @@ fun FloatingTaskbar(
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    val order = listOf("WorkoutHistory", "HomeScreen", "MuscleGroup", "UserProfile")
+                                    val order = listOf("HomeScreen", "WorkoutSelector", "MuscleGroup", "UserProfile")
                                     items.forEachIndexed { index, (route, icon) ->
                                         val selected = currentRoute == route
                                         val glowTarget by animateFloatAsState(targetValue = if (selected) 1f else 0f, animationSpec = if (animationsEnabled) tween(300, easing = CubicBezierEasing(0.2f, 0.8f, 0.2f, 1f)) else tween(0), label = "")

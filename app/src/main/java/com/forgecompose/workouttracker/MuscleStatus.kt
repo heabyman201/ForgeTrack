@@ -1,6 +1,9 @@
 package com.forgecompose.workouttracker
 
+import android.health.connect.datatypes.HeartRateRecord
+import android.os.Build
 import android.util.Log
+import androidx.annotation.RequiresApi
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.animateFloat
@@ -32,7 +35,6 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
@@ -43,20 +45,23 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ArrowDownward
 import androidx.compose.material.icons.outlined.ArrowUpward
-import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.FitnessCenter
-import androidx.compose.material.icons.outlined.KeyboardArrowDown
 import androidx.compose.material.icons.outlined.MonitorHeart
 import androidx.compose.material.icons.outlined.NightlightRound
 import androidx.compose.material.icons.outlined.Restaurant
 import androidx.compose.material.icons.outlined.Restore
 import androidx.compose.material.icons.outlined.Scale
 import androidx.compose.material.icons.outlined.Warning
+import androidx.compose.material.icons.outlined.WaterDrop
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.SheetState
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -88,6 +93,7 @@ import androidx.health.connect.client.records.NutritionRecord
 import androidx.health.connect.client.records.OxygenSaturationRecord
 import androidx.health.connect.client.records.RestingHeartRateRecord
 import androidx.health.connect.client.records.SleepSessionRecord
+import androidx.health.connect.client.records.HeartRateRecord as HcHeartRateRecord
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -100,9 +106,9 @@ import kotlin.math.exp
 import kotlin.math.floor
 import kotlin.math.ln
 import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.pow
-
-// ----------------------------- PROFILE & ENUMS --------------------------------
+import kotlin.math.roundToInt
 
 data class UserProfile(
     val name: String,
@@ -131,31 +137,16 @@ fun buildUserProfile(prefs: UserPreferencesManager): UserProfile {
     )
 }
 
-enum class MuscleGroups {
-    Pecs, Delts, Biceps, Triceps, Lats, Traps, Abs, Forearms, Quads, Hamstrings, Glutes, Calves, LowerBack, UpperBack
-}
+enum class MuscleGroups { Pecs, Delts, Biceps, Triceps, Lats, Traps, Abs, Forearms, Quads, Hamstrings, Glutes, Calves, LowerBack, UpperBack }
 
-/**
- * New richer readiness bands mapped to a WEEKLY goal model.
- *
- * NotTrained           -> no hits in ~21d (or brand new)
- * SlightlyTrained      -> < 25% of weekly target
- * Building             -> 25%..75% of weekly target, not yet on track
- * OnTrack              -> ~75%..110% of target, good to maintain or finish
- * Recovering           -> within post-session recovery window (recent acute work)
- * Overreached          -> > 140% of target, watch fatigue
- * DeloadRecommended    -> heavy recent load + stale recovery markers
- */
-enum class LoadBand {
-    NotTrained, SlightlyTrained, Building, OnTrack, Recovering, Overreached, DeloadRecommended
-}
+enum class LoadBand { NotTrained, SlightlyTrained, Building, OnTrack, Recovering, Overreached, DeloadRecommended }
 
 data class MuscleLoad(
     val group: MuscleGroups,
-    val weeklyProgress: Float,            // effective sets last 7d
-    val weeklyTarget: Float,              // target effective sets (from profile)
+    val weeklyProgress: Float,
+    val weeklyTarget: Float,
     val band: LoadBand,
-    val score: Float,                     // 0..1 relative to a soft cap
+    val score: Float,
     val lastTrainedAgo: String? = null
 )
 
@@ -167,56 +158,49 @@ data class RecoveryFactors(
     val bodyFatPercentage: Double?
 ) {
     val sleepMultiplier: Float = when {
-        sleepHours == null -> 1.0f
+        sleepHours == null -> 1f
         sleepHours >= 8.5f -> 1.15f
         sleepHours >= 7.5f -> 1.08f
-        sleepHours >= 6.5f -> 1.0f
-        sleepHours >= 5.0f -> 0.92f
+        sleepHours >= 6.5f -> 1f
+        sleepHours >= 5f -> 0.92f
         else -> 0.85f
     }
     val rhrMultiplier: Float = when {
-        restingHeartRate == null -> 1.0f
+        restingHeartRate == null -> 1f
         restingHeartRate < 50 -> 1.1f
         restingHeartRate < 60 -> 1.05f
-        restingHeartRate < 70 -> 1.0f
+        restingHeartRate < 70 -> 1f
         restingHeartRate < 80 -> 0.95f
         else -> 0.9f
     }
     val spo2Multiplier: Float = when {
-        sleepSpo2 == null -> 1.0f
+        sleepSpo2 == null -> 1f
         sleepSpo2 >= 98.0 -> 1.08f
         sleepSpo2 >= 95.0 -> 1.04f
-        sleepSpo2 >= 92.0 -> 1.0f
+        sleepSpo2 >= 92.0 -> 1f
         else -> 0.93f
     }
     val proteinMultiplier: Float = when {
-        proteinGrams == null -> 1.0f
+        proteinGrams == null -> 1f
         proteinGrams >= 150 -> 1.12f
         proteinGrams >= 100 -> 1.06f
-        proteinGrams >= 60 -> 1.0f
+        proteinGrams >= 60 -> 1f
         else -> 0.94f
     }
     val bodyFatMultiplier: Float = when {
-        bodyFatPercentage == null -> 1.0f
+        bodyFatPercentage == null -> 1f
         bodyFatPercentage in 12.0..20.0 -> 1.05f
-        bodyFatPercentage in 8.0..25.0 -> 1.0f
+        bodyFatPercentage in 8.0..25.0 -> 1f
         else -> 0.96f
     }
-    val totalMultiplier: Float = (sleepMultiplier * rhrMultiplier * spo2Multiplier * proteinMultiplier * bodyFatMultiplier)
-        .coerceIn(0.8f, 1.25f)
+    val totalMultiplier: Float = (sleepMultiplier * rhrMultiplier * spo2Multiplier * proteinMultiplier * bodyFatMultiplier).coerceIn(0.8f, 1.25f)
 }
 
-// ----------------------------- UTIL & PARSERS --------------------------------
-
-data class WorkoutSummary(
-    val date: Instant,
-    val name: String,
-    val exercises: List<String> = emptyList()
-)
+data class WorkoutSummary(val date: Instant, val name: String, val exercises: List<String> = emptyList())
 
 private fun friendlyAgo(now: Instant, then: Instant): String {
     val mins = ChronoUnit.MINUTES.between(then, now)
-    if (mins < 60) return "${max(0L, mins)}m ago"
+    if (mins < 60) return "${kotlin.math.max(0L, mins)}m ago"
     val hours = ChronoUnit.HOURS.between(then, now)
     if (hours < 24) return "${hours}h ago"
     val days = ChronoUnit.DAYS.between(then, now)
@@ -272,7 +256,6 @@ private fun muscleFatigueBias(m: MuscleGroups): Pair<Float, Float> = when (m) {
     MuscleGroups.Pecs -> 1.02f to 0.98f
 }
 
-// Weekly target builder (kept from your logic, tweaked slightly)
 private fun computeTargets(profile: UserProfile, muscle: MuscleGroups): Targets {
     var tgt = 14.5f
     tgt *= expMultFrom(profile.experience)
@@ -344,8 +327,6 @@ private fun computeTargets(profile: UserProfile, muscle: MuscleGroups): Targets 
     return Targets(target = tgt, lackingCutoff = lacking, overtrainedCutoff = over)
 }
 
-// -------------------------------- PARSING -------------------------------------
-
 private data class ParsedVolume(val sets: Int?, val reps: Int?, val weightKg: Float?)
 private val tripletRx = Regex("""(?:(\d+)\s*[xX]\s*(\d+)(?:\s*[xX]\s*([0-9]*\.?[0-9]+))?)(?:\s*@\s*([0-9]*\.?[0-9]+|bw|bodyweight))?""")
 private val inlineWordsRx = Regex("""(?:(\d+)\s*sets?)|(?:(\d+)\s*reps?)|(?:(\d+)\s*kg)|(?:(\d+)\s*lbs?)""", RegexOption.IGNORE_CASE)
@@ -396,7 +377,7 @@ private fun parseVolumeFromText(s: String): ParsedVolume {
 }
 
 private fun difficultyWordMult(token: String): Float {
-    var m = 1.12f // make it build fast
+    var m = 1.12f
     if ("amrap" in token || "failure" in token) m *= 1.12f
     if ("drop set" in token || "dropset" in token) m *= 1.08f
     if ("super set" in token || "superset" in token) m *= 1.06f
@@ -420,11 +401,9 @@ private fun effectiveSetsFromToken(token: String, profile: UserProfile): Float {
         0.78f + 0.38f * ratio.pow(0.45f)
     } ?: 0.9f
     val wordMult = difficultyWordMult(token)
-    val optimismBoost = 1.18f // faster accumulation
+    val optimismBoost = 1.18f
     return baseSets * repsFactor * loadFactor * wordMult * optimismBoost
 }
-
-// ----------------------------- EXERCISE → MUSCLES -----------------------------
 
 private val nameToMusclesWeighted: List<Pair<Regex, List<Pair<MuscleGroups, Float>>>> = listOf(
     "bench( press)?|flat bench|barbell bench" to listOf(MuscleGroups.Pecs to 1.0f, MuscleGroups.Triceps to 0.6f, MuscleGroups.Delts to 0.6f),
@@ -486,8 +465,6 @@ private fun stimulusFor(entry: WorkoutSummary, profile: UserProfile): Map<Muscle
     return per
 }
 
-// -------------- WEEKLY ENGINE (fast build-up + recovery window) ---------------
-
 private fun buildFrequencyHints(now: Instant, recent: List<WorkoutSummary>, profile: UserProfile): Map<MuscleGroups, Float> {
     val start = now.minus(Duration.ofDays(28))
     val month = recent.filter { it.date.isAfter(start) && it.date.isBefore(now) }.sortedBy { it.date }
@@ -518,26 +495,24 @@ private fun weeklyEffectiveSets(now: Instant, recent: List<WorkoutSummary>, prof
     return acc
 }
 
-private fun dailyEffectiveSets(now: Instant, recent: List<WorkoutSummary>, profile: UserProfile): Map<MuscleGroups, Float> {
-    val start = now.minus(Duration.ofDays(1))
-    val day = recent.filter { it.date.isAfter(start) && it.date.isBefore(now) }
-    val acc = mutableMapOf<MuscleGroups, Float>().withDefault { 0f }
-    day.forEach { w ->
-        val per = stimulusFor(w, profile)
-        per.forEach { (m, v) -> acc[m] = acc.getValue(m) + v }
-    }
-    return acc
-}
-
-private fun recentAcuteStimulus(now: Instant, horizonHours: Long, recent: List<WorkoutSummary>, profile: UserProfile): Map<MuscleGroups, Float> {
-    val start = now.minus(Duration.ofHours(horizonHours))
-    val window = recent.filter { it.date.isAfter(start) && it.date.isBefore(now) }
+private fun windowEffectiveSets(start: Instant, end: Instant, recent: List<WorkoutSummary>, profile: UserProfile): Map<MuscleGroups, Float> {
+    val window = recent.filter { it.date.isAfter(start) && it.date.isBefore(end) }
     val acc = mutableMapOf<MuscleGroups, Float>().withDefault { 0f }
     window.forEach { w ->
         val per = stimulusFor(w, profile)
         per.forEach { (m, v) -> acc[m] = acc.getValue(m) + v }
     }
     return acc
+}
+
+private fun dailyEffectiveSets(now: Instant, recent: List<WorkoutSummary>, profile: UserProfile): Map<MuscleGroups, Float> {
+    val start = now.minus(Duration.ofDays(1))
+    return windowEffectiveSets(start, now, recent, profile)
+}
+
+private fun recentAcuteStimulus(now: Instant, horizonHours: Long, recent: List<WorkoutSummary>, profile: UserProfile): Map<MuscleGroups, Float> {
+    val start = now.minus(Duration.ofHours(horizonHours))
+    return windowEffectiveSets(start, now, recent, profile)
 }
 
 private fun buildLastTrainedMap(recent: List<WorkoutSummary>, profile: UserProfile): Map<MuscleGroups, Instant> {
@@ -551,8 +526,6 @@ private fun buildLastTrainedMap(recent: List<WorkoutSummary>, profile: UserProfi
     return last
 }
 
-// ------------------------------ LIFESTYLE -------------------------------------
-
 private data class LifestyleSignals(
     val sleepOk: Boolean,
     val sleepAvg28d: Float?,
@@ -565,10 +538,7 @@ private data class LifestyleSignals(
     val proteinTargetG: Int
 )
 
-private fun lifestyleSignalsFrom(
-    profile: UserProfile,
-    factors: RecoveryFactors
-): LifestyleSignals {
+private fun lifestyleSignalsFrom(profile: UserProfile, factors: RecoveryFactors): LifestyleSignals {
     val sleepAvg = factors.sleepHours
     val rhr = factors.restingHeartRate
     val spo2 = factors.sleepSpo2
@@ -590,22 +560,18 @@ private fun lifestyleSignalsFrom(
         proteinTargetG = protTarget
     )
 }
-
-// ----------------------- NEW CORE: deriveMuscleLoads --------------------------
-
+@RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
 suspend fun deriveMuscleLoads(
     now: Instant,
     recent: List<WorkoutSummary>,
     profile: UserProfile,
     aiText: String?,
     sleepSessions: List<SleepSessionRecord>,
-    restingHeartRates: List<RestingHeartRateRecord>,
     oxygenSaturations: List<OxygenSaturationRecord>,
     nutrition: List<NutritionRecord>,
-    bodyFat: List<BodyFatRecord>
+    bodyFat: List<BodyFatRecord>,
+    readHeartRate: suspend (Instant, Instant) -> List<HcHeartRateRecord>
 ): Pair<List<MuscleLoad>, RecoveryFactors> = withContext(Dispatchers.Default) {
-
-    // Recovery factors
     val sleepSpo2Recent = run {
         val sleepWindowStart = now.minus(Duration.ofDays(7))
         val sleeps = sleepSessions.filter { it.startTime.isAfter(sleepWindowStart) && it.startTime.isBefore(now) }
@@ -622,65 +588,72 @@ suspend fun deriveMuscleLoads(
         nutrition.filter { it.startTime.isAfter(start24) && it.startTime.isBefore(now) }
             .sumOf { it.protein?.inGrams ?: 0.0 }
     }
+    val avgHrLast24: Long? = run {
+        val start24 = now.minus(Duration.ofHours(24))
+        val hrs = readHeartRate(start24, now)
+        val samples = hrs.flatMap { it.samples }.map { it.beatsPerMinute.toDouble() }
+        val avg = samples.average()
+        if (samples.isEmpty() || avg.isNaN()) null else kotlin.math.round(avg).toLong()
+    }
     val recovery = RecoveryFactors(
         sleepHours = sleepHoursInLast(sleepSessions, now, 28L * 24L),
-        restingHeartRate = restingHeartRates.maxByOrNull { it.time }?.beatsPerMinute,
+        restingHeartRate = avgHrLast24,
         sleepSpo2 = sleepSpo2Recent,
         proteinGrams = proteinLast24h,
         bodyFatPercentage = bodyFat.maxByOrNull { it.time }?.percentage?.value
     )
-
     val weekly = weeklyEffectiveSets(now, recent, profile)
     val lastTrained = buildLastTrainedMap(recent, profile)
     val acute12h = recentAcuteStimulus(now, 12, recent, profile)
-
     val rMult = recovery.totalMultiplier
-    // Soft-cap to normalize score feel across users
     val softCapMult = (0.95f + (rMult - 1f) * 0.15f).coerceIn(0.85f, 1.1f)
-
     val loads = MuscleGroups.entries.map { m ->
         val target = computeTargets(profile, m).target
         val wk = (weekly[m] ?: 0f)
         val last = lastTrained[m]
         val hoursSince = last?.let { ChronoUnit.HOURS.between(it, now).coerceAtLeast(0) } ?: Long.MAX_VALUE
         val acute = (acute12h[m] ?: 0f)
-
-        // State: "Recovering" triggers if we hit the muscle recently (fast window grows with acute)
         val recWindow = (6f + acute.coerceAtMost(10f)).coerceIn(4f, 16f)
         val pct = if (target <= 0f) 0f else wk / target
-
         val band = when {
-            // Zero/no data for ~3 weeks
             last == null || ChronoUnit.DAYS.between(last, now) >= 21L -> LoadBand.NotTrained
-            // Immediate post-session
             acute > 0.25f && hoursSince < recWindow -> LoadBand.Recovering
-            // Under target tiers
             pct < 0.25f -> LoadBand.SlightlyTrained
             pct < 0.75f -> LoadBand.Building
-            // Healthy zone
             pct <= 1.10f -> LoadBand.OnTrack
-            // Overwork tiers
-            pct > 1.60f && !recovery.rhrMultiplier.isFinite() || // fallback
-                    (pct > 1.60f && rMult < 0.96f) -> LoadBand.DeloadRecommended
+            pct > 1.60f && rMult < 0.96f -> LoadBand.DeloadRecommended
             pct > 1.40f -> LoadBand.Overreached
             else -> LoadBand.OnTrack
         }
-
-        // Score: relative to target * 1.6 (soft cap), scaled by recovery
         val softCap = target * 1.6f * softCapMult
         val score = (wk / softCap).coerceIn(0f, 1f)
-
-        MuscleLoad(
-            group = m,
-            weeklyProgress = wk,
-            weeklyTarget = target,
-            band = band,
-            score = score,
-            lastTrainedAgo = last?.let { friendlyAgo(now, it) }
-        )
+        MuscleLoad(group = m, weeklyProgress = wk, weeklyTarget = target, band = band, score = score, lastTrainedAgo = last?.let { friendlyAgo(now, it) })
     }
-
     loads to recovery
+}
+
+@RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
+suspend fun deriveMuscleLoadsStepwise(
+    now: Instant,
+    recent: List<WorkoutSummary>,
+    profile: UserProfile,
+    aiText: String?,
+    onStep: (List<MuscleLoad>, RecoveryFactors, Int, Int) -> Unit,
+    sleepSessions: List<SleepSessionRecord>,
+    oxygenSaturations: List<OxygenSaturationRecord>,
+    nutrition: List<NutritionRecord>,
+    bodyFat: List<BodyFatRecord>,
+    readHeartRate: suspend (Instant, Instant) -> List<HcHeartRateRecord>
+): Pair<List<MuscleLoad>, RecoveryFactors> {
+    val (final, factors) = deriveMuscleLoads(now, recent, profile, aiText, sleepSessions, oxygenSaturations, nutrition, bodyFat, readHeartRate)
+    val total = final.size
+    val acc = mutableListOf<MuscleLoad>()
+    for ((i, item) in final.sortedBy { it.group.name }.withIndex()) {
+        acc += item
+        onStep(acc.toList(), factors, i + 1, total)
+        delay(45)
+    }
+    return acc to factors
 }
 
 private fun sleepHoursInLast(records: List<SleepSessionRecord>, now: Instant, lookbackHours: Long): Float {
@@ -695,33 +668,6 @@ private fun sleepHoursInLast(records: List<SleepSessionRecord>, now: Instant, lo
     val days = lookbackHours / 24f
     return if (days > 0f) (total / 60f) / days else 0f
 }
-
-// Stepwise variant preserved for your loading UI
-suspend fun deriveMuscleLoadsStepwise(
-    now: Instant,
-    recent: List<WorkoutSummary>,
-    profile: UserProfile,
-    aiText: String?,
-    onStep: (List<MuscleLoad>, RecoveryFactors, Int, Int) -> Unit,
-    sleepSessions: List<SleepSessionRecord>,
-    restingHeartRates: List<RestingHeartRateRecord>,
-    oxygenSaturations: List<OxygenSaturationRecord>,
-    nutrition: List<NutritionRecord>,
-    bodyFat: List<BodyFatRecord>
-): Pair<List<MuscleLoad>, RecoveryFactors> {
-    val (final, factors) = deriveMuscleLoads(now, recent, profile, aiText, sleepSessions, restingHeartRates, oxygenSaturations, nutrition, bodyFat)
-    val total = final.size
-    val acc = mutableListOf<MuscleLoad>()
-    for ((i, item) in final.sortedBy { it.group.name }.withIndex()) {
-        acc += item
-        onStep(acc.toList(), factors, i + 1, total)
-        delay(45)
-    }
-    return acc to factors
-}
-
-// ---------------------------- MISSIONS (personal) -----------------------------
-
 private data class Mission(
     val group: MuscleGroups,
     val setsGoalToday: Int,
@@ -732,11 +678,7 @@ private data class Mission(
     val lifestyleHints: List<String> = emptyList()
 )
 
-private fun recentExercisesByMuscle(
-    recent: List<WorkoutSummary>,
-    profile: UserProfile,
-    limitDays: Long = 45
-): Map<MuscleGroups, List<String>> {
+private fun recentExercisesByMuscle(recent: List<WorkoutSummary>, profile: UserProfile, limitDays: Long = 45): Map<MuscleGroups, List<String>> {
     val cutoff = Instant.now().minus(Duration.ofDays(limitDays))
     val buckets = mutableMapOf<MuscleGroups, MutableMap<String, Float>>()
     recent.filter { it.date.isAfter(cutoff) }.forEach { w ->
@@ -777,11 +719,7 @@ private val defaultExercises: Map<MuscleGroups, List<String>> = mapOf(
     MuscleGroups.UpperBack to listOf("Barbell Row", "Chest-Supported Row", "Face Pull"),
 )
 
-private fun chooseExercisesFor(
-    m: MuscleGroups,
-    recentMap: Map<MuscleGroups, List<String>>,
-    maxItems: Int = 3
-): List<String> {
+private fun chooseExercisesFor(m: MuscleGroups, recentMap: Map<MuscleGroups, List<String>>, maxItems: Int = 3): List<String> {
     val fromRecent = recentMap[m].orEmpty().take(maxItems)
     if (fromRecent.isNotEmpty()) return fromRecent
     return defaultExercises[m].orEmpty().take(maxItems)
@@ -796,6 +734,170 @@ private fun categoryOf(name: String): BodyCategory = when (name.lowercase()) {
     else -> BodyCategory.UpperBody
 }
 
+private data class MuscleInsight(
+    val growthPct: Float,
+    val growthLabel: String,
+    val fatigue: Float,
+    val readinessText: String,
+    val suggestedRpeMin: Int,
+    val suggestedRpeMax: Int,
+    val recommendation: String
+)
+
+private fun twoWindowGrowth(now: Instant, recent: List<WorkoutSummary>, profile: UserProfile): Pair<Map<MuscleGroups, Float>, Map<MuscleGroups, Float>> {
+    val curStart = now.minus(Duration.ofDays(14))
+    val prevStart = now.minus(Duration.ofDays(28))
+    val prev = windowEffectiveSets(prevStart, curStart, recent, profile)
+    val cur = windowEffectiveSets(curStart, now, recent, profile)
+    return prev to cur
+}
+
+private fun fatigueEstimate(m: MuscleGroups, now: Instant, lastTrained: Map<MuscleGroups, Instant>, acute24: Map<MuscleGroups, Float>, recovery: RecoveryFactors): Float {
+    val last = lastTrained[m]
+    val hours = last?.let { ChronoUnit.HOURS.between(it, now).coerceAtLeast(0) } ?: 999L
+    val acute = (acute24[m] ?: 0f)
+    val decay = when {
+        hours < 6 -> 1f
+        hours < 24 -> 0.75f
+        hours < 36 -> 0.55f
+        hours < 48 -> 0.42f
+        else -> 0.28f
+    }
+    val rec = recovery.totalMultiplier
+    val base = (acute / 6f).coerceIn(0f, 1.4f) * decay
+    val recAdj = when {
+        rec >= 1.10f -> 0.85f
+        rec >= 1.03f -> 0.92f
+        rec <= 0.92f -> 1.18f
+        rec <= 0.98f -> 1.08f
+        else -> 1f
+    }
+    return (base * recAdj).coerceIn(0f, 1f)
+}
+
+private fun insightForMuscle(
+    m: MuscleGroups,
+    now: Instant,
+    profile: UserProfile,
+    weekly: Map<MuscleGroups, Float>,
+    lastTrained: Map<MuscleGroups, Instant>,
+    prev14: Map<MuscleGroups, Float>,
+    cur14: Map<MuscleGroups, Float>,
+    acute24: Map<MuscleGroups, Float>,
+    recovery: RecoveryFactors,
+    mission: Mission?
+): MuscleInsight {
+    val target = computeTargets(profile, m).target
+    val cur = cur14[m] ?: 0f
+    val prev = prev14[m] ?: 0f
+    val growthPct = if (prev <= 0.01f) if (cur > 0f) 100f else 0f else ((cur - prev) / prev * 100f).coerceIn(-100f, 200f)
+    val growthLabel = when {
+        growthPct > 12f -> "rising"
+        growthPct < -8f -> "falling"
+        else -> "stable"
+    }
+    val fatigue = fatigueEstimate(m, now, lastTrained, acute24, recovery)
+    val dose = (weekly[m] ?: 0f)
+    val pct = if (target <= 0f) 0f else dose / target
+    val readinessText = when {
+        fatigue > 0.75f -> "fatigued"
+        fatigue > 0.5f -> "warm but workable"
+        pct < 0.25f -> "needs volume"
+        pct in 0.25f..0.75f -> "good to build"
+        pct in 0.75f..1.1f -> "maintain or top-up"
+        pct > 1.4f -> "overreached"
+        else -> "on track"
+    }
+    val rpeMinMax = when {
+        fatigue > 0.8f -> 6 to 7
+        fatigue > 0.6f -> 6 to 8
+        pct > 1.3f -> 6 to 7
+        pct < 0.5f -> 7 to 9
+        else -> 7 to 8
+    }
+    val rec = when {
+        pct > 1.6f -> "deload or pump work, higher RIR"
+        pct > 1.3f -> "reduce sets, keep technique crisp"
+        fatigue > 0.75f -> "light work only, focus on form"
+        growthPct < -8f && pct < 0.7f -> "add a set and keep RPE ${rpeMinMax.first}"
+        growthPct > 12f && pct < 0.9f -> "keep momentum, similar plan"
+        pct < 0.25f -> "prioritize today with extra sets"
+        else -> "standard progression"
+    }
+    val suggested = mission?.let { it.setsGoalToday } ?: ((target / 7f) * when {
+        pct < 0.25f -> 1.6f
+        pct < 0.5f -> 1.3f
+        pct < 0.75f -> 1.15f
+        pct < 0.95f -> 1.0f
+        else -> 0.6f
+    }).roundToInt().coerceIn(2, 10)
+    return MuscleInsight(growthPct = growthPct, growthLabel = growthLabel, fatigue = fatigue, readinessText = "$readinessText • $suggested sets", suggestedRpeMin = rpeMinMax.first, suggestedRpeMax = rpeMinMax.second, recommendation = rec)
+}
+
+// 2) Add this missing composable
+@Composable
+private fun CategoryFilterBar(selected: BodyCategory, onSelect: (BodyCategory) -> Unit) {
+    val items = listOf(
+        BodyCategory.All to "All",
+        BodyCategory.UpperBody to "Upper",
+        BodyCategory.Arms to "Arms",
+        BodyCategory.Core to "Core",
+        BodyCategory.LowerBody to "Lower"
+    )
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        items.forEach { (cat, label) ->
+            val isSelected = selected == cat
+            val interactionSource = remember { MutableInteractionSource() }
+            val isPressed by interactionSource.collectIsPressedAsState()
+            val scale by animateFloatAsState(if (isPressed) 0.95f else 1f, label = "")
+            val pillRadius = 32.dp
+            Box(
+                modifier = Modifier
+                    .graphicsLayer { scaleX = scale; scaleY = scale }
+                    .clip(RoundedCornerShape(pillRadius))
+                    .clickable(interactionSource = interactionSource, indication = null) { onSelect(cat) }
+                    .drawWithCache {
+                        val bgBrush =
+                            if (isSelected) Brush.radialGradient(
+                                listOf(Color(0xFF2C0404), Color(0xFF2B0404)),
+                                radius = size.minDimension * 2f
+                            ) else Brush.radialGradient(
+                                listOf(Color.White.copy(alpha = 0.1f), Color.Transparent),
+                                radius = size.minDimension * 2f
+                            )
+                        val borderBrush =
+                            if (isSelected) Brush.linearGradient(
+                                listOf(
+                                    Color(0xFFFF5555).copy(alpha = 0.6f),
+                                    Color(0xFF8B0000).copy(alpha = 0.45f)
+                                )
+                            ) else Brush.radialGradient(
+                                listOf(Color(0x00171717), Color(0xFF525252)),
+                                radius = size.minDimension * 2f
+                            )
+                        onDrawBehind {
+                            drawRoundRect(brush = bgBrush, cornerRadius = CornerRadius(pillRadius.toPx()))
+                            drawRoundRect(
+                                brush = borderBrush,
+                                style = Stroke(width = 1.dp.toPx()),
+                                cornerRadius = CornerRadius(pillRadius.toPx())
+                            )
+                        }
+                    }
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(label, color = if (isSelected) Color(0xFFF8BDC1) else Color.White.copy(alpha = 0.7f))
+            }
+        }
+    }
+}
 private fun planDailyMissions(
     now: Instant,
     profile: UserProfile,
@@ -807,37 +909,27 @@ private fun planDailyMissions(
     lifestyle: LifestyleSignals,
     maxMissions: Int = 4
 ): List<Mission> {
+    fun hoursSince(m: MuscleGroups): Long =
+        lastTrained[m]?.let { ChronoUnit.HOURS.between(it, now).coerceAtLeast(0) } ?: Long.MAX_VALUE
 
-    fun hoursSince(m: MuscleGroups): Long {
-        val t = lastTrained[m] ?: return Long.MAX_VALUE
-        return ChronoUnit.HOURS.between(t, now).coerceAtLeast(0)
-    }
-
-    val name = profile.name.ifBlank { "you" }
     val priorityBoost = profile.importantMuscles.associateWith { 1.15f }
 
     val missions = loads.mapNotNull { ml ->
         val wk = weekly[ml.group] ?: 0f
         val day = daily[ml.group] ?: 0f
         val pct = if (ml.weeklyTarget <= 0f) 0f else wk / ml.weeklyTarget
-        val hrs = hoursSince(ml.group).toFloat()
+        val hrs = hoursSince(ml.group)
 
-        // Skip if in hard recovery or deload
         if (ml.band == LoadBand.DeloadRecommended) return@mapNotNull null
-        if (ml.band == LoadBand.Recovering && hrs < 6f) return@mapNotNull null
+        if (ml.band == LoadBand.Recovering && hrs < 6) return@mapNotNull null
 
-        // Personal tilt
         val boost = priorityBoost[ml.group] ?: 1f
+        val fatiguePenalty =
+            (if (lifestyle.sleepOk) 0f else 0.12f) +
+                    (if (lifestyle.proteinOk) 0f else 0.08f) +
+                    (if (lifestyle.rhrOk) 0f else 0.06f) +
+                    (if (lifestyle.spo2Ok) 0f else 0.05f)
 
-        // Lifestyle penalty
-        val fatiguePenalty = listOf(
-            if (!lifestyle.sleepOk) 0.12f else 0f,
-            if (!lifestyle.proteinOk) 0.08f else 0f,
-            if (!lifestyle.rhrOk) 0.06f else 0f,
-            if (!lifestyle.spo2Ok) 0.05f else 0f
-        ).sum()
-
-        // Daily target logic: more aggressive when far from target
         val basePerDay = (ml.weeklyTarget / 7f)
         val bump = when {
             pct < 0.25f -> 0.85f
@@ -846,31 +938,27 @@ private fun planDailyMissions(
             pct < 0.95f -> 0.18f
             else -> 0.08f
         }
-        val rawGoal = (basePerDay * (1f + bump) * boost * (1f - fatiguePenalty)).coerceIn(2f, 10f)
-        val goal = rawGoal.toInt().coerceAtLeast(2)
-        val doneToday = day.toInt().coerceAtLeast(0)
+        val goal = (basePerDay * (1f + bump) * boost * (1f - fatiguePenalty))
+            .coerceIn(2f, 10f).toInt()
 
         val reason = when (ml.band) {
-            LoadBand.NotTrained -> "No recent work — quick primer to wake it up."
-            LoadBand.SlightlyTrained -> "Barely touched this week — easy win if you hit it today."
-            LoadBand.Building -> "Momentum going — stack a smart volume block."
-            LoadBand.OnTrack -> "Right on pace — lock it in and finish strong."
-            LoadBand.Recovering -> "Recovered enough — technique-focused top-ups only."
-            LoadBand.Overreached -> "Volume high — keep intensity sub-max, chase blood flow."
-            LoadBand.DeloadRecommended -> "Deload flagged — keep it light or skip."
+            LoadBand.NotTrained -> "No recent work — quick primer."
+            LoadBand.SlightlyTrained -> "Barely touched this week — easy win."
+            LoadBand.Building -> "Momentum going — stack smart volume."
+            LoadBand.OnTrack -> "On pace — lock it in."
+            LoadBand.Recovering -> "Recovered enough — technique top-ups."
+            LoadBand.Overreached -> "Volume high — keep it sub-max."
+            LoadBand.DeloadRecommended -> "Deload flagged."
         }
 
-        val ex = chooseExercisesFor(ml.group, recentExerciseMap, maxItems = 3)
-
-        val lifestyleHints = buildList<String> {
-            if (!lifestyle.sleepOk) add("Low sleep → cap at RPE 7, longer rest")
-            if (!lifestyle.proteinOk) add("Protein low → aim ~${lifestyle.proteinTargetG}g today")
-            if (!lifestyle.rhrOk) add("RHR up → avoid grinders, keep sets crisp")
-            if (!lifestyle.spo2Ok) add("SpO₂ low → shorter sets, nasal breathing")
-            if (ml.group in profile.importantMuscles) add("Priority muscle for $name → protect form")
+        val lifestyleHints = buildList {
+            if (!lifestyle.sleepOk) add("Cap at RPE 7, longer rest")
+            if (!lifestyle.proteinOk) add("Aim ~${lifestyle.proteinTargetG}g protein")
+            if (!lifestyle.rhrOk) add("RHR up — avoid grinders")
+            if (!lifestyle.spo2Ok) add("Shorter sets, nasal breathing")
+            if (ml.group in profile.importantMuscles) add("Priority muscle — protect form")
         }
 
-        // Priority score: deficit + time since + band preference
         val deficit = (1f - pct).coerceIn(0f, 1.2f)
         val bandWeight = when (ml.band) {
             LoadBand.NotTrained -> 1.0f
@@ -885,22 +973,22 @@ private fun planDailyMissions(
 
         val recencyBonus = (hrs / 72f).coerceIn(0f, 1f) * 0.35f
         val score = (bandWeight + 0.7f * deficit + recencyBonus - (ml.score * 0.2f)) * (1f - fatiguePenalty)
+
         Mission(
             group = ml.group,
             setsGoalToday = goal,
-            setsDoneToday = doneToday,
+            setsDoneToday = day.toInt().coerceAtLeast(0),
             priorityScore = score,
             reason = reason,
-            exercises = ex,
+            exercises = chooseExercisesFor(ml.group, recentExerciseMap, 3),
             lifestyleHints = lifestyleHints
         )
     }
 
-    val top = missions.sortedByDescending { it.priorityScore }.take(maxMissions)
-    return if (top.isNotEmpty()) top else missions.take(3)
+    return missions.sortedByDescending { it.priorityScore }.take(maxMissions)
 }
 
-// ----------------------------- COMPOSABLES ------------------------------------
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MuscleStatusSection(
     recentWorkouts: List<WorkoutSummary>,
@@ -931,7 +1019,6 @@ fun MuscleStatusSection(
         frequencyHint = buildFrequencyHints(now, recentWorkouts, profile)
         val start = now.minus(30, ChronoUnit.DAYS)
         val sleep = healthConnectManager.readSleepSessions(start, now)
-        val rhr = healthConnectManager.readRestingHeartRate(start, now)
         val spo2 = healthConnectManager.readOxygenSaturation(start, now)
         val nutrition = healthConnectManager.readNutrition(now.minus(2, ChronoUnit.DAYS), now)
         val bodyfat = healthConnectManager.readBodyFat(start, now)
@@ -946,17 +1033,19 @@ fun MuscleStatusSection(
                 progress = done.toFloat() / total.toFloat()
             },
             sleepSessions = sleep,
-            restingHeartRates = rhr,
             oxygenSaturations = spo2,
             nutrition = nutrition,
-            bodyFat = bodyfat
+            bodyFat = bodyfat,
+            readHeartRate = { s, e -> healthConnectManager.readHeartRateRecords(s, e) }
         )
         loads = finalLoads
         recoveryFactors = factors
         computing = false
     }
-
     var selected by remember { mutableStateOf(BodyCategory.All) }
+    var showHealth by remember { mutableStateOf(false) }
+    var selectedMuscle by remember { mutableStateOf<MuscleLoad?>(null) }
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val haptics = LocalHapticFeedback.current
     if (computing) {
         LoadingScreen(progress = progress, modifier = modifier.fillMaxWidth())
@@ -969,8 +1058,8 @@ fun MuscleStatusSection(
     val recentMap = remember(recentWorkouts, profile) { recentExercisesByMuscle(recentWorkouts, profile) }
     val lifestyle = remember(recoveryFactors) { recoveryFactors?.let { lifestyleSignalsFrom(profile, it) } }
 
-    val missions = remember(loads, weekSets, daySets, lastTrained, recentMap, lifestyle, nowEpochMillis) {
-        if (lifestyle == null) emptyList() else planDailyMissions(
+    val missions: List<Mission> = remember(loads, weekSets, daySets, lastTrained, recentMap, lifestyle, nowEpochMillis) {
+        if (lifestyle == null) emptyList<Mission>() else planDailyMissions(
             now = now,
             profile = profile,
             loads = loads,
@@ -982,6 +1071,8 @@ fun MuscleStatusSection(
         )
     }
 
+    val (prev14, cur14) = remember(recentWorkouts, profile, nowEpochMillis) { twoWindowGrowth(now, recentWorkouts, profile) }
+    val acute24 = remember(recentWorkouts, profile, nowEpochMillis) { recentAcuteStimulus(now, 24, recentWorkouts, profile) }
     val filtered = remember(loads, selected) { if (selected == BodyCategory.All) loads else loads.filter { categoryOf(it.group.name) == selected } }
     val sortedLoads = remember(filtered) {
         filtered.sortedWith(
@@ -998,7 +1089,6 @@ fun MuscleStatusSection(
             }.thenByDescending { it.score }
         )
     }
-
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -1013,21 +1103,35 @@ fun MuscleStatusSection(
             val borderBrush = Brush.horizontalGradient(colors = listOf(Color(0xFF8B0000), Color.LightGray))
             FilledTonalButton(
                 onClick = onOpenWeeklySummary,
-                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                contentPadding = PaddingValues(8.dp),
                 shape = CircleShape,
-                colors = ButtonDefaults.filledTonalButtonColors(
-                    containerColor = Color(0xFF4A0000).copy(alpha = 0.4f),
-                    contentColor = Color(0xFFF48A8A)
-                ),
-                border = BorderStroke(width = 1.dp, brush = borderBrush),
-                enabled = weeklySummaryAvailable
+                colors = ButtonDefaults.filledTonalButtonColors(containerColor = Color(0xFF4A0000).copy(alpha = 0.4f), contentColor = Color(0xFFF48A8A)),
+                border = BorderStroke(1.dp, Brush.linearGradient(listOf(Color(0xFFFF5555).copy(alpha = 0.6f), Color(0xFF8B0000).copy(alpha = 0.45f)))),
+                enabled = true
             ) {
                 Icon(Icons.Outlined.FitnessCenter, contentDescription = null, modifier = Modifier.padding(2.dp))
                 Text("Weekly Summary")
             }
+            FilledTonalButton(
+                onClick = {
+                    if (recoveryFactors != null) {
+                        showHealth = true
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                    }
+                },
+                contentPadding = PaddingValues(8.dp),
+                shape = CircleShape,
+                colors = ButtonDefaults.filledTonalButtonColors(containerColor = Color(0xFF2B0404).copy(alpha = 0.6f), contentColor = Color(0xFFF8BDC1)),
+                border = BorderStroke(1.dp, Brush.linearGradient(listOf(Color(0xFFFF5555).copy(alpha = 0.6f), Color(0xFF8B0000).copy(alpha = 0.45f))))
+            ) {
+                Icon(Icons.Outlined.MonitorHeart, null, modifier = Modifier.padding(end = 6.dp))
+                Text("Recovery Details")
+            }
         }
-        if (recoveryFactors != null) RecoveryFactorRow(recoveryFactors!!)
-//        MissionDeck(missions = missions)
+        if (recoveryFactors != null) RecoveryFactorRow(recoveryFactors!!, onClick = {
+            showHealth = true
+            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+        })
         OverviewRow(loads = filtered)
         CategoryFilterBar(
             selected = selected,
@@ -1036,19 +1140,59 @@ fun MuscleStatusSection(
                 haptics.performHapticFeedback(HapticFeedbackType.KeyboardTap)
             }
         )
-        MuscleGrid(loads = sortedLoads)
+        FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(24.dp),
+            verticalArrangement = Arrangement.spacedBy(24.dp)
+        ) {
+            sortedLoads.forEach { item ->
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .widthIn(min = 0.dp, max = 650.dp)
+                        .weight(1f, fill = false)
+                        .clickable {
+                            selectedMuscle = item
+                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        }
+                ) { MuscleCircleTile(load = item) }
+            }
+        }
+    }
+    if (showHealth && recoveryFactors != null) {
+        RecoveryDetailSheet(state = sheetState, onDismiss = { showHealth = false }, factors = recoveryFactors!!)
+    }
+    selectedMuscle?.let { ml ->
+        val mission = missions.firstOrNull { it.group == ml.group }
+        val insight = insightForMuscle(
+            m = ml.group,
+            now = now,
+            profile = profile,
+            weekly = weekSets,
+            lastTrained = lastTrained,
+            prev14 = prev14,
+            cur14 = cur14,
+            acute24 = acute24,
+            recovery = recoveryFactors ?: RecoveryFactors(null, null, null, null, null),
+            mission = mission
+        )
+        MuscleDetailSheet(
+            state = sheetState,
+            onDismiss = { selectedMuscle = null },
+            load = ml,
+            insight = insight,
+            exercises = chooseExercisesFor(ml.group, recentMap, 3)
+        )
     }
 }
 
-
-
-
 @Composable
-private fun RecoveryFactorRow(factors: RecoveryFactors) {
+private fun RecoveryFactorRow(factors: RecoveryFactors, onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .horizontalScroll(rememberScrollState()),
+            .horizontalScroll(rememberScrollState())
+            .clickable { onClick() },
         horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -1073,12 +1217,7 @@ private fun FactorPill(value: Float, label: String) {
             .background(Color.White.copy(alpha = 0.08f))
             .padding(horizontal = 10.dp, vertical = 6.dp)
     ) {
-        Icon(
-            imageVector = if (isPositive) Icons.Outlined.ArrowUpward else Icons.Outlined.ArrowDownward,
-            contentDescription = null,
-            tint = color,
-            modifier = Modifier.size(16.dp)
-        )
+        Icon(imageVector = if (isPositive) Icons.Outlined.ArrowUpward else Icons.Outlined.ArrowDownward, contentDescription = null, tint = color, modifier = Modifier.size(16.dp))
         Text(text = label, style = MaterialTheme.typography.labelMedium, color = Color.White.copy(alpha = 0.8f))
         Text(text = valueText, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = color)
     }
@@ -1090,29 +1229,16 @@ private fun LoadingScreen(progress: Float, modifier: Modifier = Modifier) {
     val density = LocalDensity.current
     val cornerRpx = with(density) { cornerRadius.toPx() }
     val infiniteTransition = rememberInfiniteTransition(label = "neon_glow")
-    val neonPhase by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(2500)),
-        label = "neon_phase"
-    )
+    val neonPhase by infiniteTransition.animateFloat(initialValue = 0f, targetValue = 1f, animationSpec = infiniteRepeatable(tween(2500)), label = "neon_phase")
     Column(
         modifier = modifier
             .padding(16.dp)
             .height(150.dp)
             .clip(RoundedCornerShape(cornerRadius))
             .drawWithCache {
-                val bgBrush = Brush.radialGradient(
-                    listOf(Color(0xFF3A0E0E), Color(0xFF120707)),
-                    center = Offset(size.width / 2f, size.height / 2f),
-                    radius = size.minDimension * 1.1f
-                )
+                val bgBrush = Brush.radialGradient(listOf(Color(0xFF3A0E0E), Color(0xFF120707)), center = Offset(size.width / 2f, size.height / 2f), radius = size.minDimension * 1.1f)
                 val sweepX = size.width * (neonPhase * 1.5f - 0.25f)
-                val neonCore = Brush.linearGradient(
-                    colors = listOf(Color.Transparent, Color(0xFFFF5E55).copy(alpha = 0.8f), Color.Transparent),
-                    start = Offset(sweepX - size.width * 0.25f, 0f),
-                    end = Offset(sweepX, size.height)
-                )
+                val neonCore = Brush.linearGradient(colors = listOf(Color.Transparent, Color(0xFFFF5E55).copy(alpha = 0.8f), Color.Transparent), start = Offset(sweepX - size.width * 0.25f, 0f), end = Offset(sweepX, size.height))
                 onDrawBehind {
                     drawRoundRect(brush = bgBrush, cornerRadius = CornerRadius(cornerRpx, cornerRpx))
                     drawRoundRect(brush = neonCore, style = Stroke(width = 2.dp.toPx()), cornerRadius = CornerRadius(cornerRpx, cornerRpx))
@@ -1124,13 +1250,7 @@ private fun LoadingScreen(progress: Float, modifier: Modifier = Modifier) {
     ) {
         Text("Analyzing muscle status...", style = MaterialTheme.typography.titleMedium, color = Color.White, fontWeight = FontWeight.Bold)
         val barBrush = Brush.horizontalGradient(listOf(Color(0xFFFF3B30).copy(alpha = 0.7f), Color(0xFFFF7A59)))
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .height(14.dp)
-                .clip(RoundedCornerShape(10.dp))
-                .background(Color.White.copy(alpha = 0.1f))
-        ) {
+        Box(Modifier.fillMaxWidth().height(14.dp).clip(RoundedCornerShape(10.dp)).background(Color.White.copy(alpha = 0.1f))) {
             val animatedProgress by animateFloatAsState(targetValue = progress, animationSpec = tween(400), label = "progress")
             Box(
                 Modifier
@@ -1139,108 +1259,12 @@ private fun LoadingScreen(progress: Float, modifier: Modifier = Modifier) {
                     .clip(RoundedCornerShape(10.dp))
                     .background(barBrush)
                     .drawWithCache {
-                        val glowBrush = Brush.radialGradient(
-                            colors = listOf(Color.White.copy(alpha = 0.4f), Color.Transparent),
-                            center = Offset(size.width * 0.9f, size.height / 2f),
-                            radius = size.height * 2.5f
-                        )
+                        val glowBrush = Brush.radialGradient(colors = listOf(Color.White.copy(alpha = 0.4f), Color.Transparent), center = Offset(size.width * 0.9f, size.height / 2f), radius = size.height * 2.5f)
                         onDrawBehind { drawRoundRect(brush = glowBrush, cornerRadius = CornerRadius(10.dp.toPx())) }
                     }
             )
         }
         Text("${(progress * 100f).coerceIn(0f, 100f).toInt()}%", style = MaterialTheme.typography.headlineSmall, color = Color.White.copy(alpha = 0.8f), fontWeight = FontWeight.Bold)
-    }
-}
-
-@Composable
-private fun MissionDeck(missions: List<Mission>, modifier: Modifier = Modifier) {
-    if (missions.isEmpty()) return
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(18.dp))
-            .background(Color.White.copy(alpha = 0.05f))
-            .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(18.dp))
-            .padding(12.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        Text("Today’s Missions", style = MaterialTheme.typography.titleMedium, color = Color.White, fontWeight = FontWeight.Bold)
-        missions.forEach { MissionCard(it) }
-    }
-}
-
-@Composable
-private fun MissionCard(m: Mission) {
-    val frac = (if (m.setsGoalToday <= 0) 0f else (m.setsDoneToday.toFloat() / m.setsGoalToday.toFloat())).coerceIn(0f, 1.25f)
-    val color = when {
-        frac < 0.5f -> Color(0xFF2979FF)
-        frac < 1.0f -> Color(0xFF00E676)
-        frac < 1.2f -> Color(0xFFFFA500)
-        else -> Color(0xFFFF3B30)
-    }
-    val animatedColor by animateColorAsState(color, label = "missionColor", animationSpec = tween(300))
-    val fill by animateFloatAsState(frac.coerceAtMost(1f), animationSpec = tween(550, 0, LinearOutSlowInEasing), label = "missionFill")
-
-    Column(
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .drawWithCache {
-                val bg = Brush.radialGradient(
-                    listOf(animatedColor.copy(alpha = 0.08f), Color(0xFF120707)),
-                    center = Offset(size.width / 2f, size.height * -0.2f),
-                    radius = size.width * 1.2f
-                )
-                val border = Brush.linearGradient(listOf(animatedColor.copy(alpha = 0.28f), animatedColor.copy(alpha = 0.08f)))
-                onDrawBehind {
-                    val r = 16.dp.toPx()
-                    drawRoundRect(brush = bg, cornerRadius = CornerRadius(r))
-                    drawRoundRect(brush = border, style = Stroke(width = 1.dp.toPx()), cornerRadius = CornerRadius(r))
-                }
-            }
-            .padding(12.dp)
-    ) {
-        Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.weight(1f)) {
-                Text(m.group.name, style = MaterialTheme.typography.titleSmall, color = Color.White, fontWeight = FontWeight.Bold)
-                Text(m.reason, style = MaterialTheme.typography.labelMedium, color = Color.White.copy(alpha = 0.75f), maxLines = 2)
-            }
-            Text("${m.setsDoneToday} / ${m.setsGoalToday} sets", style = MaterialTheme.typography.labelMedium, color = animatedColor, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 12.dp))
-        }
-        if (m.exercises.isNotEmpty()) {
-            ChipRow(items = m.exercises, icon = Icons.Outlined.FitnessCenter, tint = Color.White.copy(alpha = 0.9f))
-        }
-        if (m.lifestyleHints.isNotEmpty()) {
-            ChipRow(items = m.lifestyleHints, icon = Icons.Outlined.MonitorHeart, tint = Color(0xFFFFE082))
-        }
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(10.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(Color.White.copy(alpha = 0.1f))
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth(fill)
-                    .height(10.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(Brush.horizontalGradient(listOf(animatedColor.copy(alpha = 0.55f), animatedColor)))
-                    .drawWithCache {
-                        val glow = Brush.radialGradient(
-                            colors = listOf(Color.White.copy(alpha = 0.35f), Color.Transparent),
-                            center = Offset(size.width * 0.9f, size.height / 2f),
-                            radius = size.height * 2.2f
-                        )
-                        onDrawBehind { drawRoundRect(brush = glow, cornerRadius = CornerRadius(8.dp.toPx())) }
-                    }
-            )
-        }
     }
 }
 
@@ -1277,7 +1301,6 @@ private fun OverviewRow(loads: List<MuscleLoad>) {
     val recCount = remember(loads) { loads.count { it.band == LoadBand.Recovering } }
     val overCount = remember(loads) { loads.count { it.band == LoadBand.Overreached } }
     val deloadCount = remember(loads) { loads.count { it.band == LoadBand.DeloadRecommended } }
-
     val cornerRadius = 18.dp
     Box(
         modifier = Modifier
@@ -1319,35 +1342,10 @@ private fun MiniStatPill(label: String, value: String, tint: Color) {
                 .clip(CircleShape)
                 .background(tint)
                 .drawBehind {
-                    drawCircle(
-                        brush = Brush.radialGradient(
-                            colors = listOf(tint.copy(alpha = 0.5f), Color.Transparent),
-                            radius = size.minDimension * 1.5f
-                        )
-                    )
+                    drawCircle(brush = Brush.radialGradient(colors = listOf(tint.copy(alpha = 0.5f), Color.Transparent), radius = size.minDimension * 1.5f))
                 }
         )
         Text(text = "$label: $value", style = MaterialTheme.typography.labelMedium, color = Color.White.copy(alpha = 0.85f))
-    }
-}
-
-@Composable
-private fun MuscleGrid(loads: List<MuscleLoad>) {
-    FlowRow(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(24.dp),
-        verticalArrangement = Arrangement.spacedBy(24.dp)
-    ) {
-        loads.forEach { item ->
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .widthIn(min = 0.dp, max = 650.dp)
-                    .weight(1f, fill = false)
-            ) {
-                MuscleCircleTile(load = item)
-            }
-        }
     }
 }
 
@@ -1379,11 +1377,7 @@ private fun MuscleCircleTile(load: MuscleLoad) {
         modifier = Modifier
             .clip(RoundedCornerShape(18.dp))
             .drawWithCache {
-                val bg = Brush.radialGradient(
-                    listOf(animatedColor.copy(alpha = 0.10f), Color(0xFF120707)),
-                    center = Offset(size.width / 2f, size.height * -0.2f),
-                    radius = size.width * 1.2f
-                )
+                val bg = Brush.radialGradient(listOf(animatedColor.copy(alpha = 0.10f), Color(0xFF120707)), center = Offset(size.width / 2f, size.height * -0.2f), radius = size.width * 1.2f)
                 val border = Brush.linearGradient(listOf(animatedColor.copy(alpha = 0.30f), animatedColor.copy(alpha = 0.10f)))
                 onDrawBehind {
                     drawRoundRect(brush = bg, cornerRadius = CornerRadius(18.dp.toPx()))
@@ -1401,25 +1395,9 @@ private fun MuscleCircleTile(load: MuscleLoad) {
                     val strokeW = 10.dp.toPx()
                     val radius = size.minDimension / 2f
                     drawCircle(color = Color.White.copy(alpha = 0.06f), radius = radius)
-                    drawArc(
-                        color = Color.White.copy(alpha = 0.10f),
-                        startAngle = -90f,
-                        sweepAngle = 360f,
-                        useCenter = false,
-                        style = Stroke(strokeW, cap = StrokeCap.Round),
-                        size = Size(size.width, size.height),
-                        topLeft = Offset(0f, 0f)
-                    )
+                    drawArc(color = Color.White.copy(alpha = 0.10f), startAngle = -90f, sweepAngle = 360f, useCenter = false, style = Stroke(strokeW, cap = StrokeCap.Round), size = Size(size.width, size.height), topLeft = Offset(0f, 0f))
                     val sweep = animatedPct / 100f * 360f
-                    drawArc(
-                        brush = Brush.sweepGradient(listOf(animatedColor.copy(alpha = 0.6f), animatedColor)),
-                        startAngle = -90f,
-                        sweepAngle = sweep,
-                        useCenter = false,
-                        style = Stroke(strokeW, cap = StrokeCap.Round),
-                        size = Size(size.width, size.height),
-                        topLeft = Offset(0f, 0f)
-                    )
+                    drawArc(brush = Brush.sweepGradient(listOf(animatedColor.copy(alpha = 0.6f), animatedColor)), startAngle = -90f, sweepAngle = sweep, useCenter = false, style = Stroke(strokeW, cap = StrokeCap.Round), size = Size(size.width, size.height), topLeft = Offset(0f, 0f))
                 },
             contentAlignment = Alignment.Center
         ) {
@@ -1454,63 +1432,161 @@ private fun MuscleCircleTile(load: MuscleLoad) {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun MuscleBarRow(load: MuscleLoad) {
-    MuscleCircleTile(load)
-}
-
-@Composable
-private fun CategoryFilterBar(selected: BodyCategory, onSelect: (BodyCategory) -> Unit) {
-    val items = listOf(
-        BodyCategory.All to "All",
-        BodyCategory.UpperBody to "Upper",
-        BodyCategory.Arms to "Arms",
-        BodyCategory.Core to "Core",
-        BodyCategory.LowerBody to "Lower"
-    )
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        items.forEach { (cat, label) ->
-            val isSelected = selected == cat
-            val interactionSource = remember { MutableInteractionSource() }
-            val isPressed by interactionSource.collectIsPressedAsState()
-            val scale by animateFloatAsState(if (isPressed) 0.95f else 1f, label = "")
-            val pillRadius = 32.dp
-            Box(
-                modifier = Modifier
-                    .graphicsLayer { scaleX = scale; scaleY = scale }
-                    .clip(RoundedCornerShape(pillRadius))
-                    .clickable(interactionSource = interactionSource, indication = null) { onSelect(cat) }
-                    .drawWithCache {
-                        val bgBrush = if (isSelected) Brush.radialGradient(
-                            listOf(Color(0xFF2C0404), Color(0xFF2B0404)),
-                            radius = size.minDimension * 2f
-                        ) else Brush.radialGradient(
-                            listOf(Color.White.copy(alpha = 0.1f), Color.Transparent),
-                            radius = size.minDimension * 2f
-                        )
-                        val borderBrush = if (isSelected) Brush.linearGradient(
-                            listOf(Color(0xFFFF5555).copy(alpha = 0.6f), Color(0xFF8B0000).copy(alpha = 0.45f))
-                        ) else Brush.radialGradient(
-                            listOf(Color(0x00171717), Color(0xFF525252)),
-                            radius = size.minDimension * 2f
-                        )
-                        onDrawBehind {
-                            drawRoundRect(brush = bgBrush, cornerRadius = CornerRadius(pillRadius.toPx()))
-                            drawRoundRect(brush = borderBrush, style = Stroke(width = 1.dp.toPx()), cornerRadius = CornerRadius(pillRadius.toPx()))
-                        }
-                    }
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(label, color = if (isSelected) Color(0xFFF8BDC1) else Color.White.copy(alpha = 0.7f))
-            }
+private fun RecoveryDetailSheet(state: SheetState, onDismiss: () -> Unit, factors: RecoveryFactors) {
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = state, containerColor = Color(0xFF1A0A0A)) {
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Text("Recovery Details", style = MaterialTheme.typography.titleLarge, color = Color.White, fontWeight = FontWeight.Black)
+            HealthMetricRow(icon = Icons.Outlined.NightlightRound, label = "Sleep (avg)", value = factors.sleepHours?.let { String.format(Locale.US, "%.1f h", it) } ?: "—", pct = ((factors.sleepMultiplier - 0.85f) / (1.25f - 0.85f)).coerceIn(0f, 1f))
+            HealthMetricRow(icon = Icons.Outlined.MonitorHeart, label = "Average HR", value = factors.restingHeartRate?.toString() ?: "—", pct = when {
+                factors.restingHeartRate == null -> 0.60f
+                factors.restingHeartRate < 60 -> 1.00f
+                factors.restingHeartRate < 65 -> 0.95f
+                factors.restingHeartRate < 70 -> 0.90f
+                factors.restingHeartRate < 75 -> 0.85f
+                factors.restingHeartRate < 80 -> 0.80f
+                factors.restingHeartRate < 85 -> 0.72f
+                factors.restingHeartRate < 90 -> 0.64f
+                factors.restingHeartRate < 100 -> 0.54f
+                else -> 0.42f
+            })
+            HealthMetricRow(icon = Icons.Outlined.WaterDrop, label = "SpO₂ (sleep)", value = factors.sleepSpo2?.let { String.format(Locale.US, "%.0f%%", it) } ?: "—", pct = when {
+                factors.sleepSpo2 == null -> 0.5f
+                factors.sleepSpo2 >= 98.0 -> 1f
+                factors.sleepSpo2 >= 95.0 -> 0.85f
+                factors.sleepSpo2 >= 92.0 -> 0.65f
+                else -> 0.4f
+            })
+            HealthMetricRow(icon = Icons.Outlined.Restaurant, label = "Protein last 24h", value = factors.proteinGrams?.let { String.format(Locale.US, "%.0f g", it) } ?: "—", pct = when {
+                factors.proteinGrams == null -> 0.5f
+                factors.proteinGrams >= 150.0 -> 1f
+                factors.proteinGrams >= 100.0 -> 0.8f
+                factors.proteinGrams >= 60.0 -> 0.6f
+                else -> 0.35f
+            })
+            HealthMetricRow(icon = Icons.Outlined.Scale, label = "Body Fat", value = factors.bodyFatPercentage?.let { String.format(Locale.US, "%.1f%%", it) } ?: "—", pct = when {
+                factors.bodyFatPercentage == null -> 0.5f
+                factors.bodyFatPercentage in 12.0..20.0 -> 1f
+                factors.bodyFatPercentage in 8.0..25.0 -> 0.8f
+                else -> 0.5f
+            })
+            Spacer(Modifier.height(8.dp))
         }
     }
 }
 
+@Composable
+private fun HealthMetricRow(icon: ImageVector, label: String, value: String, pct: Float) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .drawWithCache {
+                val col = Color(0xFFFF5E55)
+                val bg = Brush.radialGradient(listOf(col.copy(alpha = 0.10f), Color(0xFF120707)), radius = size.width * 0.9f)
+                val border = Brush.linearGradient(listOf(col.copy(alpha = 0.28f), col.copy(alpha = 0.08f)))
+                onDrawBehind {
+                    val r = 16.dp.toPx()
+                    drawRoundRect(brush = bg, cornerRadius = CornerRadius(r))
+                    drawRoundRect(brush = border, style = Stroke(width = 1.dp.toPx()), cornerRadius = CornerRadius(r))
+                }
+            }
+            .padding(12.dp)
+    ) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Icon(icon, null, tint = Color(0xFFF8BDC1))
+                Text(label, style = MaterialTheme.typography.titleSmall, color = Color.White, fontWeight = FontWeight.Bold)
+            }
+            Text(value, style = MaterialTheme.typography.titleSmall, color = Color.White.copy(alpha = 0.85f))
+        }
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(10.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(Color.White.copy(alpha = 0.08f))
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(pct.coerceIn(0f, 1f))
+                    .height(10.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Brush.horizontalGradient(listOf(Color(0xFFFF8A80), Color(0xFFFF5252))))
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun MuscleDetailSheet(state: SheetState, onDismiss: () -> Unit, load: MuscleLoad, insight: MuscleInsight, exercises: List<String>) {
+    val tint = when (load.band) {
+        LoadBand.NotTrained -> Color(0xFF9E9E9E)
+        LoadBand.SlightlyTrained -> Color(0xFF2979FF)
+        LoadBand.Building -> Color(0xFF42A5F5)
+        LoadBand.OnTrack -> Color(0xFF00E676)
+        LoadBand.Recovering -> Color(0xFF6A0DAD)
+        LoadBand.Overreached -> Color(0xFFFFA500)
+        LoadBand.DeloadRecommended -> Color(0xFFFF3B30)
+    }
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = state, containerColor = Color(0xFF1A0A0A)) {
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text(load.group.name, style = MaterialTheme.typography.titleLarge, color = Color.White, fontWeight = FontWeight.Black)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    val pct = if (load.weeklyTarget > 0f) (load.weeklyProgress / load.weeklyTarget * 100f).coerceIn(0f, 200f) else 0f
+                    Text(String.format(Locale.US, "%.0f%%", pct), style = MaterialTheme.typography.titleMedium, color = tint, fontWeight = FontWeight.Black)
+                }
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                InsightChip(label = "Growth ${String.format(Locale.US, "%+.0f%%", insight.growthPct)}", color = when (insight.growthLabel) {
+                    "rising" -> Color(0xFF00E676)
+                    "falling" -> Color(0xFFFF3B30)
+                    else -> Color(0xFFFFA500)
+                })
+                InsightChip(label = "Fatigue ${(insight.fatigue * 100f).toInt()}%", color = if (insight.fatigue > 0.7f) Color(0xFFFF3B30) else if (insight.fatigue > 0.5f) Color(0xFFFFA500) else Color(0xFF00E676))
+                InsightChip(label = "RPE ${insight.suggestedRpeMin}–${insight.suggestedRpeMax}", color = Color(0xFFF8BDC1))
+            }
+            Text(insight.readinessText, style = MaterialTheme.typography.titleSmall, color = Color.White.copy(alpha = 0.85f))
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .drawWithCache {
+                        val bg = Brush.radialGradient(listOf(tint.copy(alpha = 0.10f), Color(0xFF120707)), radius = size.width * 1.1f)
+                        val border = Brush.linearGradient(listOf(tint.copy(alpha = 0.28f), tint.copy(alpha = 0.08f)))
+                        onDrawBehind {
+                            val r = 16.dp.toPx()
+                            drawRoundRect(brush = bg, cornerRadius = CornerRadius(r))
+                            drawRoundRect(brush = border, style = Stroke(width = 1.dp.toPx()), cornerRadius = CornerRadius(r))
+                        }
+                    }
+                    .padding(12.dp)
+            ) {
+                Text(insight.recommendation, style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.9f))
+            }
+            if (exercises.isNotEmpty()) {
+                Text("Suggested Work", style = MaterialTheme.typography.titleSmall, color = Color.White, fontWeight = FontWeight.Bold)
+                ChipRow(items = exercises.map { "$it" }, icon = Icons.Outlined.FitnessCenter, tint = Color.White.copy(alpha = 0.9f))
+            }
+            Spacer(Modifier.height(8.dp))
+        }
+    }
+}
+
+@Composable
+private fun InsightChip(label: String, color: Color) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        modifier = Modifier
+            .clip(RoundedCornerShape(999.dp))
+            .background(Color.White.copy(alpha = 0.08f))
+            .padding(horizontal = 10.dp, vertical = 6.dp)
+    ) {
+        Box(Modifier.size(8.dp).clip(CircleShape).background(color))
+        Text(label, style = MaterialTheme.typography.labelMedium, color = Color.White.copy(alpha = 0.9f))
+    }
+}

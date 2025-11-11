@@ -155,14 +155,14 @@ val workoutPresets = listOf(
     WorkoutPreset("Seated Calf Raise Machine", "Machines/Cables"),
 
     // --- Cardio / Full Body ---
-    WorkoutPreset("Running (Treadmill)", "Cardio"),
-    WorkoutPreset("Stair Climber", "Cardio"),
-    WorkoutPreset("Elliptical Trainer", "Cardio"),
-    WorkoutPreset("Jumping Jacks", "Cardio"),
-    WorkoutPreset("High Knees", "Cardio"),
-    WorkoutPreset("Box Jumps", "Cardio"),
-    WorkoutPreset("Rowing Machine", "Cardio"),
-    WorkoutPreset("Stationary Bike", "Cardio"),
-    WorkoutPreset("Jump Rope", "Cardio"),
-    WorkoutPreset("Swimming", "Cardio")
+//    WorkoutPreset("Running (Treadmill)", "Cardio"),
+//    WorkoutPreset("Stair Climber", "Cardio"),
+//    WorkoutPreset("Elliptical Trainer", "Cardio"),
+//    WorkoutPreset("Jumping Jacks", "Cardio"),
+//    WorkoutPreset("High Knees", "Cardio"),
+//    WorkoutPreset("Box Jumps", "Cardio"),
+//    WorkoutPreset("Rowing Machine", "Cardio"),
+//    WorkoutPreset("Stationary Bike", "Cardio"),
+//    WorkoutPreset("Jump Rope", "Cardio"),
+//    WorkoutPreset("Swimming", "Cardio")
 )

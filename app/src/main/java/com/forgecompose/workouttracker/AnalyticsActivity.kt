@@ -227,6 +227,7 @@ fun ExerciseAnalyticsScreen(
     )
     LaunchedEffect(Unit) { showIntro = false }
 
+    val movingEnabled = performanceOptions.movingGradientAndParticles
     val filteredData = remember(workouts, exerciseName, startDate, endDate) {
         workouts
             .filter { it.name == exerciseName }
@@ -254,86 +255,18 @@ fun ExerciseAnalyticsScreen(
                 )
             )
         },
-        containerColor = Color.Transparent,
         modifier = Modifier
             .fillMaxSize()
-            .drawWithCache {
-                val darkPurpleSweep = Brush.linearGradient(
-                    colors = listOf(
-                        Color(0xFF10051F).copy(alpha = 0.6f),
-                        Color(0xFF050815).copy(alpha = 0.8f),
-                        Color.Transparent
-                    ),
-                    start = Offset(size.width * clampedGrad2, size.height * (1 - clampedGrad2)),
-                    end = Offset(size.width * (1 - clampedGrad2), size.height * clampedGrad2)
-                )
 
-                val redGlow = Brush.radialGradient(
-                    colors = listOf(
-                        Color(0xFF451010).copy(alpha = 0.85f + clampedGrad1 * 0.45f),
-                        Color(0xFF280B0B).copy(alpha = 0.7f + clampedGrad1 * 0.3f),
-                        Color(0xFF1F0808).copy(alpha = 0.8f + clampedGrad1 * 0.2f),
-                        Color(0xFF150505).copy(alpha = 0.9f + clampedGrad1 * 0.1f),
-                        Color(0xFF050101)
-                    ),
-                    radius = 1200f + (clampedGrad1 * 400f),
-                    center = Offset(
-                        size.width * (0.3f + clampedGrad1 * 0.4f),
-                        size.height * (0.2f + clampedGrad1 * 0.3f)
-                    )
-                )
-
-                onDrawBehind {
-                    drawRect(Color(0xFF050101))
-                    if (shouldAnimate && movingEffectsEnabled) {
-                        drawRect(darkPurpleSweep)
-                    }
-                    drawRect(redGlow)
-
-                    if (stages.after600ms && shouldAnimate && movingEffectsEnabled) {
-                        val baseAlpha = clampedPulse
-                        val g = clampedGlow
-                        val w = size.width
-                        val h = size.height
-                        for (layer in 0..2) {
-                            val layerOffset = waveOffset + (layer * PI.toFloat() / 4)
-                            val layerAlpha = baseAlpha * (0.25f + layer * 0.12f) * g
-                            val layerColor = when (layer) {
-                                0 -> Color(0xFF4A1A1A).copy(alpha = layerAlpha)
-                                1 -> Color(0xFF3A1515).copy(alpha = layerAlpha * 0.8f)
-                                else -> Color(0xFF2A0D0D).copy(alpha = layerAlpha * 0.6f)
-                            }
-                            wavePath.reset()
-                            val baseY = h * (0.22f + layer * 0.16f)
-                            val step = (w / 36f).coerceAtLeast(10f)
-                            var x = 0f
-                            val waveHeight = 90f
-                            while (x <= w) {
-                                val t = x / w
-                                val phase = t * 3f * PI.toFloat() + layerOffset
-                                val y =
-                                    baseY + sin(phase) * waveHeight * (0.55f + layer * 0.22f) * g
-                                wavePath.lineTo(x, y)
-                                x += step
-                            }
-                            wavePath.lineTo(w, h)
-                            wavePath.lineTo(0f, h)
-                            wavePath.close()
-                            drawPath(path = wavePath, color = layerColor)
-                        }
-                        particles.forEachIndexed { i, (baseX, yOff, r) ->
-                            val px = w * baseX + sin(waveOffset * 0.7f + i) * 60f * g
-                            val py = h * yOff + cos(waveOffset * 0.5f + i * 0.3f) * 60f
-                            val alpha = baseAlpha * (0.35f + sin(waveOffset + i) * 0.25f) * g
-                            drawCircle(Color.White.copy(alpha = alpha), r, Offset(px, py))
-                        }
-                    }
-                    if (introProgress < 1f) {
-                        drawRect(brush = introBrush, alpha = 1f - introProgress)
-                    }
-                }
-            }
     ) { paddingValues ->
+        AnimatedBackdrop(
+            modifier = Modifier.fillMaxSize(),
+            introBrush = introBrush,
+            introAlpha = 1f - introProgress,
+            enableWaves = movingEnabled,
+            enableAnimation = movingEnabled
+
+        )
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()

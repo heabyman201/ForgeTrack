@@ -48,6 +48,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -63,6 +65,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 
 @OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
@@ -89,7 +92,24 @@ fun EditUserStats(navcontroller: NavController) {
     val bgPulse = rememberInfiniteTransition(label = "pulse")
     val pulse by bgPulse.animateFloat(0.0f, 1.0f, animationSpec = infiniteRepeatable(tween(1800, easing = LinearEasing), RepeatMode.Reverse), label = "p")
     val glow by animateFloatAsState(if (pressed) 0.65f else 1f, tween(240, easing = FastOutSlowInEasing))
-
+    val performanceOptions by PerformanceOptionsManager.flow(context)
+        .collectAsState(initial = PerformanceOptions.Defaults)
+    val movingEffectsEnabled = performanceOptions.movingGradientAndParticles
+    val hour = remember { java.time.LocalTime.now().hour }
+    val introColors = remember(hour) {
+        when (hour) {
+            in 5..10 -> listOf(Color(0xFF2B1A00), Color(0xFF3C2405), Color(0xFF5A360A), Color(0xFF7A4A12))
+            in 11..16 -> listOf(Color(0xFF332300), Color(0xFF4A3408), Color(0xFF6B4B0F), Color(0xFF8C6217))
+            in 17..20 -> listOf(Color(0xFF1A0614), Color(0xFF2A0A20), Color(0xFF3D0F2D), Color(0xFF52153A))
+            else -> listOf(Color(0xFF02040A), Color(0xFF0A1324), Color(0xFF15243D), Color(0xFF1E3352))
+        }
+    }
+    val introBrush = remember(introColors) {
+        Brush.linearGradient(colors = introColors)
+    }
+    var showIntro by remember { mutableStateOf(true) }
+    val introProgress by animateFloatAsState(targetValue = if (showIntro) 0f else 1f, animationSpec = tween(650, easing = LinearEasing), label = "introFade")
+    LaunchedEffect(Unit) { showIntro = false }
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -102,34 +122,16 @@ fun EditUserStats(navcontroller: NavController) {
                     )
                 )
             )
-            .drawBehind {
-                val r = size.minDimension * 0.95f
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        colors = listOf(
-                            Color(0xFF2B0F10).copy(alpha = 0.75f + 0.15f * pulse),
-                            Color.Transparent
-                        ),
-                        center = Offset(size.width * 0.15f, size.height * 0.15f),
-                        radius = r
-                    ),
-                    center = Offset(size.width * 0.15f, size.height * 0.15f),
-                    radius = r
-                )
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        colors = listOf(
-                            Color(0xFF360F0F).copy(alpha = 0.6f + 0.2f * (1f - pulse)),
-                            Color.Transparent
-                        ),
-                        center = Offset(size.width * 0.85f, size.height * 0.9f),
-                        radius = r * 0.8f
-                    ),
-                    center = Offset(size.width * 0.85f, size.height * 0.9f),
-                    radius = r * 0.8f
-                )
-            }
+
     ) {
+        AnimatedBackdrop(
+            modifier = Modifier
+                .matchParentSize(),
+            introBrush = introBrush,
+            introAlpha = 1f - introProgress,
+            enableWaves =  movingEffectsEnabled,
+            enableAnimation =  movingEffectsEnabled
+        )
         Scaffold(
             containerColor = Color.Transparent,
             topBar = {
@@ -152,7 +154,7 @@ fun EditUserStats(navcontroller: NavController) {
                         }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = Color(0x331A0D0E),
+                        containerColor = Color.Transparent,
                         titleContentColor = Color.White,
                         navigationIconContentColor = Color.White
                     )
@@ -200,6 +202,7 @@ fun EditUserStats(navcontroller: NavController) {
                             style = MaterialTheme.typography.titleMedium.copy(
                                 shadow = Shadow(color = Color.White.copy(alpha = 0.4f * glow), blurRadius = 12f)
                             ),
+                            fontSize = 26.sp,
                             fontWeight = FontWeight.SemiBold
                         )
                         Spacer(Modifier.width(10.dp))

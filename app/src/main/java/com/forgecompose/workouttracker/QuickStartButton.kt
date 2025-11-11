@@ -7,6 +7,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowForward
+import androidx.compose.material.icons.filled.ArrowRightAlt
+import androidx.compose.material.icons.filled.Start
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -64,7 +66,7 @@ fun QuickStartWorkout(navController: NavController){
                 )
             )
             Icon(
-                Icons.Default.ArrowForward, contentDescription = null,
+                Icons.Default.ArrowForward, contentDescription = "Start a new workout",
                 tint = Color.White,
 
                 modifier = Modifier.padding(end = 8.dp).size(32.dp)

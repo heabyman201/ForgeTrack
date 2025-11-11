@@ -33,6 +33,7 @@ import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import androidx.core.content.edit
 import dev.chrisbanes.haze.HazeState
+import androidx.compose.runtime.collectAsState
 
 
 object PersonaPrefs {
@@ -128,18 +129,24 @@ fun PersonaSettingsScreen(
             center = Offset(0.5f, 0.4f)
         )
     }
+val performanceOptions = remember { PerformanceOptionsManager.current }
+    val movingEnabled = performanceOptions.collectAsState().value.movingGradientAndParticles
 
     Box(
         modifier = modifier
             .fillMaxSize()
-            .drawWithCache {
-                onDrawBehind {
-                    drawRect(Color(0xFF060202))
-                    drawRect(staticGradientBrush)
-                }
-            }
+
     ) {
+        AnimatedBackdrop(
+            modifier = Modifier.fillMaxSize(),
+            introBrush = staticGradientBrush,
+            introAlpha = 0f,
+            enableWaves = movingEnabled,
+            enableAnimation = movingEnabled,
+
+        )
         Scaffold(
+
             containerColor = Color.Transparent,
             topBar = {
                 TopAppBar(
