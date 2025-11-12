@@ -75,6 +75,8 @@ dependencies {
     implementation(libs.androidx.compose.ui.ui)
     implementation(libs.androidx.compose.ui.ui.graphics3)
     implementation(libs.androidx.lifecycle.process)
+    implementation(libs.androidx.foundation)
+
 
     "baselineProfile"(project(":app:baselineprofile2"))
     implementation("com.github.Kyant0:AndroidLiquidGlass:1.0.0-alpha15")

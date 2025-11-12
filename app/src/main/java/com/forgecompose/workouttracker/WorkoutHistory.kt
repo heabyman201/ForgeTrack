@@ -253,15 +253,7 @@ fun WorkoutHistory(
                 }
             }
 
-            FloatingTaskbar(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .navigationBarsPadding(),
-                navController = navController,
-                cornerRadius = 34.dp,
-                iconAlpha = 1f,
-                uiState = uiState
-            )
+
         }
     }
 

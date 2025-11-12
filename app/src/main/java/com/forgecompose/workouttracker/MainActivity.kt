@@ -149,30 +149,28 @@ import kotlin.math.PI
 import kotlin.math.max
 import kotlin.math.roundToInt
 
-private fun lastAndPrevSameName(workouts: List<Workout>): Pair<Workout?, Workout?> {
-    val last = workouts.maxByOrNull { it.date } ?: return null to null
-    val prevSame = workouts
-        .asSequence()
-        .filter { it.name == last.name && it.date < last.date }
-        .maxByOrNull { it.date }
-    return last to prevSame
-}
+//private fun lastAndPrevSameName(workouts: List<Workout>): Pair<Workout?, Workout?> {
+//    val last = workouts.maxByOrNull { it.date } ?: return null to null
+//    val prevSame = workouts
+//        .asSequence()
+//        .filter { it.name == last.name && it.date < last.date }
+//        .maxByOrNull { it.date }
+//    return last to prevSame
+//}
+//
+//
+//
+//
+//
+//fun maxWeightForName(workouts: List<Workout>, exerciseName: String): Double {
+//    return workouts.asSequence()
+//        .filter { it.name == exerciseName }
+//        .map { it.weight ?: 0.0 }
+//        .maxOrNull() ?: 0.0
+//}
 
 
 
-
-
-fun maxWeightForName(workouts: List<Workout>, exerciseName: String): Double {
-    return workouts.asSequence()
-        .filter { it.name == exerciseName }
-        .map { it.weight ?: 0.0 }
-        .maxOrNull() ?: 0.0
-}
-
-
-val LocalHazeState = staticCompositionLocalOf<HazeState> {
-    error("LocalHazeState not provided. Wrap your screen in ProvideHaze.")
-}
 var startDestination = "home"
 class MainActivity : ComponentActivity() {
     private lateinit var onboardingManager: OnboardingManager
@@ -1096,81 +1094,7 @@ fun LowCostBackdrop(
 }
 
 
-@Composable
-fun AnimatedBackdrop(
-    modifier: Modifier = Modifier,
-    introBrush: Brush,
-    introAlpha: Float,
-    enableWaves: Boolean,
-    enableAnimation: Boolean,
-    slowCycleMinutes: Float = 8f
-) {
-    val p1 = remember { mutableFloatStateOf(0.5f) }
-    val p2 = remember { mutableFloatStateOf(0.2f) }
 
-//    LaunchedEffect(enableAnimation, slowCycleMinutes) {
-//        if (!enableAnimation) return@LaunchedEffect
-//        val cycleSec1 = (slowCycleMinutes.coerceAtLeast(1f) * 60f)
-//        val cycleSec2 = cycleSec1 * 1.6180339887f
-//        var last = 0L
-//        while (true) {
-//            withFrameNanos { now ->
-//                if (last == 0L) { last = now; return@withFrameNanos }
-//                val dt = (now - last) / 1_000_000_000f
-//                last = now
-//                p1.floatValue = (p1.floatValue + dt / cycleSec1) % 2f
-//                p2.floatValue = (p2.floatValue + dt / cycleSec2) % 2f
-//            }
-//        }
-//    }
-
-    fun tri(t: Float): Float {
-        val x = (t % 2f + 2f) % 2f
-        return 1f - kotlin.math.abs(x - 1f)
-    }
-    val context = LocalContext.current
-    val performanceOptions by PerformanceOptionsManager.flow(context).collectAsState(initial = PerformanceOptions.Defaults)
-
-    val blurEnabled = performanceOptions.blurEnabled
-  val blurCanva = remember { if (blurEnabled) 64.dp else 0.dp }
-
-
-    Canvas(modifier = modifier.fillMaxSize()
-        .graphicsLayer{
-            renderEffect = RenderEffect.createBlurEffect(
-                blurCanva.value,blurCanva.value, Shader.TileMode.DECAL
-            ).asComposeRenderEffect()
-
-        }) {
-        val w = size.width
-        val h = size.height
-        val s1 =  0.4f
-        val s2 = 0.3f
-
-        val bg = Brush.radialGradient(
-            colors = listOf(
-                Color(0xFF652121).copy(alpha = 0.78f - 0.06f * s1),
-                Color(0xFF2B0E0E),
-                Color(0xFF120707)
-            ),
-            center = Offset(w * (0.30f + 0.14f * s1), h * (0.24f + 0.12f * s2)),
-            radius = max(w, h) * (0.72f + 0.06f * s1)
-        )
-        drawRect(bg)
-
-
-
-        if (introAlpha > 0f) {
-            drawRect(introBrush, alpha = introAlpha.coerceIn(0f, 1f))
-        }
-    }
-}
-
-
-sealed interface BackdropMode {
-    data class PreBaked(val frames: Int = 24) : BackdropMode
-    data object Live : BackdropMode
-}
 
 
 @Composable

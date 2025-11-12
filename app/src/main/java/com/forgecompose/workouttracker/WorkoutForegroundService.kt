@@ -203,27 +203,27 @@ class WorkoutForegroundService : Service() {
         val progressMax = tuple.d
         val showProgress = tuple.e
 
-        if (Build.VERSION.SDK_INT >= 36 && showProgress && progressMax > 0) {
-            val clamped = progress.coerceIn(0, progressMax)
-            val frac = (clamped.toFloat() / progressMax.toFloat()).coerceIn(0f, 1f)
-            val style = Notification.ProgressStyle().apply {
-                setProgress(progressMax)
-                setProgressPoints(listOf(Notification.ProgressStyle.Point(frac.toInt()).setColor(android.graphics.Color.RED)))
-            }
-            val builder = Notification.Builder(this, CHANNEL_ID)
-                .setSmallIcon(R.drawable.ic_launcher_foreground)
-                .setContentTitle(title)
-                .setContentText(text)
-                .setStyle(style)
-                .setOngoing(true)
-                .setOnlyAlertOnce(true)
-                .setColor(accentColorInt)
-                .setContentIntent(openAppPendingIntent)
-                .setExtras(Bundle().apply { putBoolean("android.extra.REQUEST_PROMOTED_ONGOING", true) })
-                .addAction(Action.Builder(null, "Stop", stopPI).build())
-                .setProgress(progressMax, clamped, false)
-            return builder.build().apply { flags = flags or Notification.FLAG_ONGOING_EVENT }
-        } else {
+//        if (Build.VERSION.SDK_INT >= 36 && showProgress && progressMax > 0) {
+//            val clamped = progress.coerceIn(0, progressMax)
+//            val frac = (clamped.toFloat() / progressMax.toFloat()).coerceIn(0f, 1f)
+//            val style = Notification.ProgressStyle().apply {
+//                setProgress(progressMax)
+//                setProgressPoints(listOf(Notification.ProgressStyle.Point(frac.toInt()).setColor(android.graphics.Color.RED)))
+//            }
+//            val builder = Notification.Builder(this, CHANNEL_ID)
+//                .setSmallIcon(R.drawable.ic_launcher_mono)
+//                .setContentTitle(title)
+//                .setContentText(text)
+//                .setStyle(style)
+//                .setOngoing(true)
+//                .setOnlyAlertOnce(true)
+//                .setColor(accentColorInt)
+//                .setContentIntent(openAppPendingIntent)
+//                .setExtras(Bundle().apply { putBoolean("android.extra.REQUEST_PROMOTED_ONGOING", true) })
+//                .addAction(Action.Builder(null, "Stop", stopPI).build())
+//                .setProgress(progressMax, clamped, false)
+//            return builder.build().apply { flags = flags or Notification.FLAG_ONGOING_EVENT }
+//        } else {
             val builder = NotificationCompat.Builder(this, CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_launcher_mono)
                 .setContentTitle(title)
@@ -241,7 +241,7 @@ class WorkoutForegroundService : Service() {
                 builder.setProgress(progressMax, clamped, false)
             }
             return builder.build()
-        }
+
     }
 
     private fun createChannel() {

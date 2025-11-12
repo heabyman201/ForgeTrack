@@ -265,7 +265,7 @@ fun FloatingTaskbar(
                             )
                         }
                         val containerShape = remember(cornerRadius) { RoundedCornerShape(cornerRadius) }
-                        val accent = remember { Color(0xFFFF3B30) }
+                        val accent = remember { Color(0xFFFF5858) }
                         val pos = remember { Animatable(Offset.Zero, Offset.VectorConverter) }
                         val squish = remember { Animatable(1f) }
                         val skew = remember { Animatable(0f) }

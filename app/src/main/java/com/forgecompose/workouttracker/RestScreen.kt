@@ -176,7 +176,13 @@ fun RestScreen(
             )
         }
     }
-
+    val introBrush = remember(introColors) {
+        Brush.linearGradient(
+            colors = introColors,
+            start = Offset.Zero,
+            end = Offset(Float.POSITIVE_INFINITY, 0f)
+        )
+    }
     val totalReps by remember {
         derivedStateOf {
             WorkoutLog.sets.sumOf { it.reps.value.toIntOrNull() ?: 0 }
@@ -193,44 +199,51 @@ fun RestScreen(
         label = "blur"
     )
     WorkoutTrackerTheme {
+        AnimatedBackdropBlue(
+            modifier = Modifier.fillMaxSize(),
+            introBrush = introBrush,
+            introAlpha = 1f - introProgress,
+            enableWaves = false,
+            enableAnimation = false
+        )
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .blur(blurAnim)
-                .drawWithContent {
-                    val base = Brush.radialGradient(
-                        colors = listOf(
-                            Color(0xFF0A0F1A),
-                            Color(0xFF07182A),
-                            Color(0xFF031225),
-                            Color(0xFF000000)
-                        ),
-                        radius = 1800f + gradientOffset * 700f,
-                        center = Offset(size.width * 0.46f, size.height * 0.78f)
-                    )
-                    val cyanBloom = Brush.radialGradient(
-                        0f to Color(0xFF1B3A5A).copy(alpha = 0.0f),
-                        0.6f to Color(0xFF1B3A5A).copy(alpha = 0.25f),
-                        1f to Color(0xFF1B3A5A).copy(alpha = 0.0f),
-                        radius = 1200f + gradientOffset * 500f,
-                        center = Offset(size.width * 0.38f, size.height * 0.35f)
-                    )
-                    val vignette = Brush.radialGradient(
-                        0f to Color.Transparent,
-                        0.85f to Color.Transparent,
-                        1f to Color(0xFF000000).copy(alpha = 0.55f),
-                        radius = size.maxDimension * 0.85f,
-                        center = center
-                    )
-                    drawRect(base)
-                    drawRect(cyanBloom)
-                    if (introProgress < 1f) drawRect(
-                        brush = Brush.radialGradient(introColors, radius = 1400f, center = Offset(size.width * 0.42f, size.height * 0.28f)),
-                        alpha = 1f - introProgress
-                    )
-                    drawRect(vignette)
-                    drawContent()
-                }
+//                .drawWithContent {
+//                    val base = Brush.radialGradient(
+//                        colors = listOf(
+//                            Color(0xFF0A0F1A),
+//                            Color(0xFF07182A),
+//                            Color(0xFF031225),
+//                            Color(0xFF000000)
+//                        ),
+//                        radius = 1800f + gradientOffset * 700f,
+//                        center = Offset(size.width * 0.46f, size.height * 0.78f)
+//                    )
+//                    val cyanBloom = Brush.radialGradient(
+//                        0f to Color(0xFF1B3A5A).copy(alpha = 0.0f),
+//                        0.6f to Color(0xFF1B3A5A).copy(alpha = 0.25f),
+//                        1f to Color(0xFF1B3A5A).copy(alpha = 0.0f),
+//                        radius = 1200f + gradientOffset * 500f,
+//                        center = Offset(size.width * 0.38f, size.height * 0.35f)
+//                    )
+//                    val vignette = Brush.radialGradient(
+//                        0f to Color.Transparent,
+//                        0.85f to Color.Transparent,
+//                        1f to Color(0xFF000000).copy(alpha = 0.55f),
+//                        radius = size.maxDimension * 0.85f,
+//                        center = center
+//                    )
+//                    drawRect(base)
+//                    drawRect(cyanBloom)
+//                    if (introProgress < 1f) drawRect(
+//                        brush = Brush.radialGradient(introColors, radius = 1400f, center = Offset(size.width * 0.42f, size.height * 0.28f)),
+//                        alpha = 1f - introProgress
+//                    )
+//                    drawRect(vignette)
+//                    drawContent()
+//                }
                 .padding(horizontal = 24.dp)
         ) {
             Column(

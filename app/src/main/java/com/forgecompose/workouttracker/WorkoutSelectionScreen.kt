@@ -963,7 +963,7 @@ fun WorkoutSelector(
                     .align(Alignment.BottomCenter)
                     .zIndex(2f),
                 navController = navController,
-                cornerRadius = 34.dp,
+                cornerRadius = 32.dp,
                 iconAlpha = 1f,
                 uiState = uiState
             )

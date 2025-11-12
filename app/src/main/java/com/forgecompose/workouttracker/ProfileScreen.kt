@@ -1,9 +1,6 @@
 package com.forgecompose.workouttracker
 
-import android.graphics.RenderEffect
-import android.graphics.Shader
 import android.os.Build
-import androidx.annotation.RequiresApi
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -30,8 +27,6 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shadow
-import androidx.compose.ui.graphics.asComposeRenderEffect
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
@@ -42,11 +37,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
 import com.forgecompose.workouttracker.blurAnim.intensity
 import com.forgecompose.workouttracker.blurAnim.length
-
 import java.text.SimpleDateFormat
 import java.util.*
 import kotlin.math.PI
-import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.random.Random
 import kotlinx.coroutines.delay
@@ -154,17 +147,16 @@ fun UserProfileScreen(
         animationSpec = tween(length.value.toInt()),
         label = "blur"
     )
+    val blurToApply = remember(blurAnim) { if (blurAnim < 0.6.dp) 0.dp else blurAnim.coerceAtMost(60.dp) }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-
-            .graphicsLayer{
-                clip = true
-
-                renderEffect = RenderEffect.createBlurEffect(blurAnim.toPx(), blurAnim.toPx(), Shader.TileMode.CLAMP).asComposeRenderEffect()
-            }
-
+            .then(
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && blurToApply > 0.dp) {
+                    Modifier.blur(blurToApply)
+                } else Modifier
+            )
     ) {
         AnimatedBackdrop(
             modifier = Modifier.matchParentSize(),
@@ -271,10 +263,6 @@ fun UserProfileScreen(
                         }
                     }
                 }
-
-
-
-
                 item { Spacer(modifier = Modifier.height(80.dp)) }
             }
         }
@@ -282,7 +270,7 @@ fun UserProfileScreen(
             FloatingTaskbar(
                 modifier = Modifier.align(Alignment.BottomCenter),
                 navController = navController,
-                cornerRadius = 34.dp,
+                cornerRadius = 32.dp,
                 iconAlpha = 1f,
                 uiState = uiState
             )

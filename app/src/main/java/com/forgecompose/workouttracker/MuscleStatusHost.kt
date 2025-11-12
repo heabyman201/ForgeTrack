@@ -273,7 +273,7 @@ fun ProfileMuscleStatusRoute(
                     FloatingTaskbar(
                         modifier = Modifier.align(Alignment.BottomCenter),
                         navController = navController,
-                        cornerRadius = 34.dp,
+                        cornerRadius = 32.dp,
                         iconAlpha = 1f,
                         uiState = uiState
                     )
