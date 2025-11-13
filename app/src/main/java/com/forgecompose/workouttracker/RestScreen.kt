@@ -37,6 +37,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -49,16 +50,19 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
@@ -71,6 +75,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.util.lerp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -90,8 +95,6 @@ import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.refraction
 import com.kyant.backdrop.effects.vibrancy
-import com.kyant.backdrop.highlight.Highlight
-import com.kyant.backdrop.highlight.HighlightStyle
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import java.time.LocalTime
@@ -99,14 +102,128 @@ import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.min
 import kotlin.math.sin
+@Composable
+fun RestAdviceSection(
+    modifier: Modifier = Modifier
+) {
+    val tips = remember {
+        listOf(
+            "Most of your strength recovers in the first 2–3 minutes of rest because phosphocreatine refills during that window.",
+            "Walking slowly between sets keeps blood flowing and helps clear metabolites faster than just sitting.",
+            "Deep belly breathing during rest lowers heart rate and lets your nervous system reset for the next heavy set.",
+            "If your form broke down in the last set, lower the weight slightly next set instead of forcing ugly reps.",
+            "Grip the bar the same way every set — consistent grip width keeps joints happier and progress easier to track.",
+            "For compound lifts, stopping with 1–3 reps in reserve is usually enough to grow without frying recovery.",
+            "If your technique gets worse each set, your rest is probably too short or the weight is too heavy.",
+            "On upper-body days, light band pull-aparts or face pulls between sets can help your shoulders stay stable.",
+            "If your breathing is still chaotic when the timer ends, add 20–30 seconds before your next heavy set.",
+            "Most injuries happen when you’re tired and rushing — use rest time to reset stance, grip, and bracing.",
+            "Shaking your arms or legs between sets can help reduce local stiffness and keep range of motion smoother.",
+            "Rest longer after heavy compound sets than isolation work — your nervous system needs more time to reset.",
+            "If a joint, not a muscle, is what feels tired, adjust the setup or range of motion before the next set.",
+            "Logging your last set’s reps and RPE during rest turns each session into data you can actually improve from.",
+            "If a muscle never feels involved in a compound lift, use rest time to quickly practice a lighter, slower rep.",
+            "The last 3–5 controlled reps before failure drive most hypertrophy — warm-up sets don’t need to be hard.",
+            "Use the first 10 seconds of rest to rate the set in your head: too easy, on point, or too hard — then adjust.",
+            "Stretching aggressively between heavy sets can lower force output — stick to gentle mobility, not deep stretches.",
+            "If your heart rate stays sky-high for several sets in a row, reduce load or volume to avoid digging too deep.",
+            "Tilting your phone up and shoulders back during rest keeps your upper back out of “phone hunch” mode.",
+            "Calves, forearms, and abs usually recover faster — they can handle shorter rest than heavy squats or deadlifts.",
+            "If tempo slipped (faster eccentrics, rushed reps), consciously slow down your first rep of the next set.",
+            "Neck and jaw tension during lifts wastes energy — use rest to unclench and reset head position.",
+            "Using the same rest length every session turns your training into a controlled experiment instead of chaos."
+        )
+    }
+
+    var index by remember { mutableStateOf(0) }
+
+
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(12000)
+            index = (index + 1) % tips.size
+        }
+    }
+
+    val accent = Color(0xFF7BD1FF)
+    val cardShape = RoundedCornerShape(18.dp)
+
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = cardShape,
+        color = Color(0xFF020A11).copy(alpha = 0.92f)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .drawWithCache {
+                    val borderBrush = Brush.linearGradient(
+                        listOf(
+                            Color(0xFF7BD1FF).copy(alpha = 0.55f),
+                            Color(0xFF3B9CF8).copy(alpha = 0.35f)
+                        )
+                    )
+                    val bgBrush = Brush.radialGradient(
+                        listOf(
+                            Color(0xFF041523).copy(alpha = 0.7f),
+                            Color(0xFF020A11)
+                        )
+                    )
+                    onDrawBehind {
+                        drawRoundRect(
+                            brush = bgBrush,
+                            cornerRadius = CornerRadius(18.dp.toPx(), 18.dp.toPx())
+                        )
+                        drawRoundRect(
+                            brush = borderBrush,
+                            style = Stroke(width = 1.dp.toPx()),
+                            cornerRadius = CornerRadius(18.dp.toPx(), 18.dp.toPx())
+                        )
+                    }
+                }
+                .padding(horizontal = 12.dp, vertical = 10.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Start,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.AutoAwesome,
+                    contentDescription = null,
+                    tint = accent,
+                    modifier = Modifier.size(26.dp)
+                )
+                Spacer(modifier = Modifier.size(8.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Rest tip",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = Color.White.copy(alpha = 0.78f)
+                    )
+                    Spacer(modifier = Modifier.height(3.dp))
+                    Text(
+                        text = tips[index],
+                        style = MaterialTheme.typography.bodyMedium.copy(
+                            fontWeight = FontWeight.SemiBold
+                        ),
+                        color = Color.White.copy(alpha = 0.97f),
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+        }
+    }
+}
 
 @Composable
 fun RestScreen(
     navController: NavController,
-    vm: HrViewModel = viewModel()
+
 ) {
     val haptics = LocalHapticFeedback.current
-    val bpm by vm.hr.collectAsState()
+
     val initialTotal = rememberSaveable { ConnectedWorkout.restTime.longValue }
     PreventBackGesture()
     var remaining by restTimeRemaining
@@ -148,19 +265,19 @@ fun RestScreen(
     val introProgress by animateFloatAsState(if (showIntro) 0f else 1f, tween(2000), label = "introFade")
     LaunchedEffect(Unit) { showIntro = false }
 
-    var animationClock by remember { mutableStateOf(0f) }
+    val animationClock = remember { mutableFloatStateOf(0f) }
 
     LaunchedEffect(Unit) {
         var i = 0
         while (isActive) {
-            animationClock += (1f / 24f)
+            animationClock.floatValue += (1f / 24f)
             i++
             delay(if (i % 3 == 0) 41 else 42)
         }
     }
 
-    val gradientOffset = 0.5f + 0.5f * sin(animationClock * 2f * PI.toFloat() / 22f)
-    val glow = 0.525f + 0.175f * sin(animationClock * 2f * PI.toFloat() / 16f)
+    val gradientOffset = 0.5f + 0.5f * sin(animationClock.floatValue * 2f * PI.toFloat() / 22f)
+    val glowRaw = 0.525f + 0.175f * sin(animationClock.floatValue * 2f * PI.toFloat() / 16f)
 
     val currentSetCount = CurrentSets.intValue.coerceAtLeast(1)
 
@@ -198,6 +315,7 @@ fun RestScreen(
         animationSpec = tween(length.value.toInt()),
         label = "blur"
     )
+
     WorkoutTrackerTheme {
         AnimatedBackdropBlue(
             modifier = Modifier.fillMaxSize(),
@@ -210,40 +328,6 @@ fun RestScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .blur(blurAnim)
-//                .drawWithContent {
-//                    val base = Brush.radialGradient(
-//                        colors = listOf(
-//                            Color(0xFF0A0F1A),
-//                            Color(0xFF07182A),
-//                            Color(0xFF031225),
-//                            Color(0xFF000000)
-//                        ),
-//                        radius = 1800f + gradientOffset * 700f,
-//                        center = Offset(size.width * 0.46f, size.height * 0.78f)
-//                    )
-//                    val cyanBloom = Brush.radialGradient(
-//                        0f to Color(0xFF1B3A5A).copy(alpha = 0.0f),
-//                        0.6f to Color(0xFF1B3A5A).copy(alpha = 0.25f),
-//                        1f to Color(0xFF1B3A5A).copy(alpha = 0.0f),
-//                        radius = 1200f + gradientOffset * 500f,
-//                        center = Offset(size.width * 0.38f, size.height * 0.35f)
-//                    )
-//                    val vignette = Brush.radialGradient(
-//                        0f to Color.Transparent,
-//                        0.85f to Color.Transparent,
-//                        1f to Color(0xFF000000).copy(alpha = 0.55f),
-//                        radius = size.maxDimension * 0.85f,
-//                        center = center
-//                    )
-//                    drawRect(base)
-//                    drawRect(cyanBloom)
-//                    if (introProgress < 1f) drawRect(
-//                        brush = Brush.radialGradient(introColors, radius = 1400f, center = Offset(size.width * 0.42f, size.height * 0.28f)),
-//                        alpha = 1f - introProgress
-//                    )
-//                    drawRect(vignette)
-//                    drawContent()
-//                }
                 .padding(horizontal = 24.dp)
         ) {
             Column(
@@ -261,99 +345,123 @@ fun RestScreen(
                     modifier = Modifier.size(ringSize),
                     contentAlignment = Alignment.Center
                 ) {
-                    Canvas(Modifier.fillMaxSize()) {
-                        val w = size.width
-                        val h = size.height
-                        val cx = w / 2f
-                        val cy = h / 2f
-                        val stroke = 18f
-                        val radius = min(w, h) / 2f - stroke
+                    val progressState by rememberUpdatedState(animatedProgress.coerceIn(0f, 1f))
+                    val glowState by rememberUpdatedState(glowRaw.coerceIn(0f, 1f))
 
-                        drawCircle(
-                            brush = Brush.radialGradient(
-                                listOf(Color(0xFF0A1420), Color(0xFF0F1E2E)),
-                                center = center,
-                                radius = radius * 1.2f
-                            ),
-                            radius = radius,
-                            style = Stroke(width = stroke, cap = StrokeCap.Round)
-                        )
+                    Canvas(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .drawWithCache {
+                                val w = size.width
+                                val h = size.height
+                                val cx = w / 2f
+                                val cy = h / 2f
+                                val center = Offset(cx, cy)
 
-                        val innerGlowStroke = stroke * 2.2f
-                        drawCircle(
-                            color = Color(0xFF7BD1FF).copy(alpha = 0.10f + 0.07f * glow),
-                            radius = radius,
-                            style = Stroke(width = innerGlowStroke, cap = StrokeCap.Round)
-                        )
+                                val stroke = 18f
+                                val radius = min(w, h) / 2f - stroke
 
-                        for (i in 0..100 step 10) {
-                            val a = Math.toRadians((i * 3.6 - 90).toDouble()).toFloat()
-                            val sx = cx + cos(a) * (radius - stroke * 0.6f)
-                            val sy = cy + sin(a) * (radius - stroke * 0.6f)
-                            val ex = cx + cos(a) * (radius + stroke * 0.6f)
-                            val ey = cy + sin(a) * (radius + stroke * 0.6f)
-                            drawLine(
-                                color = Color(0xFF7BD1FF).copy(alpha = if (i % 20 == 0) 0.35f else 0.15f),
-                                start = Offset(sx, sy),
-                                end = Offset(ex, ey),
-                                strokeWidth = if (i % 20 == 0) 4f else 2f,
-                                cap = StrokeCap.Round
-                            )
-                        }
+                                val bgBrush = Brush.radialGradient(
+                                    listOf(Color(0xFF0A1420), Color(0xFF0F1E2E)),
+                                    center = center,
+                                    radius = radius * 1.2f
+                                )
+                                val arcBrush = Brush.sweepGradient(
+                                    0f to Color(0xFF3B9CF8),
+                                    0.28f to Color(0xFF54C7FF),
+                                    0.64f to Color(0xFF9CEBFF),
+                                    1f to Color(0xFF3B9CF8),
+                                    center = center
+                                )
 
-                        val sweep = 360f * animatedProgress
-                        val arcRect = Rect(
-                            Offset(cx - radius, cy - radius),
-                            Size(radius * 2, radius * 2)
-                        )
-                        val arcBrush = Brush.sweepGradient(
-                            0f to Color(0xFF3B9CF8),
-                            0.28f to Color(0xFF54C7FF),
-                            0.64f to Color(0xFF9CEBFF),
-                            1f to Color(0xFF3B9CF8),
-                            center = center
-                        )
-                        drawArc(
-                            brush = arcBrush,
-                            startAngle = -90f,
-                            sweepAngle = sweep,
-                            useCenter = false,
-                            style = Stroke(width = stroke, cap = StrokeCap.Round),
-                            topLeft = arcRect.topLeft,
-                            size = arcRect.size
-                        )
+                                val arcRectTopLeft = Offset(cx - radius, cy - radius)
+                                val arcRectSize = Size(radius * 2, radius * 2)
 
-                        drawArc(
-                            color = Color(0xFF7BD1FF).copy(alpha = 0.16f + 0.10f * glow),
-                            startAngle = -90f,
-                            sweepAngle = sweep,
-                            useCenter = false,
-                            style = Stroke(width = stroke * 1.7f, cap = StrokeCap.Round),
-                            topLeft = arcRect.topLeft,
-                            size = arcRect.size
-                        )
+                                val deg2rad = (Math.PI / 180.0).toFloat()
+                                val innerR = radius - stroke * 0.6f
+                                val outerR = radius + stroke * 0.6f
+                                val tickSegments: List<Pair<Offset, Offset>> =
+                                    (0..100 step 10).map { i ->
+                                        val ang = (i * 3.6f - 90f) * deg2rad
+                                        val c = cos(ang)
+                                        val s = sin(ang)
+                                        val start = Offset(cx + c * innerR, cy + s * innerR)
+                                        val end   = Offset(cx + c * outerR, cy + s * outerR)
+                                        start to end
+                                    }
 
-                        if (animatedProgress > 0f) {
-                            val capAngle = Math.toRadians((sweep - 90).toDouble()).toFloat()
-                            val px = cx + cos(capAngle) * radius
-                            val py = cy + sin(capAngle) * radius
-                            drawCircle(
-                                brush = Brush.radialGradient(
-                                    listOf(Color(0xFFB2EBFF), Color.Transparent),
-                                    center = Offset(px, py),
-                                    radius = 26f
-                                ),
-                                radius = 26f * (0.7f + 0.3f * glow),
-                                center = Offset(px, py),
-                                alpha = 0.85f
-                            )
-                            drawCircle(
-                                color = Color(0xFFCCF4FF),
-                                radius = 6f,
-                                center = Offset(px, py)
-                            )
-                        }
-                    }
+                                onDrawWithContent {
+                                    drawCircle(
+                                        brush = bgBrush,
+                                        radius = radius,
+                                        center = center,
+                                        style = Stroke(width = stroke, cap = StrokeCap.Round)
+                                    )
+
+                                    drawCircle(
+                                        color = Color(0xFF7BD1FF).copy(alpha = 0.10f + 0.07f * glowState),
+                                        radius = radius,
+                                        center = center,
+                                        style = Stroke(width = stroke * 2.2f, cap = StrokeCap.Round)
+                                    )
+
+                                    tickSegments.forEachIndexed { idx, (start, end) ->
+                                        val major = (idx % 2 == 0)
+                                        drawLine(
+                                            color = Color(0xFF7BD1FF).copy(alpha = if (major) 0.35f else 0.15f),
+                                            start = start,
+                                            end = end,
+                                            strokeWidth = if (major) 4f else 2f,
+                                            cap = StrokeCap.Round
+                                        )
+                                    }
+
+                                    val sweep = 360f * progressState
+                                    drawArc(
+                                        brush = arcBrush,
+                                        startAngle = -90f,
+                                        sweepAngle = sweep,
+                                        useCenter = false,
+                                        style = Stroke(width = stroke, cap = StrokeCap.Round),
+                                        topLeft = arcRectTopLeft,
+                                        size = arcRectSize
+                                    )
+
+                                    drawArc(
+                                        color = Color(0xFF7BD1FF).copy(alpha = 0.16f + 0.10f * glowState),
+                                        startAngle = -90f,
+                                        sweepAngle = sweep,
+                                        useCenter = false,
+                                        style = Stroke(width = stroke * 1.7f, cap = StrokeCap.Round),
+                                        topLeft = arcRectTopLeft,
+                                        size = arcRectSize
+                                    )
+
+                                    if (progressState > 0f) {
+                                        val capAng = ((sweep - 90f) * deg2rad)
+                                        val px = cx + cos(capAng) * radius
+                                        val py = cy + sin(capAng) * radius
+                                        val capCenter = Offset(px, py)
+
+                                        drawCircle(
+                                            brush = Brush.radialGradient(
+                                                listOf(Color(0xFFB2EBFF), Color.Transparent),
+                                                center = capCenter,
+                                                radius = 26f
+                                            ),
+                                            center = capCenter,
+                                            radius = 26f * (0.7f + 0.3f * glowState),
+                                            alpha = 0.85f
+                                        )
+                                        drawCircle(
+                                            color = Color(0xFFCCF4FF),
+                                            center = capCenter,
+                                            radius = 6f
+                                        )
+                                    }
+                                }
+                            }
+                    ){}
 
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(
@@ -465,19 +573,18 @@ fun RestScreen(
                 val interactionSource = remember { MutableInteractionSource() }
                 val pressed by interactionSource.collectIsPressedAsState()
                 val scale by animateFloatAsState(if (pressed) 0.98f else 1f, label = "btnScale")
-                val elevation by animateDpAsState(if (pressed) 2.dp else 8.dp, label = "btnElev")
 
                 val backdrop = rememberLayerBackdrop()
-                val uiSensor = rememberUISensor()
                 val progressAnimation = remember { Animatable(0f) }
-                val isPressed by interactionSource.collectIsPressedAsState()
-                LaunchedEffect(isPressed) {
+                LaunchedEffect(pressed) {
                     val spec = spring<Float>(dampingRatio = Spring.DampingRatioLowBouncy)
-                    progressAnimation.animateTo(if (isPressed) 1f else 0f, spec)
+                    progressAnimation.animateTo(if (pressed) 1f else 0f, spec)
                 }
 
                 val buttonShape = RoundedCornerShape(32.dp)
-
+                RestAdviceSection(
+                    modifier = Modifier.padding(top = 4.dp)
+                )
                 Box(
                     modifier = Modifier
                         .padding(horizontal = 32.dp, vertical = 24.dp)

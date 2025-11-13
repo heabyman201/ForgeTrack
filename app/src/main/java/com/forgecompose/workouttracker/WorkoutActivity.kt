@@ -1994,7 +1994,6 @@ Output ≤1 line, purely motivational.
                         additionalButtonText = "Finish Workout Only",
                         onCustomAction = {
                             timeToMillis()
-                            ConnectedWorkout.currentMode.value = WorkoutMode.INACTIVE
                             scope.launch(Dispatchers.IO) {
                                 viewModel.addSampleWorkout(
                                     workout.value, WorkoutStatus.COMPLETED,
@@ -2012,37 +2011,48 @@ Output ≤1 line, purely motivational.
                                     currentDistance.value.toFloat()
                                 )
                             }
-                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                            activity?.finishAffinity()
-                            val intent = Intent(context, MainActivity::class.java)
-                            intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+                            WorkoutLog.sets.clear()
+                            WorkoutForegroundService.stop(context)
+                            ConnectedWorkout.currentMode.value = WorkoutMode.INACTIVE
                             context.startActivity(intent)
+                            activity?.finishAffinity()
+                            hours = 0
+                            minutes = 0
+                            seconds = 0
+                            accMs = 0L
+                            startAt.longValue = SystemClock.elapsedRealtime()
+                            CurrentSets.intValue = 0
+                            CurrentReps.intValue = 0
+                            CurrentTime.value = 0
+                            GoalSets.intValue = 0
+                            GoalReps.intValue = 0
+                            GoalTime.value = 0
+                            GoalDistance.value = 0.0
+                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                         },
                         onDismiss = { showSyncDialog.showSyncDialog.value = false },
                         onConfirm = {
-                            WorkoutForegroundService.stop(context)
                             val healthConnectManager = HealthConnectManager(context.applicationContext)
-                            scope.launch {
-                                WorkoutForegroundService.stop(context)
-                                timeToMillis()
-                                ConnectedWorkout.currentMode.value = WorkoutMode.INACTIVE
-                                scope.launch(Dispatchers.IO) {
-                                    viewModel.addSampleWorkout(
-                                        workout.value, WorkoutStatus.COMPLETED,
-                                        CurrentTime.value, CurrentWeight.value,
-                                        CurrentSets.intValue, CurrentReps.intValue,
-                                        currentDistance.value,
-                                        ""
-                                    )
-                                    PDE.logWorkout(
-                                        workout.value,
-                                        CurrentTime.value,
-                                        CurrentWeight.value.toFloat(),
-                                        CurrentReps.intValue,
-                                        CurrentSets.intValue,
-                                        currentDistance.value.toFloat()
-                                    )
-                                }
+                            val cardioExerciseNames = listOf(
+                                "Running (Treadmill)", "Stair Climber", "Elliptical Trainer",
+                                "Rowing Machine", "Stationary Bike", "Swimming"
+                            )
+                            scope.launch(Dispatchers.IO) {
+                                viewModel.addSampleWorkout(
+                                    workout.value, WorkoutStatus.COMPLETED,
+                                    CurrentTime.value, CurrentWeight.value,
+                                    CurrentSets.intValue, CurrentReps.intValue,
+                                    currentDistance.value,
+                                    ""
+                                )
+                                PDE.logWorkout(
+                                    workout.value,
+                                    CurrentTime.value,
+                                    CurrentWeight.value.toFloat(),
+                                    CurrentReps.intValue,
+                                    CurrentSets.intValue,
+                                    currentDistance.value.toFloat()
+                                )
                                 if (healthConnectManager.hasAllPermissions()) {
                                     val endInstant = Clock.System.now().toJavaInstant()
                                     val workoutDetails = WorkoutDetails(
@@ -2058,12 +2068,25 @@ Output ≤1 line, purely motivational.
                                     )
                                     healthConnectManager.writeWorkout(workoutDetails)
                                 }
-                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                activity?.finishAffinity()
-                                val intent = Intent(context, MainActivity::class.java)
-                                intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
-                                context.startActivity(intent)
                             }
+                            WorkoutLog.sets.clear()
+                            WorkoutForegroundService.stop(context)
+                            ConnectedWorkout.currentMode.value = WorkoutMode.INACTIVE
+                            context.startActivity(intent)
+                            activity?.finishAffinity()
+                            hours = 0
+                            minutes = 0
+                            seconds = 0
+                            accMs = 0L
+                            startAt.longValue = SystemClock.elapsedRealtime()
+                            CurrentSets.intValue = 0
+                            CurrentReps.intValue = 0
+                            CurrentTime.value = 0
+                            GoalSets.intValue = 0
+                            GoalReps.intValue = 0
+                            GoalTime.value = 0
+                            GoalDistance.value = 0.0
+
                         },
                     )
                 }

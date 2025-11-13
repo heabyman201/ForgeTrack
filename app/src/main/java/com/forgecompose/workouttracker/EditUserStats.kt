@@ -82,7 +82,7 @@ fun EditUserStats(navcontroller: NavController) {
     var preferredStyle by remember { mutableStateOf(prefsManager.getPreferredStyle()) }
     var importantMuscles by remember { mutableStateOf(prefsManager.getImportantMuscles()) }
 
-    val styles = listOf("Cardio", "Weights", "Both")
+    val styles = listOf("Calisthenics", "Weights", "Both")
     val muscles = listOf("Chest", "Arms", "Legs", "Back", "Core", "Shoulders")
 
     val interaction = remember { MutableInteractionSource() }

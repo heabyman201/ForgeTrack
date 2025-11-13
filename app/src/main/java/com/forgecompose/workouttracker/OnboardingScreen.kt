@@ -359,7 +359,7 @@ private fun UserDataCollectionLayout(
     preferredStyle: String, onPreferredStyleChange: (String) -> Unit,
     importantMuscles: List<String>, onImportantMusclesChange: (List<String>) -> Unit
 ) {
-    val styles = listOf("Cardio", "Weights", "Both")
+    val styles = listOf("Calisthenics", "Weights", "Both")
     val muscles = listOf("Chest", "Arms", "Legs", "Back", "Core", "Shoulders")
     val h = LocalHapticFeedback.current
 

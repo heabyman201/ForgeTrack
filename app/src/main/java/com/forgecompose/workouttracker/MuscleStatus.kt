@@ -150,12 +150,18 @@ data class MuscleLoad(
     val lastTrainedAgo: String? = null
 )
 
+private fun UserProfile.bmi(): Double {
+    val h = heightCm / 100.0
+    return if (h > 0) weightKg / h.pow(2.0) else 0.0
+}
+
 data class RecoveryFactors(
     val sleepHours: Float?,
     val restingHeartRate: Long?,
     val sleepSpo2: Double?,
     val proteinGrams: Double?,
-    val bodyFatPercentage: Double?
+    val bodyFatPercentage: Double?,
+    val profile: UserProfile? = null
 ) {
     val sleepMultiplier: Float = when {
         sleepHours == null -> 1f
@@ -193,7 +199,57 @@ data class RecoveryFactors(
         bodyFatPercentage in 8.0..25.0 -> 1f
         else -> 0.96f
     }
-    val totalMultiplier: Float = (sleepMultiplier * rhrMultiplier * spo2Multiplier * proteinMultiplier * bodyFatMultiplier).coerceIn(0.8f, 1.25f)
+
+    private val profileAdj: Float = profile?.let { p ->
+        val ageAdj = when {
+            p.age < 20 -> 1.04f
+            p.age < 30 -> 1.02f
+            p.age < 40 -> 1.0f
+            p.age < 50 -> 0.96f
+            else -> 0.92f
+        }
+        val exp = p.experience.lowercase(Locale.US)
+        val duration = Regex("""(\d+(\.\d+)?)""").find(exp)?.value?.toFloatOrNull() ?: 0f
+        val expAdj = when {
+            "month" in exp -> when {
+                duration >= 12f -> 1.0f
+                duration >= 6f -> 0.98f
+                else -> 0.96f
+            }
+            "year" in exp -> when {
+                duration >= 10f -> 1.05f
+                duration >= 5f -> 1.03f
+                duration >= 2f -> 1.02f
+                duration >= 1f -> 1.0f
+                else -> 0.98f
+            }
+            else -> 1.0f
+        }
+        val styleAdj = when (p.preferredStyle.lowercase(Locale.US)) {
+            "calisthenics" -> 0.97f
+            "weight" -> 1.02f
+            "both" -> 1.0f
+            else -> 1.0f
+        }
+        val bmi = p.bmi()
+        val bmiAdj = when {
+            bmi == 0.0 -> 1.0f
+            bmi < 18.5 -> 0.97f
+            bmi < 27.0 -> 1.0f
+            bmi < 32.0 -> 0.97f
+            else -> 0.94f
+        }
+        (ageAdj * expAdj * styleAdj * bmiAdj)
+    } ?: 1.0f
+
+    val totalMultiplier: Float = (
+            sleepMultiplier *
+                    rhrMultiplier *
+                    spo2Multiplier *
+                    proteinMultiplier *
+                    bodyFatMultiplier *
+                    profileAdj
+            ).coerceIn(0.75f, 1.35f)
 }
 
 data class WorkoutSummary(val date: Instant, val name: String, val exercises: List<String> = emptyList())
@@ -262,7 +318,7 @@ private fun computeTargets(profile: UserProfile, muscle: MuscleGroups): Targets 
     tgt *= when (profile.preferredStyle) {
         "weights" -> 0.95f
         "both" -> 1.09f
-        "cardio" -> 0.9f
+        "calisthenics" -> 0.9f
         else -> 1.02f
     }
     val age = profile.age
