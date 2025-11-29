@@ -1,17 +1,14 @@
 package com.forgecompose.workouttracker
 
+import android.content.Context
 import android.content.Intent
-import android.graphics.RenderEffect
-import android.graphics.Shader
 import android.os.Build
-import android.util.Log
-import android.view.View
 import androidx.annotation.RequiresApi
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.CubicBezierEasing
-import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
@@ -32,7 +29,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.indication
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -45,22 +42,17 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AddCircle
-import androidx.compose.material.icons.filled.AddCircleOutline
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.FitnessCenter
-import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.PlayCircle
-import androidx.compose.material.icons.filled.Start
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
@@ -70,10 +62,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.toMutableStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -83,10 +78,9 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
-import androidx.compose.ui.graphics.asComposeRenderEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -95,18 +89,26 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.util.lerp
-import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.zIndex
 import androidx.navigation.NavController
 import androidx.navigation.compose.currentBackStackEntryAsState
 import com.forgecompose.workouttracker.ConnectedWorkout.workout
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlin.math.abs
+import kotlin.math.roundToInt
 import kotlin.math.sign
+
+data class TaskbarItem(
+    val route: String,
+    val icon: ImageVector,
+    val id: String = route
+)
+
 @RequiresApi(Build.VERSION_CODES.TIRAMISU)
 @Composable
 fun FloatingTaskbar(
@@ -119,8 +121,18 @@ fun FloatingTaskbar(
     val isWorkoutInProgress = ConnectedWorkout.currentMode.value != ConnectedWorkout.WorkoutMode.INACTIVE
     val ctx = LocalContext.current
     val performanceOptions by PerformanceOptionsManager.current.collectAsState(initial = PerformanceOptions.Defaults)
+
+    val appearanceOptions by AppearanceOptionsManagerAppTheme
+        .flow(ctx)
+        .collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
+    val theme = appearanceOptions.selectedTheme.colors
+    val primaryColor = theme.primary
+    val secondaryColor = theme.secondary
+    val backgroundColor = theme.background
+
     val animationsEnabled = performanceOptions.taskbarAnimations
     val glowAlpha = 1f
+
     Box(modifier = modifier.fillMaxWidth(), contentAlignment = Alignment.BottomCenter) {
         AnimatedContent(
             targetState = isWorkoutInProgress,
@@ -193,21 +205,24 @@ fun FloatingTaskbar(
                                 scaleY = baseScaleY * pressScale
                             }
                             .drawWithCache {
+
                                 val bg = Brush.radialGradient(
-                                    listOf(Color(0xFF1A0A0A), Color(0xFF0B0505)),
+                                    listOf(secondaryColor.copy(alpha = 0.2f), backgroundColor),
                                     center = Offset(size.width / 2f, size.height / 2f),
                                     radius = size.minDimension * (0.92f + 0.22f * t)
                                 )
                                 val sweepX = size.width * (neonPhase * 2f - 0.5f)
                                 val start = Offset(sweepX, 0f)
                                 val end = Offset(sweepX + size.width * 0.6f, size.height)
+
+
                                 val core = Brush.linearGradient(
-                                    listOf(Color(0xFFFF3B30).copy(alpha = 0f), Color(0xFFFF3B30), Color(0xFFFF3B30).copy(alpha = 0f)),
+                                    listOf(primaryColor.copy(alpha = 0f), primaryColor, primaryColor.copy(alpha = 0f)),
                                     start = start,
                                     end = end
                                 )
                                 val outer = Brush.linearGradient(
-                                    listOf(Color(0xFFFF3B30).copy(alpha = 0f), Color(0xFFFF3B30).copy(alpha = 0.28f), Color(0xFFFF3B30).copy(alpha = 0f)),
+                                    listOf(primaryColor.copy(alpha = 0f), primaryColor.copy(alpha = 0.28f), primaryColor.copy(alpha = 0f)),
                                     start = start,
                                     end = end
                                 )
@@ -225,7 +240,7 @@ fun FloatingTaskbar(
                             Icon(
                                 imageVector = Icons.Filled.FitnessCenter,
                                 contentDescription = "Return to Workout",
-                                tint = Color(0xFFFF3B30),
+                                tint = primaryColor, // Dynamic Icon Tint
                                 modifier = Modifier.size(38.dp * (1f + 0.1f * t))
                             )
                             Spacer(Modifier.width(12.dp))
@@ -248,6 +263,7 @@ fun FloatingTaskbar(
                 val navBackStackEntry by navController.currentBackStackEntryAsState()
                 val currentRoute = navBackStackEntry?.destination?.route
                 val haptic = LocalHapticFeedback.current
+
                 Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.BottomCenter) {
                     AnimatedVisibility(
                         visible = baseIsVisible && !isDismissedByUser,
@@ -256,22 +272,47 @@ fun FloatingTaskbar(
                         else fadeIn(tween(0)),
                         exit = if (animationsEnabled) fadeOut(tween(450, easing = CubicBezierEasing(0.4f, 0f, 0.2f, 1f))) else fadeOut(tween(0))
                     ) {
-                        val items = remember {
-                            listOf(
+                        val prefs = remember { ctx.getSharedPreferences("taskbar_prefs", Context.MODE_PRIVATE) }
+                        val allItemsMap = remember {
+                            mapOf(
                                 "HomeScreen" to Icons.Filled.Home,
                                 "WorkoutSelector" to Icons.Filled.AddCircle,
                                 "MuscleGroup" to Icons.Filled.FitnessCenter,
                                 "UserProfile" to Icons.Filled.Person
                             )
                         }
+
+                        val items = remember { mutableStateListOf<TaskbarItem>() }
+
+                        LaunchedEffect(Unit) {
+                            val savedOrder = prefs.getString("order", null)
+                            if (savedOrder != null) {
+                                val keys = savedOrder.split(",")
+                                val orderedItems = keys.mapNotNull { key ->
+                                    allItemsMap[key]?.let { icon -> TaskbarItem(key, icon) }
+                                }
+                                if (orderedItems.size == 4) {
+                                    items.clear()
+                                    items.addAll(orderedItems)
+                                } else {
+                                    items.clear()
+                                    allItemsMap.forEach { (k, v) -> items.add(TaskbarItem(k, v)) }
+                                }
+                            } else {
+                                allItemsMap.forEach { (k, v) -> items.add(TaskbarItem(k, v)) }
+                            }
+                        }
+
                         val containerShape = remember(cornerRadius) { RoundedCornerShape(cornerRadius) }
-                        val accent = remember { Color(0xFFFF5858) }
+                        val accent = primaryColor // Dynamic Accent
                         val pos = remember { Animatable(Offset.Zero, Offset.VectorConverter) }
                         val squish = remember { Animatable(1f) }
                         val skew = remember { Animatable(0f) }
                         val sharedInteraction = remember { MutableInteractionSource() }
                         val isPressed by sharedInteraction.collectIsPressedAsState()
-                        val routeOrder = remember { listOf("WorkoutHistory", "HomeScreen", "MuscleGroup", "UserProfile") }
+
+                        val routeOrder = items.map { it.route }
+
                         fun routeIndex(r: String?) = routeOrder.indexOf(r).let { if (it >= 0) it else 1 }
                         var prevRoute by remember { mutableStateOf(currentRoute) }
                         LaunchedEffect(currentRoute) {
@@ -303,9 +344,33 @@ fun FloatingTaskbar(
                         var boxSize by remember { mutableStateOf(IntSize.Zero) }
                         val density2 = LocalDensity.current
                         val cornerRpx2 = with(density2) { cornerRadius.toPx() }
-                        val borderColor = Color(0xFF712424)
+
+                        // Dynamic Border for main container
+                        val borderColor = secondaryColor.copy(alpha = 0.5f)
+
                         var dragPreviewIndex by remember { mutableStateOf<Int?>(null) }
                         var dragProgress by remember { mutableStateOf(0f) }
+
+                        var draggingItemIndex by remember { mutableStateOf<Int?>(null) }
+                        var draggingItemOffset by remember { mutableStateOf(0f) }
+
+                        val infiniteTransition = rememberInfiniteTransition(label = "jiggle")
+                        val jiggleRotation by infiniteTransition.animateFloat(
+                            initialValue = -2.5f,
+                            targetValue = 2.5f,
+                            animationSpec = infiniteRepeatable(
+                                animation = tween(120, easing = LinearEasing),
+                                repeatMode = RepeatMode.Reverse
+                            ),
+                            label = "rotation"
+                        )
+
+                        val isReordering = draggingItemIndex != null
+                        val containerBorderColor by animateColorAsState(
+                            if (isReordering) primaryColor else Color(0x26FFFFFF), // Dynamic drag border
+                            label = "border"
+                        )
+
                         Box(
                             modifier = Modifier
                                 .padding(horizontal = 16.dp, vertical = 10.dp)
@@ -356,15 +421,16 @@ fun FloatingTaskbar(
                                         shadowElevation = 0f
                                     }
                                     .drawWithCache {
+                                        // Subtle Background using secondary color tint
                                         val bg = Brush.radialGradient(
-                                            listOf(Color(0xFF1A0A0A), Color(0xFF0B0505)),
+                                            listOf(secondaryColor.copy(alpha = 1.0f), Color(0xFF0B0505)),
                                             center = Offset(size.width / 2f, size.height / 2f),
-                                            radius = size.minDimension * 0.94f
+                                            radius = size.minDimension * 0.01f
                                         )
-                                        val border = Brush.linearGradient(listOf(Color(0x26FFFFFF), Color(0x0DFFFFFF)))
+                                        val border = Brush.linearGradient(listOf(containerBorderColor, containerBorderColor.copy(alpha = 0.3f)))
                                         onDrawBehind {
                                             drawRoundRect(brush = bg, cornerRadius = CornerRadius(cornerRpx2, cornerRpx2))
-                                            drawRoundRect(brush = border, style = Stroke(width = 1.dp.toPx()), cornerRadius = CornerRadius(cornerRpx2, cornerRpx2))
+                                            drawRoundRect(brush = border, style = Stroke(width = if(isReordering) 2.dp.toPx() else 1.dp.toPx()), cornerRadius = CornerRadius(cornerRpx2, cornerRpx2))
                                         }
                                     }
                             ) {
@@ -378,157 +444,165 @@ fun FloatingTaskbar(
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    val order = listOf("HomeScreen", "WorkoutSelector", "MuscleGroup", "UserProfile")
-                                    items.forEachIndexed { index, (route, icon) ->
-                                        val selected = currentRoute == route
-                                        val glowTarget by animateFloatAsState(targetValue = if (selected) 1f else 0f, animationSpec = if (animationsEnabled) tween(300, easing = CubicBezierEasing(0.2f, 0.8f, 0.2f, 1f)) else tween(0), label = "")
-                                        val baseScale by animateFloatAsState(targetValue = if (selected) 1.055f else 1f, animationSpec = if (animationsEnabled) tween(500, easing = CubicBezierEasing(0.2f, 0.8f, 0.2f, 1f)) else tween(0), label = "")
-                                        val pressSquish by animateFloatAsState(targetValue = if (selected && isPressed) 0.99f else 1f, animationSpec = if (animationsEnabled) tween(450, easing = CubicBezierEasing(0.2f, 0.8f, 0.2f, 1f)) else tween(0), label = "")
-                                        val burst = remember(route) { Animatable(0f) }
-                                        val densityLocal = LocalDensity.current
-                                        val dragThresholdPx = with(densityLocal) { 48.dp.toPx() }
-                                        var dragAccum by remember(route) { mutableStateOf(0f) }
-                                        val isTargetPreview = dragPreviewIndex == index
-                                        val isCurrentSelectedPreviewing = selected && dragPreviewIndex != null
-                                        val extraScaleTarget = if (isTargetPreview) 1f + 0.22f * dragProgress else 1f
-                                        val extraScaleSelected = if (isCurrentSelectedPreviewing && selected) 1f + 0.1f * dragProgress else 1f
-                                        Box(
-                                            modifier = Modifier
-                                                .weight(1f)
-                                                .padding(horizontal = 6.dp)
-                                                .graphicsLayer {
-                                                    val burstScale = 1f + 0.14f * burst.value
-                                                    val s = (baseScale * pressSquish) * burstScale * extraScaleTarget * extraScaleSelected
-                                                    scaleX = s
-                                                    scaleY = (baseScale / pressSquish) * burstScale * extraScaleTarget * extraScaleSelected
-                                                }
-                                                .clip(RoundedCornerShape(pillRadius))
-                                                .pointerInput(selected) {
-                                                    val densityLocal = this
+                                    items.forEachIndexed { index, item ->
+                                        key(item.id) {
+                                            val route = item.route
+                                            val icon = item.icon
+                                            val selected = currentRoute == route
+                                            val glowTarget by animateFloatAsState(targetValue = if (selected) 1f else 0f, animationSpec = if (animationsEnabled) tween(300, easing = CubicBezierEasing(0.2f, 0.8f, 0.2f, 1f)) else tween(0), label = "")
+                                            val baseScale by animateFloatAsState(targetValue = if (selected) 1.055f else 1f, animationSpec = if (animationsEnabled) tween(500, easing = CubicBezierEasing(0.2f, 0.8f, 0.2f, 1f)) else tween(0), label = "")
+                                            val pressSquish by animateFloatAsState(targetValue = if (selected && isPressed) 0.99f else 1f, animationSpec = if (animationsEnabled) tween(450, easing = CubicBezierEasing(0.2f, 0.8f, 0.2f, 1f)) else tween(0), label = "")
+                                            val burst = remember(route) { Animatable(0f) }
 
-                                                    val dragThresholdPx = with(densityLocal) { 32.dp.toPx() }
+                                            val isTargetPreview = dragPreviewIndex == index
+                                            val isCurrentSelectedPreviewing = selected && dragPreviewIndex != null
+                                            val extraScaleTarget = if (isTargetPreview) 1f + 0.22f * dragProgress else 1f
+                                            val extraScaleSelected = if (isCurrentSelectedPreviewing && selected) 1f + 0.1f * dragProgress else 1f
 
-                                                    if (selected) {
-                                                        detectDragGestures(
+                                            val isBeingDragged = draggingItemIndex == index
+                                            val reorderScale by animateFloatAsState(if (isBeingDragged) 1.25f else 1f, label = "reorderScale")
+                                            val reorderOffset = if (isBeingDragged) draggingItemOffset else 0f
+
+                                            val rotation = if (isReordering && !isBeingDragged) jiggleRotation else 0f
+
+                                            Box(
+                                                modifier = Modifier
+                                                    .weight(1f)
+                                                    .padding(horizontal = 6.dp)
+                                                    .zIndex(if (isBeingDragged) 10f else 0f)
+                                                    .offset { IntOffset(reorderOffset.roundToInt(), 0) }
+                                                    .graphicsLayer {
+                                                        val burstScale = 1f + 0.14f * burst.value
+                                                        val s = (baseScale * pressSquish) * burstScale * extraScaleTarget * extraScaleSelected * reorderScale
+                                                        scaleX = s
+                                                        scaleY = (baseScale / pressSquish) * burstScale * extraScaleTarget * extraScaleSelected * reorderScale
+                                                        shadowElevation = if(isBeingDragged) 12.dp.toPx() else 0f
+                                                        rotationZ = rotation
+                                                    }
+                                                    .clip(RoundedCornerShape(pillRadius))
+                                                    .pointerInput(Unit) {
+                                                        val densityLocal = this
+                                                        val reorderThreshold = with(densityLocal) { buttonSize.toPx() * 0.6f }
+
+                                                        detectDragGesturesAfterLongPress(
+                                                            onDragStart = {
+                                                                draggingItemIndex = index
+                                                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                            },
                                                             onDragEnd = {
-
-                                                                dragAccum = 0f
-                                                                dragPreviewIndex = null
-                                                                dragProgress = 0f
+                                                                draggingItemIndex = null
+                                                                draggingItemOffset = 0f
+                                                            },
+                                                            onDragCancel = {
+                                                                draggingItemIndex = null
+                                                                draggingItemOffset = 0f
                                                             }
                                                         ) { change, dragAmount ->
                                                             change.consume()
-                                                            dragAccum += dragAmount.x
+                                                            draggingItemOffset += dragAmount.x
 
-                                                            val absAccum = kotlin.math.abs(dragAccum)
+                                                            val currentOffset = draggingItemOffset
+                                                            val direction = if (currentOffset > 0) 1 else -1
 
+                                                            if (kotlin.math.abs(currentOffset) > reorderThreshold) {
+                                                                val nextIndex = index + direction
+                                                                if (nextIndex in items.indices) {
+                                                                    val itemToMove = items[index]
+                                                                    items.removeAt(index)
+                                                                    items.add(nextIndex, itemToMove)
 
-                                                            var progress = (absAccum / dragThresholdPx).coerceIn(0f, 1f)
-                                                            progress = progress * progress
+                                                                    val newOrder = items.joinToString(",") { it.route }
+                                                                    prefs.edit().putString("order", newOrder).apply()
 
-                                                            val dir = dragAccum.sign.toInt().coerceIn(-1, 1)
-
-
-                                                            val idx = order.indexOf(route).let { if (it < 0) 0 else it }
-                                                            val next = (idx + dir).coerceIn(0, order.lastIndex)
-
-                                                            if (dir != 0 && next != idx) {
-
-                                                                dragPreviewIndex = next
-                                                                dragProgress = progress
-                                                            } else {
-
-                                                                dragPreviewIndex = null
-                                                                dragProgress = 0f
-                                                            }
-
-                                                            if (absAccum > dragThresholdPx) {
-
-                                                                val nextRoute = order[next]
-                                                                if (nextRoute != route) {
-                                                                    navController.navigate(nextRoute) {
-
-                                                                        popUpTo(navController.graph.startDestinationId) { saveState = true }
-                                                                        launchSingleTop = true
-                                                                        restoreState = true
-                                                                    }
-
-                                                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                                    draggingItemIndex = nextIndex
+                                                                    draggingItemOffset = 0f
+                                                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                                                 }
-
-                                                                dragAccum = 0f
-                                                                dragPreviewIndex = null
-                                                                dragProgress = 0f
                                                             }
                                                         }
                                                     }
-                                                }
-                                                .clickable(indication = null, interactionSource = sharedInteraction) {
-                                                    if (selected) return@clickable
-                                                    navController.navigate(route) {
-                                                        popUpTo(navController.graph.startDestinationId)
-                                                        launchSingleTop = true
-                                                    }
-                                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                    if (animationsEnabled) {
-                                                        scope.launch {
-                                                            burst.snapTo(1f)
-                                                            burst.animateTo(0f, tween(1200, easing = CubicBezierEasing(0.2f, 0.8f, 0.2f, 1f)))
-                                                        }
-                                                        scope.launch {
-                                                            val tapNudge = if (route.hashCode() % 2 == 0) 6f else -6f
-                                                            pos.snapTo(Offset(tapNudge, 0f))
-                                                            squish.snapTo(1.03f)
-                                                            skew.snapTo(if (tapNudge >= 0f) 0.05f else -0.05f)
-                                                            launch { pos.animateTo(Offset.Zero, spring(dampingRatio = 0.9f, stiffness = Spring.StiffnessVeryLow)) }
-                                                            launch { squish.animateTo(1f, spring(dampingRatio = 0.9f, stiffness = Spring.StiffnessVeryLow)) }
-                                                            launch { skew.animateTo(0f, spring(dampingRatio = 0.9f, stiffness = Spring.StiffnessVeryLow)) }
-                                                        }
-                                                    }
-                                                }
-                                                .background(
-                                                    if (selected)
-                                                        Brush.verticalGradient(
-                                                            0f to Color(0xFF210909).copy(alpha = 0.65f),
-                                                            1f to Color(0xFF240A0A).copy(alpha = 0.65f)
-                                                        )
-                                                    else Brush.verticalGradient(0f to Color.Transparent, 1f to Color.Transparent)
-                                                )
-                                                .border(
-                                                    width = if (selected) 1.5.dp else 1.dp,
-                                                    brush = if (selected) Brush.linearGradient(listOf(Color(0xFF742525), Color(0xFF6A1E1E))) else Brush.linearGradient(listOf(Color.Transparent, Color.Transparent)),
-                                                    shape = RoundedCornerShape(pillRadius)
-                                                )
-                                                .size(buttonSize),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Box(
-                                                Modifier
-                                                    .matchParentSize()
-                                                    .drawWithCache {
-                                                        val r = size.minDimension / 2f
-                                                        val glow = Brush.radialGradient(
-                                                            listOf(
-                                                                accent.copy(alpha = 0.5f * glowAlpha),
-                                                                accent.copy(alpha = 0.18f * glowAlpha),
-                                                                Color.Transparent
-                                                            ),
-                                                            center = Offset(size.width / 2f, size.height / 2f),
-                                                            radius = r * 1.3f
-                                                        )
-                                                        onDrawBehind {
-                                                            if (glowAlpha > 0f && selected) {
-                                                                drawRoundRect(brush = glow, topLeft = Offset.Zero, size = size, cornerRadius = CornerRadius(r, r))
+                                                    .pointerInput(selected) {
+                                                        val densityLocal = this
+                                                        if (selected) {
+                                                            detectDragGestures(
+                                                                onDragEnd = {
+                                                                    dragPreviewIndex = null
+                                                                    dragProgress = 0f
+                                                                }
+                                                            ) { change, dragAmount ->
+                                                                change.consume()
                                                             }
                                                         }
                                                     }
-                                            )
-                                            Icon(
-                                                imageVector = icon,
-                                                contentDescription = null,
-                                                tint = if (selected) accent else Color.White.copy(alpha = iconAlpha * 0.92f),
-                                                modifier = Modifier.size(30.dp)
-                                            )
+                                                    .clickable(indication = null, interactionSource = sharedInteraction) {
+                                                        if (selected) return@clickable
+                                                        navController.navigate(route) {
+                                                            popUpTo(navController.graph.startDestinationId)
+                                                            launchSingleTop = true
+                                                        }
+                                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                        if (animationsEnabled) {
+                                                            scope.launch {
+                                                                burst.snapTo(1f)
+                                                                burst.animateTo(0f, tween(1200, easing = CubicBezierEasing(0.2f, 0.8f, 0.2f, 1f)))
+                                                            }
+                                                            scope.launch {
+                                                                val tapNudge = if (route.hashCode() % 2 == 0) 6f else -6f
+                                                                pos.snapTo(Offset(tapNudge, 0f))
+                                                                squish.snapTo(1.03f)
+                                                                skew.snapTo(if (tapNudge >= 0f) 0.05f else -0.05f)
+                                                                launch { pos.animateTo(Offset.Zero, spring(dampingRatio = 0.9f, stiffness = Spring.StiffnessVeryLow)) }
+                                                                launch { squish.animateTo(1f, spring(dampingRatio = 0.9f, stiffness = Spring.StiffnessVeryLow)) }
+                                                                launch { skew.animateTo(0f, spring(dampingRatio = 0.9f, stiffness = Spring.StiffnessVeryLow)) }
+                                                            }
+                                                        }
+                                                    }
+                                                    .background(
+                                                        if (selected)
+                                                            Brush.verticalGradient(
+                                                                // Very subtle background tint
+                                                                0f to secondaryColor.copy(alpha = 0.35f),
+                                                                1f to secondaryColor.copy(alpha = 0.25f)
+                                                            )
+                                                        else Brush.verticalGradient(0f to Color.Transparent, 1f to Color.Transparent)
+                                                    )
+                                                    .border(
+                                                        width = if (selected) 1.5.dp else 1.dp,
+                                                        // Dynamic selection border
+                                                        brush = if (selected) Brush.linearGradient(listOf(primaryColor, secondaryColor)) else Brush.linearGradient(listOf(Color.Transparent, Color.Transparent)),
+                                                        shape = RoundedCornerShape(pillRadius)
+                                                    )
+                                                    .size(buttonSize),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Box(
+                                                    Modifier
+                                                        .matchParentSize()
+                                                        .drawWithCache {
+                                                            val r = size.minDimension / 2f
+                                                            val glow = Brush.radialGradient(
+                                                                listOf(
+                                                                    accent.copy(alpha = 0.5f * glowAlpha),
+                                                                    accent.copy(alpha = 0.18f * glowAlpha),
+                                                                    Color.Transparent
+                                                                ),
+                                                                center = Offset(size.width / 2f, size.height / 2f),
+                                                                radius = r * 1.3f
+                                                            )
+                                                            onDrawBehind {
+                                                                if (glowAlpha > 0f && selected) {
+                                                                    drawRoundRect(brush = glow, topLeft = Offset.Zero, size = size, cornerRadius = CornerRadius(r, r))
+                                                                }
+                                                            }
+                                                        }
+                                                )
+                                                Icon(
+                                                    imageVector = icon,
+                                                    contentDescription = null,
+                                                    tint = if (selected) accent else Color.White.copy(alpha = iconAlpha * 0.92f),
+                                                    modifier = Modifier.size(30.dp)
+                                                )
+                                            }
                                         }
                                     }
                                 }
@@ -576,7 +650,8 @@ fun FloatingTaskbar(
                                     .clip(FloatingActionButtonDefaults.extendedFabShape)
                                     .background(
                                         Brush.radialGradient(
-                                            colors = listOf(Color(0xFF1A0A0A), Color(0xFF0B0505))
+                                            // Dynamic dark background for random button
+                                            colors = listOf(secondaryColor.copy(alpha = 0.3f), backgroundColor)
                                         )
                                     )
                                     .border(
@@ -623,4 +698,3 @@ fun FloatingTaskbar(
         }
     }
 }
-

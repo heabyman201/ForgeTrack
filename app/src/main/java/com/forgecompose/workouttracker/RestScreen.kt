@@ -36,12 +36,15 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.Minimize
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -77,6 +80,7 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.util.lerp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
@@ -90,6 +94,8 @@ import com.forgecompose.workouttracker.ConnectedWorkout.restTimeRemaining
 import com.forgecompose.workouttracker.blurAnim.intensity
 import com.forgecompose.workouttracker.blurAnim.length
 import com.forgecompose.workouttracker.ui.theme.WorkoutTrackerTheme
+import com.google.firebase.crashlytics.ktx.crashlytics
+import com.google.firebase.ktx.Firebase
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
@@ -131,7 +137,21 @@ fun RestAdviceSection(
             "Calves, forearms, and abs usually recover faster — they can handle shorter rest than heavy squats or deadlifts.",
             "If tempo slipped (faster eccentrics, rushed reps), consciously slow down your first rep of the next set.",
             "Neck and jaw tension during lifts wastes energy — use rest to unclench and reset head position.",
-            "Using the same rest length every session turns your training into a controlled experiment instead of chaos."
+            "Using the same rest length every session turns your training into a controlled experiment instead of chaos.",
+            "Dynamic warm-ups increase blood flow and range of motion without reducing power output like static stretching does.",
+            "Mild dehydration of just 2% can significantly reduce strength and endurance performance.",
+            "The eccentric phase (lowering the weight) causes the most muscle damage and growth stimulus — don't drop the weight.",
+            "Sleep is when growth hormone peaks; missing sleep literally reduces the muscle-building effect of your workout.",
+            "Progressive overload isn't just adding weight; adding reps, sets, or improving technique counts as progress too.",
+            "Hypertrophy can occur across a wide rep range (5–30) as long as you are training close to muscular failure.",
+            "Internal cues (focusing on the muscle squeezing) are better for isolation; external cues (moving the bar) suit heavy compounds.",
+            "Caffeine taken 30–60 minutes pre-workout is a proven ergogenic aid that reduces perceived effort.",
+            "Total daily protein intake matters far more for muscle retention than rushing to drink a shake immediately post-workout.",
+            "Active recovery days (walking, light swimming) clear metabolic waste better than complete bed rest.",
+            "Systemic fatigue accumulates over weeks; a scheduled deload week helps prevent burnout and central nervous system fry.",
+            "Creatine monohydrate aids in recycling ATP, helping you squeeze out maybe one or two extra reps on heavy sets.",
+            "Training to absolute failure on every set increases recovery time disproportionately compared to the extra growth stimulus gained.",
+            "Compound movements spike testosterone transiently, but consistent mechanical tension is the primary driver of growth."
         )
     }
 
@@ -140,7 +160,7 @@ fun RestAdviceSection(
 
     LaunchedEffect(Unit) {
         while (true) {
-            delay(12000)
+            delay(11000)
             index = (index + 1) % tips.size
         }
     }
@@ -263,7 +283,8 @@ fun RestScreen(
     }
     var showIntro by remember { mutableStateOf(true) }
     val introProgress by animateFloatAsState(if (showIntro) 0f else 1f, tween(2000), label = "introFade")
-    LaunchedEffect(Unit) { showIntro = false }
+    LaunchedEffect(Unit) { showIntro = false;
+        Firebase.crashlytics.setCustomKey("current_screen", "Rest Screen")}
 
     val animationClock = remember { mutableFloatStateOf(0f) }
 
@@ -550,15 +571,42 @@ fun RestScreen(
                                     modifier = Modifier.heightIn(max = 200.dp)
                                 ) {
                                     itemsIndexed(WorkoutLog.sets) { index, record ->
-                                        EditableSetRow(
-                                            setNumber = index + 1,
-                                            record = record
-                                        )
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth(),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween
+
+                                        ) {
+                                            IconButton(
+                                                onClick = {
+                                                    WorkoutLog.sets.removeAt(index)
+                                                    CurrentSets.intValue -= 1
+                                                    haptics.performHapticFeedback(HapticFeedbackType.Confirm)
+                                                }
+
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Delete,
+                                                    contentDescription = "Delete Set",
+                                                    tint = Color.White.copy(alpha = 0.72f),
+                                                    modifier = Modifier.size(36.dp).padding(4.dp)
+                                                )
+
+                                            }
+
+
+                                            EditableSetRow(
+                                                setNumber = index + 1,
+                                                record = record
+                                            )
+                                        }
+
                                         if (index < WorkoutLog.sets.lastIndex) {
                                             HorizontalDivider(
                                                 modifier = Modifier.padding(horizontal = 24.dp),
-                                                thickness = (0.5).dp,
-                                                color = Color.White.copy(alpha = 0.08f)
+                                                thickness = (0.7).dp,
+                                                color = Color.White.copy(alpha = 0.9f)
                                             )
                                         }
                                     }

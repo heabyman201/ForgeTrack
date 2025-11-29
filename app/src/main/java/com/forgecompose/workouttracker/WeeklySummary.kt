@@ -32,6 +32,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -142,6 +143,12 @@ fun WeeklySummaryScreen(
     zoneId: ZoneId = ZoneId.systemDefault(),
     navController: NavController
 ) {
+    val context = LocalContext.current
+
+    // --- Theme Hook ---
+    val appearanceOptions by AppearanceOptionsManagerAppTheme.flow(context).collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
+    val theme = appearanceOptions.selectedTheme.colors
+
     val cfg = LocalConfiguration.current
     val widthDp = cfg.screenWidthDp
     val heightDp = cfg.screenHeightDp
@@ -151,28 +158,40 @@ fun WeeklySummaryScreen(
 
     val lazyListState = rememberLazyListState()
 
-    val crimson = Color(0xFF4A0000)
-    val purple = Color(0xFF4A004A)
+    // Dynamic scroll animation colors
+    val startColor = theme.secondary
+    val endColor = theme.tertiary
 
-    val animatedColor by remember {
+    val animatedColor by remember(startColor, endColor) {
         derivedStateOf {
             val scrollOffset = lazyListState.firstVisibleItemIndex * 400f + lazyListState.firstVisibleItemScrollOffset
             val fraction = (scrollOffset / 1200f).coerceIn(0f, 1f)
-            lerp(crimson, purple, FastOutSlowInEasing.transform(fraction))
+            lerp(startColor, endColor, FastOutSlowInEasing.transform(fraction))
         }
     }
 
-    val animatedGradientBrush = remember(animatedColor) {
+    val animatedGradientBrush = remember(animatedColor, theme) {
         Brush.radialGradient(
-            colors = listOf(Color(0xFF0A0404), Color(0xFF2A0F0F), animatedColor.copy(alpha = 0.8f), animatedColor, Color(0xFF060202)),
+            colors = listOf(
+                theme.background,
+                theme.tertiary.copy(alpha = 0.5f),
+                animatedColor.copy(alpha = 0.8f),
+                animatedColor,
+                theme.background
+            ),
             radius = 1200f,
             center = Offset(0.5f, 0.3f)
         )
     }
 
-    val overlayBrush = remember {
+    val overlayBrush = remember(theme) {
         Brush.linearGradient(
-            colors = listOf(Color(0xFF4A0000).copy(alpha = 0.2f), Color.Transparent, Color(0xFF2A0F0F).copy(alpha = 0.15f), Color.Transparent)
+            colors = listOf(
+                theme.secondary.copy(alpha = 0.2f),
+                Color.Transparent,
+                theme.tertiary.copy(alpha = 0.15f),
+                Color.Transparent
+            )
         )
     }
 
@@ -222,7 +241,7 @@ fun WeeklySummaryScreen(
         containerColor = Color.Transparent,
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF060202))
+            .background(theme.background)
             .background(animatedGradientBrush)
             .background(overlayBrush)
     ) { padding ->
@@ -251,7 +270,7 @@ fun WeeklySummaryScreen(
                             GlassCard {
                                 Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                     Text("Summary", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    SummaryHeader(totalSec = summary.totalSec, totalCount = summary.totalCount)
+                                    SummaryHeader(totalSec = summary.totalSec, totalCount = summary.totalCount, theme = theme)
                                 }
                             }
                         }
@@ -259,7 +278,7 @@ fun WeeklySummaryScreen(
                             GlassCard {
                                 Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                     Text("This Week", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    DayStrip(days = summary.days)
+                                    DayStrip(days = summary.days, theme = theme)
                                 }
                             }
                         }
@@ -282,7 +301,7 @@ fun WeeklySummaryScreen(
                                     enter = fadeIn(tween(300)) + expandVertically(tween(300, easing = FastOutSlowInEasing)),
                                     exit = fadeOut()
                                 ) {
-                                    WorkoutRow(agg)
+                                    WorkoutRow(agg, theme = theme)
                                 }
                             }
                         } else {
@@ -308,7 +327,7 @@ fun WeeklySummaryScreen(
                         GlassCard {
                             Column(Modifier.padding(if (widthDp >= 400) 20.dp else 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                 Text("Summary", style = if (widthDp >= 400) MaterialTheme.typography.titleLarge else MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                SummaryHeader(totalSec = summary.totalSec, totalCount = summary.totalCount)
+                                SummaryHeader(totalSec = summary.totalSec, totalCount = summary.totalCount, theme = theme)
                             }
                         }
                     }
@@ -316,7 +335,7 @@ fun WeeklySummaryScreen(
                         GlassCard {
                             Column(Modifier.padding(if (widthDp >= 400) 20.dp else 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                 Text("This Week", style = if (widthDp >= 400) MaterialTheme.typography.titleLarge else MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                DayStrip(days = summary.days)
+                                DayStrip(days = summary.days, theme = theme)
                             }
                         }
                     }
@@ -330,7 +349,7 @@ fun WeeklySummaryScreen(
                                 enter = fadeIn(tween(300)) + expandVertically(tween(300, easing = FastOutSlowInEasing)),
                                 exit = fadeOut()
                             ) {
-                                WorkoutRow(agg)
+                                WorkoutRow(agg, theme = theme)
                             }
                         }
                     } else {
@@ -356,31 +375,33 @@ fun WeeklySummaryScreen(
 }
 
 @Composable
-private fun SummaryHeader(totalSec: Long, totalCount: Int) {
+private fun SummaryHeader(totalSec: Long, totalCount: Int, theme: ColorSchemeAppTheme) {
     val time = remember(totalSec) { formatHMS(totalSec) }
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         StatCard(
             title = "Workouts",
             value = totalCount.toString(),
-            icon = { Icon(Icons.Outlined.FitnessCenter, contentDescription = null, tint = Color(0xFFF48A8A)) },
-            modifier = Modifier.weight(1f)
+            icon = { Icon(Icons.Outlined.FitnessCenter, contentDescription = null, tint = theme.primary.copy(alpha = 0.8f)) },
+            modifier = Modifier.weight(1f),
+            theme = theme
         )
         StatCard(
             title = "Time",
             value = time,
-            icon = { Box(Modifier.size(20.dp).clip(CircleShape).background(Color(0xFFD32F2F))) },
-            modifier = Modifier.weight(1f)
+            icon = { Box(Modifier.size(20.dp).clip(CircleShape).background(theme.primary.copy(alpha = 0.9f))) },
+            modifier = Modifier.weight(1f),
+            theme = theme
         )
     }
 }
 
 @Composable
-private fun StatCard(title: String, value: String, icon: @Composable () -> Unit, modifier: Modifier = Modifier) {
-    val crimsonContainerColor = Color(0xFF4A0000)
+private fun StatCard(title: String, value: String, icon: @Composable () -> Unit, modifier: Modifier = Modifier, theme: ColorSchemeAppTheme) {
+    val cardBg = theme.secondary
     Card(
         modifier.heightIn(min = 84.dp),
         shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = crimsonContainerColor.copy(alpha = 0.4f)),
+        colors = CardDefaults.cardColors(containerColor = cardBg.copy(alpha = 0.4f)),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -388,7 +409,7 @@ private fun StatCard(title: String, value: String, icon: @Composable () -> Unit,
                 modifier = Modifier
                     .size(40.dp)
                     .clip(CircleShape)
-                    .background(crimsonContainerColor.copy(alpha = 0.5f)),
+                    .background(cardBg.copy(alpha = 0.5f)),
                 contentAlignment = Alignment.Center
             ) {
                 icon()
@@ -403,7 +424,7 @@ private fun StatCard(title: String, value: String, icon: @Composable () -> Unit,
 }
 
 @Composable
-private fun DayStrip(days: List<DaySummary>) {
+private fun DayStrip(days: List<DaySummary>, theme: ColorSchemeAppTheme) {
     val scroll = rememberScrollState()
     val maxSec = remember(days) { max(1L, days.maxOfOrNull { it.totalSec } ?: 1L) }
     Row(
@@ -415,14 +436,15 @@ private fun DayStrip(days: List<DaySummary>) {
                 label = d.date.dayOfWeek.name.take(3).lowercase().replaceFirstChar { it.titlecase() },
                 value = d.totalSec,
                 maxValue = maxSec,
-                sub = if (d.count > 0) "${d.count}" else "0"
+                sub = if (d.count > 0) "${d.count}" else "0",
+                theme = theme
             )
         }
     }
 }
 
 @Composable
-private fun DayPill(label: String, value: Long, maxValue: Long, sub: String) {
+private fun DayPill(label: String, value: Long, maxValue: Long, sub: String, theme: ColorSchemeAppTheme) {
     val h = 64.dp
     val barWidth = 10.dp
     val pct = if (maxValue <= 0) 0f else (value.toFloat() / maxValue.toFloat()).coerceIn(0f, 1f)
@@ -442,7 +464,7 @@ private fun DayPill(label: String, value: Long, maxValue: Long, sub: String) {
             Canvas(Modifier.fillMaxSize()) {
                 val x = size.width / 2f
                 drawRoundRect(
-                    color = Color(0xFF8B0000),
+                    color = theme.primary,
                     topLeft = Offset(x - barWidthPx / 2f, size.height - barHeightPx),
                     size = androidx.compose.ui.geometry.Size(barWidthPx, barHeightPx),
                     cornerRadius = androidx.compose.ui.geometry.CornerRadius(cornerRadiusPx)
@@ -456,20 +478,21 @@ private fun DayPill(label: String, value: Long, maxValue: Long, sub: String) {
 }
 
 @Composable
-private fun WorkoutRow(a: WorkoutAggregate) {
+private fun WorkoutRow(a: WorkoutAggregate, theme: ColorSchemeAppTheme) {
     val cfg = LocalConfiguration.current
     val widthDp = cfg.screenWidthDp
     val safeName = remember(a.name) { a.name.ifBlank { "Unnamed" } }
     val time = remember(a.totalSec) { formatHMS(a.totalSec) }
     val weight = a.avgWeightKg?.let { "${(it * 10.0).roundToInt() / 10.0}kg" } ?: "BW"
-    val crimsonColor = Color(0xFF4A0000)
-    val crimsonHighlight = Color(0xFFF48A8A)
+
+    val cardBg = theme.secondary
+    val highlight = theme.primary
 
     Row(
         Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
-            .background(crimsonColor.copy(alpha = 0.4f))
+            .background(cardBg.copy(alpha = 0.4f))
             .padding(horizontal = if (widthDp >= 400) 14.dp else 12.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -477,13 +500,13 @@ private fun WorkoutRow(a: WorkoutAggregate) {
             Modifier
                 .size(if (widthDp >= 400) 40.dp else 36.dp)
                 .clip(CircleShape)
-                .background(crimsonColor.copy(alpha = 0.5f)),
+                .background(cardBg.copy(alpha = 0.5f)),
             contentAlignment = Alignment.Center
         ) {
             Text(
                 safeName.take(1).uppercase(),
                 style = MaterialTheme.typography.titleMedium,
-                color = crimsonHighlight,
+                color = highlight,
                 maxLines = 1
             )
         }
@@ -497,20 +520,20 @@ private fun WorkoutRow(a: WorkoutAggregate) {
                 color = Color.White
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Chip(time)
-                Chip("${a.count}x")
-                Chip(weight)
+                Chip(time, theme)
+                Chip("${a.count}x", theme)
+                Chip(weight, theme)
             }
         }
     }
 }
 
 @Composable
-private fun Chip(text: String) {
+private fun Chip(text: String, theme: ColorSchemeAppTheme) {
     Box(
         Modifier
             .clip(RoundedCornerShape(50))
-            .background(Color(0xFF6A0000).copy(alpha = 0.5f))
+            .background(theme.tertiary.copy(alpha = 0.5f))
             .padding(horizontal = 10.dp, vertical = 4.dp)
     ) {
         Text(

@@ -29,15 +29,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowForward
-import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -67,11 +66,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -103,8 +102,6 @@ import com.forgecompose.workouttracker.ui.theme.WorkoutTrackerTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.math.RoundingMode
-import java.time.LocalTime
-import java.time.format.TextStyle
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.cos
@@ -115,6 +112,13 @@ import kotlin.math.sin
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GoalScreen(navController: NavController, viewModel: WorkoutListViewModel) {
+    val ctx = LocalContext.current
+
+    val appearanceOptions by AppearanceOptionsManagerAppTheme
+        .flow(ctx)
+        .collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
+    val theme = appearanceOptions.selectedTheme.colors
+
     val workoutState by remember { workout }
     var selectedGoalType by remember(workoutState) {
         mutableStateOf(ConnectedWorkout.workoutGoalTypeMap[workoutState] ?: "Time")
@@ -123,7 +127,7 @@ fun GoalScreen(navController: NavController, viewModel: WorkoutListViewModel) {
     val isPressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(if (isPressed) 0.98f else 1f, label = "buttonScale")
     GoalType = selectedGoalType
-    val ctx = LocalContext.current
+
     val scope = rememberCoroutineScope()
     val last by remember(workout.value) {
         PresetStateRepo.observe(ctx, workout.value)
@@ -134,7 +138,7 @@ fun GoalScreen(navController: NavController, viewModel: WorkoutListViewModel) {
     if (showRestTimeDialog) {
         RestTimeSelectorDialog(
             onDismissRequest = { showRestTimeDialog = false;
-                               blurScreen.value = false},
+                blurScreen.value = false},
             onConfirm = { newRestTime ->
                 ConnectedWorkout.restTime.longValue = newRestTime
                 showRestTimeDialog = false
@@ -201,19 +205,19 @@ fun GoalScreen(navController: NavController, viewModel: WorkoutListViewModel) {
             navController.navigate("RestScreen")
         }
     }
-val blurAnimation by animateDpAsState(
-    if (blurScreen.value) intensity.value else 0.dp,
-    animationSpec = tween(650),
-    label = "blur"
-)
-    val hour = remember { LocalTime.now().hour }
-    val introColors = remember(hour) {
-        when (hour) {
-            in 5..10 -> listOf(Color(0xFF2B1A00), Color(0xFF3C2405), Color(0xFF5A360A), Color(0xFF7A4A12))
-            in 11..16 -> listOf(Color(0xFF332300), Color(0xFF4A3408), Color(0xFF6B4B0F), Color(0xFF8C6217))
-            in 17..20 -> listOf(Color(0xFF1A0614), Color(0xFF2A0A20), Color(0xFF3D0F2D), Color(0xFF52153A))
-            else -> listOf(Color(0xFF02040A), Color(0xFF0A1324), Color(0xFF15243D), Color(0xFF1E3352))
-        }
+    val blurAnimation by animateDpAsState(
+        if (blurScreen.value) intensity.value else 0.dp,
+        animationSpec = tween(650),
+        label = "blur"
+    )
+
+    val introColors = remember(theme) {
+        listOf(
+            theme.secondary.copy(alpha = 0.8f),
+            theme.tertiary,
+            theme.background,
+            theme.background
+        )
     }
     val introBrush = remember(introColors) {
         Brush.linearGradient(
@@ -245,14 +249,14 @@ val blurAnimation by animateDpAsState(
         repsPerSet = 0
     }
     WorkoutTrackerTheme {
-        val aggressiveGradientBrush = remember(gradientOffset, glowIntensity, intensePulse) {
+        val aggressiveGradientBrush = remember(gradientOffset, glowIntensity, intensePulse, theme) {
             Brush.radialGradient(
                 colors = listOf(
-                    Color(0xFF1A0808),
-                    Color(0xFF4A1515).copy(alpha = 0.9f + gradientOffset * 0.1f),
-                    Color(0xFF650000).copy(alpha = 0.8f + glowIntensity * 0.2f),
-                    Color(0xFF8B0000).copy(alpha = 0.7f + intensePulse * 0.3f),
-                    Color(0xFF0D0404)
+                    theme.tertiary,
+                    theme.secondary.copy(alpha = 0.9f + gradientOffset * 0.1f),
+                    theme.primary.copy(alpha = 0.6f + glowIntensity * 0.2f),
+                    theme.secondary.copy(alpha = 0.7f + intensePulse * 0.3f),
+                    theme.background
                 ),
                 radius = 1000f + (gradientOffset * 600f),
                 center = Offset(
@@ -261,26 +265,26 @@ val blurAnimation by animateDpAsState(
                 )
             )
         }
-        val secondaryGradientBrush = remember(intensePulse, glowIntensity) {
-            Brush.linearGradient(
-                colors = listOf(
-                    Color(0xFF8B0000).copy(alpha = 0.3f + intensePulse * 0.4f),
-                    Color.Transparent,
-                    Color(0xFF4A1515).copy(alpha = 0.2f + glowIntensity * 0.3f),
-                    Color.Transparent
-                )
-            )
-        }
-        val animatedContainerColor = remember(intensePulse) {
-            Color(0xFF0D0404).copy(alpha = 0.8f + intensePulse * 0.1f)
-        }
+
         val context = LocalContext.current
         val intent = remember { Intent(context, MainActivity::class.java) }
         val activity = remember { context as? Activity }
 
         val performanceOptions by PerformanceOptionsManager.flow(context).collectAsState(initial = PerformanceOptions.Defaults)
         val movingEnabled = performanceOptions.movingGradientAndParticles
+        val scrollState = rememberScrollState()
 
+        val appearanceOptions by AppearanceOptionsManagerAppTheme.flow(context).collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
+        val theme = appearanceOptions.selectedTheme.colors
+
+        val textBrush = remember(theme) {
+            Brush.horizontalGradient(
+                colors = listOf(
+                    theme.primary,
+                    Color.White.copy(alpha = 0.9f)
+                )
+            )
+        }
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -314,9 +318,9 @@ val blurAnimation by animateDpAsState(
                         navigationIcon = {
                             IconButton(onClick = {
                                 activity?.finish()
-                                    context.startActivity(intent
+                                context.startActivity(intent
 
-                                    ) }) {
+                                ) }) {
                                 Icon(
                                     Icons.Default.ArrowBack,
                                     contentDescription = "Back",
@@ -326,7 +330,7 @@ val blurAnimation by animateDpAsState(
                         },
                         actions = {
                             IconButton(onClick = { showRestTimeDialog = true;
-                            blurScreen.value = true
+                                blurScreen.value = true
                             }) {
                                 Icon(
                                     Icons.Default.Settings,
@@ -342,8 +346,8 @@ val blurAnimation by animateDpAsState(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(paddingValues)
-                        .padding(horizontal = 24.dp),
-
+                        .padding(horizontal = 24.dp)
+                        .verticalScroll(scrollState),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Spacer(modifier = Modifier.height(64.dp))
@@ -352,9 +356,11 @@ val blurAnimation by animateDpAsState(
                         text = if (
                             ConnectedWorkout.currentMode.value == WorkoutMode.INACTIVE
                         )"Set Your Goal" else workout.value,
-                        style = MaterialTheme.typography.displaySmall,
+                        style = MaterialTheme.typography.displaySmall.copy(
+                            brush = textBrush
+                        ),
                         fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface,
+
 
                         )
                     Spacer(modifier = Modifier.height(48.dp))
@@ -381,7 +387,7 @@ val blurAnimation by animateDpAsState(
                             .fillMaxWidth()
                             .height(1.dp)
                             .drawBehind {
-                                val animatedColor = Color(0xFFFF4444).copy(alpha = 0.2f + glowIntensity * 0.2f)
+                                val animatedColor = theme.primary.copy(alpha = 0.2f + glowIntensity * 0.2f)
                                 drawLine(
                                     color = animatedColor,
                                     start = Offset(0f, center.y),
@@ -418,17 +424,17 @@ val blurAnimation by animateDpAsState(
                         }
                     }
 
-                    Spacer(modifier = Modifier.weight(1f))
+                    Spacer(modifier = Modifier.height(48.dp))
 
-                    val animatedButtonContainerColor = remember(intensePulse) {
-                        Color(0xFF4A1515).copy(alpha = 0.4f + intensePulse * 0.2f)
+                    val animatedButtonContainerColor = remember(intensePulse, theme) {
+                        theme.secondary.copy(alpha = 0.4f + intensePulse * 0.2f)
                     }
-                    val animatedBorderBrush = remember(intensePulse, glowIntensity) {
+                    val animatedBorderBrush = remember(intensePulse, glowIntensity, theme) {
                         Brush.linearGradient(
                             colors = listOf(
-                                Color(0xFF8B0000).copy(alpha = 0.8f + intensePulse * 0.2f),
-                                Color(0xFFFF8800).copy(alpha = 0.6f + glowIntensity * 0.3f),
-                                Color(0xFF650000).copy(alpha = 0.7f)
+                                theme.primary.copy(alpha = 0.8f + intensePulse * 0.2f),
+                                theme.primary.copy(alpha = 0.6f + glowIntensity * 0.3f).compositeOver(Color.White),
+                                theme.secondary.copy(alpha = 0.7f)
                             )
                         )
                     }
@@ -623,6 +629,13 @@ fun RestTimeSelectorDialog(
     onDismissRequest: () -> Unit,
     onConfirm: (Long) -> Unit
 ) {
+    val context = LocalContext.current
+
+    val appearanceOptions by AppearanceOptionsManagerAppTheme
+        .flow(context)
+        .collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
+    val theme = appearanceOptions.selectedTheme.colors
+
     val initialHours = (initialRestTimeInMillis / (1000 * 60 * 60)) % 24
     val initialMinutes = (initialRestTimeInMillis / (1000 * 60)) % 60
     val initialSeconds = (initialRestTimeInMillis / 1000) % 60
@@ -631,23 +644,25 @@ fun RestTimeSelectorDialog(
     var minutes by remember { mutableIntStateOf(initialMinutes.toInt()) }
     var seconds by remember { mutableIntStateOf(initialSeconds.toInt()) }
 
-    val animatedBorderBrush = remember {
+    val animatedBorderBrush = remember(theme) {
         Brush.linearGradient(
             colors = listOf(
-                Color(0xFF8B0000).copy(alpha = 0.8f),
-                Color(0xFFFF8800).copy(alpha = 0.6f),
-                Color(0xFF650000).copy(alpha = 0.7f)
+                theme.primary.copy(alpha = 0.8f),
+                theme.secondary.copy(alpha = 0.6f),
+                theme.tertiary.copy(alpha = 0.7f)
             )
         )
     }
-val dialogAlpha by remember {
-    mutableStateOf(if (intensity.value == 0.dp) 1f else 0.79f)
-}
+
+    val dialogAlpha by remember {
+        mutableStateOf(if (intensity.value == 0.dp) 1f else 0.79f)
+    }
+
     Dialog(onDismissRequest = onDismissRequest) {
         Card(
             shape = RoundedCornerShape(32.dp),
             colors = CardDefaults.cardColors(
-                containerColor = Color(0xFF0D0404).copy(alpha = dialogAlpha)
+                containerColor = theme.background.copy(alpha = dialogAlpha)
             ),
             modifier = Modifier.border(1.5.dp, animatedBorderBrush, RoundedCornerShape(32.dp))
         ) {
@@ -711,7 +726,7 @@ val dialogAlpha by remember {
                             onConfirm(totalMillis)
                         },
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFF650000).copy(alpha = 0.7f)
+                            containerColor = theme.secondary.copy(alpha = 0.7f)
                         )
                     ) {
                         Text("Confirm")

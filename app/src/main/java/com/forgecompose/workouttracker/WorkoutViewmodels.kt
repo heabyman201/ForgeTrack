@@ -316,7 +316,8 @@ interface WorkoutExerciseDao {
     // to help with adding new exercises in the correct order.
     @Query("SELECT MAX(orderInWorkout) FROM workout_exercises WHERE workoutId = :workoutId")
     suspend fun getLastOrderInWorkout(workoutId: Long): Int?
-
+    @Query("SELECT COUNT(*) FROM workouts") // adjust table name
+    suspend fun getWorkoutCount(): Int
     // Delete all WorkoutExercise entries for a specific workoutId (e.g., when a workout is cleared or reset)
     // This is often handled by onDelete = ForeignKey.CASCADE on the WorkoutExercise entity for workoutId,
     // but an explicit method can sometimes be useful.
@@ -425,7 +426,9 @@ weight = weight,
             }
         }
     }
-
+    suspend fun getTotalWorkoutCount(): Int {
+        return workoutRepository.getWorkoutCount()
+    }
     fun deleteAllWorkouts() {
         viewModelScope.launch {
             workoutRepository.deleteAllWorkouts()

@@ -72,6 +72,7 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -88,6 +89,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
@@ -95,6 +97,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -105,17 +108,21 @@ import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material.icons.filled.RemoveCircle
+import androidx.compose.material.icons.filled.RemoveCircleOutline
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
@@ -207,6 +214,7 @@ import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.drawscope.inset
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
@@ -219,6 +227,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.Dp
 import androidx.health.connect.client.records.ExerciseSessionRecord
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -240,7 +249,10 @@ import com.kyant.backdrop.highlight.Highlight
 import com.kyant.backdrop.highlight.HighlightStyle
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.withContext
+import java.time.Instant
 import java.time.LocalTime
+import kotlin.getValue
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
@@ -261,7 +273,9 @@ fun PreventBackGesture() {
 
     }
 }
+
 class WorkoutActivity : ComponentActivity() {
+
     @RequiresApi(Build.VERSION_CODES.TIRAMISU)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -269,6 +283,13 @@ class WorkoutActivity : ComponentActivity() {
         val workoutRepository = application.workoutRepository
         val factory = WorkoutListViewModelFactory(workoutRepository)
         val workoutListViewModel: WorkoutListViewModel by viewModels { factory }
+        val badgeViewModel: BadgeViewModel by viewModels {
+            BadgeViewModelFactory(
+                badgeStorage = InMemoryBadgeStorage()
+            )
+        }
+
+
         AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_YES)
         enableEdgeToEdge(
             statusBarStyle = SystemBarStyle.auto(
@@ -281,14 +302,14 @@ class WorkoutActivity : ComponentActivity() {
             )
         )
         setContent {
-            MainScreen(viewModel = workoutListViewModel)
+            MainScreen(viewModel = workoutListViewModel, badgeViewModel = badgeViewModel)
         }
     }
 }
 
 @RequiresApi(Build.VERSION_CODES.TIRAMISU)
 @Composable
-fun MainScreen(viewModel: WorkoutListViewModel) {
+fun MainScreen(viewModel: WorkoutListViewModel,badgeViewModel: BadgeViewModel) {
     val navController = rememberNavController()
     val context = LocalContext.current
     val currentMode by ConnectedWorkout.currentMode
@@ -299,6 +320,7 @@ fun MainScreen(viewModel: WorkoutListViewModel) {
             WorkoutMode.INACTIVE -> WorkoutForegroundService.stop(context)
         }
     }
+
 
     NavHost(navController = navController, startDestination = "GoalScreen",
         modifier = Modifier.background(Color(0xFF0D0404))) {
@@ -396,6 +418,7 @@ fun MainScreen(viewModel: WorkoutListViewModel) {
             WorkoutScreen(
                 navController = navController,
                 viewModel = viewModel,
+               vm = badgeViewModel
             )
         }
         composable(
@@ -456,7 +479,9 @@ fun AdviceSection(
     var glow by remember { mutableFloatStateOf(0.35f) }
     var glowDir by remember { mutableStateOf(1) }
     var starRotation by remember { mutableFloatStateOf(0f) }
-
+    val context = LocalContext.current
+    val appearanceOptions by AppearanceOptionsManagerAppTheme.flow(context).collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
+    val theme = appearanceOptions.selectedTheme.colors
     LaunchedEffect(Unit) {
         while (true) {
             glow += glowDir * 0.01f
@@ -474,15 +499,15 @@ fun AdviceSection(
             .shadow(
                 elevation = 12.dp,
                 shape = cardShape,
-                ambientColor = Color(0xFF8B0000),
-                spotColor = Color(0xFF8B0000)
+                ambientColor = appearanceOptions.colors.background,
+                spotColor = appearanceOptions.colors.tertiary
             ),
         shape = cardShape,
         border = BorderStroke(
             width = 2.dp,
             brush = Brush.linearGradient(
                 listOf(
-                    Color(0xFFFF5555).copy(alpha = 0.4f * glow),
+                    appearanceOptions.colors.primary.copy(alpha = 0.4f * glow),
                     Color(0xFF8B0000).copy(alpha = 0.25f)
                 )
             )
@@ -494,8 +519,8 @@ fun AdviceSection(
                 .background(
                     Brush.radialGradient(
                         listOf(
-                            Color(0xFF3A0E0E).copy(alpha = 0.35f * glow),
-                            Color(0xFF120707).copy(alpha = 0.85f)
+                            appearanceOptions.colors.background.copy(alpha = 0.35f * glow),
+                            appearanceOptions.colors.background.copy(alpha = 0.85f)
                         )
                     )
                 )
@@ -509,7 +534,7 @@ fun AdviceSection(
                 Icon(
                     imageVector = Icons.Rounded.Star,
                     contentDescription = null,
-                    tint = Color(0xFFFF3B30),
+                    tint = appearanceOptions.colors.primary,
                     modifier = Modifier
                         .size(24.dp)
                         .rotate(starRotation)
@@ -549,7 +574,7 @@ fun AdviceSection(
 
 
 @Composable
-private fun CountdownOverlay(countdownValue: Int) {
+private fun CountdownOverlay(countdownValue: Int, theme: ColorSchemeAppTheme) {
     val smallRipple = remember { Animatable(0f) }
     val bigRipple = remember { Animatable(0f) }
     val haptics = LocalHapticFeedback.current
@@ -593,8 +618,8 @@ private fun CountdownOverlay(countdownValue: Int) {
                 val radius = size.minDimension * 0.7f * progress
                 val alpha = 1f - progress
                 val rippleColor = when (countdownValue) {
-                    2 -> Color(0xFFFFC300)
-                    1 -> Color(0xFF33D4FF)
+                    2 -> theme.secondary
+                    1 -> theme.primary
                     else -> Color.Transparent
                 }
                 drawCircle(
@@ -639,7 +664,7 @@ private fun CountdownOverlay(countdownValue: Int) {
                         // helpers
                         fun drawNeonRoundRect(
                             topLeft: Offset,
-                            size: Size,
+                            size: androidx.compose.ui.geometry.Size,
                             baseColor: Color,
                             glowColor: Color,
                             radiusDp: Float = 16f,
@@ -759,35 +784,35 @@ private fun CountdownOverlay(countdownValue: Int) {
                         // pick colors per shape
                         when (targetCountdown) {
                             3 -> {
-                                // crimson rectangle with magenta glow
+                                // 3: Use Secondary/Tertiary
                                 drawNeonRoundRect(
                                     topLeft = shapeTopLeft,
                                     size = shapeSize,
-                                    baseColor = Color(0xFFC70039),
-                                    glowColor = Color(0xFF411616),
+                                    baseColor = theme.secondary,
+                                    glowColor = theme.tertiary,
                                     radiusDp = 16f,
                                     glowRadiusDp = 36f
                                 )
                             }
                             2 -> {
-
+                                // 2: Use Secondary + Primary Mix
                                 drawNeonCircle(
                                     center = center,
                                     radius = shapeSize.minDimension / 2f,
-                                    baseColor = Color(0xFFC60000),
-                                    glowColor = Color(0xFF853A3A),
+                                    baseColor = theme.secondary.copy(alpha = 0.8f),
+                                    glowColor = theme.primary.copy(alpha = 0.5f),
                                     glowRadiusDp = 34f
                                 )
                             }
                             1 -> {
-
+                                // 1: Use Primary
                                 val p1 = Offset(center.x, shapeTopLeft.y)
                                 val p2 = Offset(shapeTopLeft.x + shapeSize.width, shapeTopLeft.y + shapeSize.height)
                                 val p3 = Offset(shapeTopLeft.x, shapeTopLeft.y + shapeSize.height)
                                 drawNeonTriangle(
                                     p1, p2, p3,
-                                    baseColor = Color(0xFFFF3D3D),
-                                    glowColor = Color(0xFF350202),
+                                    baseColor = theme.primary,
+                                    glowColor = theme.tertiary,
                                     glowRadiusDp = 32f
                                 )
                             }
@@ -1325,10 +1350,13 @@ suspend fun continuousStepDetectionAndDistanceCalculation(
 @RequiresApi(Build.VERSION_CODES.TIRAMISU)
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalTime::class)
 @Composable
-fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController, vm: HrViewModel = viewModel()) {
+fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController, vm: BadgeViewModel, bpVM: HrViewModel = viewModel()) {
+    val context = LocalContext.current
+    val appearanceOptions by AppearanceOptionsManagerAppTheme.flow(context).collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
+    val theme = appearanceOptions.selectedTheme.colors
+
     val performanceOptions by PerformanceOptionsManager.current.collectAsState(initial = PerformanceOptions.Defaults)
     val movingGradientAndParticlesEnabled = performanceOptions.movingGradientAndParticles
-    val context = LocalContext.current
     val intent = remember(context) { Intent(context, MainActivity::class.java) }
     var hours by interHour
     var minutes by interMinute
@@ -1595,14 +1623,13 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
         label = "riseEffectProgress"
     )
 
-    val hour = remember { LocalTime.now().hour }
-    val introColors = remember(hour) {
-        when (hour) {
-            in 5..10 -> listOf(Color(0xFF2B1A00), Color(0xFF3C2405), Color(0xFF5A360A), Color(0xFF7A4A12))
-            in 11..16 -> listOf(Color(0xFF332300), Color(0xFF4A3408), Color(0xFF6B4B0F), Color(0xFF8C6217))
-            in 17..20 -> listOf(Color(0xFF1A0614), Color(0xFF2A0A20), Color(0xFF3D0F2D), Color(0xFF52153A))
-            else -> listOf(Color(0xFF02040A), Color(0xFF0A1324), Color(0xFF15243D), Color(0xFF1E3352))
-        }
+    val introColors = remember(theme) {
+        listOf(
+            theme.secondary.copy(alpha = 0.8f),
+            theme.tertiary,
+            theme.background,
+            theme.background
+        )
     }
     val introBrush = remember(introColors) {
         Brush.radialGradient(
@@ -1619,9 +1646,17 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
     )
     LaunchedEffect(Unit) { showIntro = false }
 
-    val glowColor = Color(0xFF3B0E0E)
-    val deepColor = Color(0xFF0D0404)
+    val glowColor = theme.secondary
+    val deepColor = theme.background
+    val allWorkouts = (uiState as? WorkoutListUiState.Success)?.workouts.orEmpty()
+    val totalWorkoutCount = remember(uiState) {
+        allWorkouts.size
+    }
 
+    LaunchedEffect(totalWorkoutCount) {
+
+        vm.syncTotalWorkouts(totalWorkoutCount)
+    }
     WorkoutTrackerTheme {
         Scaffold(
             topBar = {
@@ -1672,9 +1707,9 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                         drawRect(
                             brush = Brush.verticalGradient(
                                 0f to Color.Transparent,
-                                0.25f to Color(0x66B71C1C),
-                                0.55f to Color(0x99D32F2F),
-                                0.85f to Color(0xCCF44336),
+                                0.25f to theme.secondary.copy(alpha = 0.4f),
+                                0.55f to theme.primary.copy(alpha = 0.6f),
+                                0.85f to theme.primary.copy(alpha = 0.8f),
                                 1f to Color.Transparent,
                                 startY = startY,
                                 endY = endY
@@ -1701,8 +1736,8 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                                 val x = (baseX + wobble).coerceIn(-40f, w + 40f)
                                 val r = 6f + (s % 1f) * 18f * (0.4f + 0.6f * (1f - phase))
                                 val a = (0.30f + 0.70f * (1f - phase)) * riseEffectProgress
-                                drawCircle(Color(0xFFF44336).copy(alpha = a.coerceIn(0f, 1f)), r, Offset(x, y))
-                                drawCircle(Color(0x66EF5350).copy(alpha = (a * 0.6f).coerceIn(0f, 1f)), r * 1.8f, Offset(x, y + r * 0.2f))
+                                drawCircle(theme.primary.copy(alpha = a.coerceIn(0f, 1f)), r, Offset(x, y))
+                                drawCircle(theme.secondary.copy(alpha = (a * 0.6f).coerceIn(0f, 1f)), r * 1.8f, Offset(x, y + r * 0.2f))
                             }
                         }
                     }
@@ -1729,6 +1764,7 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                                     "Running (Treadmill)", "Stair Climber", "Elliptical Trainer",
                                     "Rowing Machine", "Stationary Bike", "Swimming"
                                 )
+
                                 scope.launch(Dispatchers.IO) {
                                     viewModel.addSampleWorkout(
                                         workout.value, WorkoutStatus.COMPLETED,
@@ -1760,7 +1796,10 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                                         )
                                         healthConnectManager.writeWorkout(workoutDetails)
                                     }
+                                    vm.onWorkoutLogged(totalWorkoutCount)
+                                    vm.refresh()
                                 }
+
                                 WorkoutLog.sets.clear()
                                 WorkoutForegroundService.stop(context)
                                 ConnectedWorkout.currentMode.value = WorkoutMode.INACTIVE
@@ -1798,7 +1837,7 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                             style = TextStyle(
                                 brush = Brush.linearGradient(
                                     colors = listOf(
-                                        lerp(Color.White, Color(0xFFFF7272), hype),
+                                        lerp(Color.White, theme.primary, hype),
                                         Color.White
                                     )
                                 ),
@@ -1813,7 +1852,8 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                             currentReps = CurrentReps.intValue,
                             goalReps = GoalReps.intValue,
                             currentSet = CurrentSets.intValue,
-                            goalSets = GoalSets.intValue
+                            goalSets = GoalSets.intValue,
+                            theme = theme
                         )
                     } else if (GoalType == "Distance") {
                         DistanceProgressTracker(
@@ -1850,14 +1890,14 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                         val animatedBg by animateColorAsState(
                             targetValue = if (isPressed) {
                                 lerp(
-                                    Color(0xFF8B0000),
-                                    Color(0xFF7A285A),
+                                    theme.secondary,
+                                    theme.primary,
                                     riseEffectProgress
                                 ).copy(alpha = (0.70f + 0.22f * hype).coerceIn(0f, 1f))
                             } else {
                                 lerp(
-                                    Color(0xFF650000),
-                                    Color(0xFF5C1D4D),
+                                    theme.tertiary,
+                                    theme.secondary,
                                     riseEffectProgress
                                 ).copy(alpha = (0.45f + 0.30f * hype).coerceIn(0f, 1f))
                             },
@@ -1888,6 +1928,7 @@ Output ≤1 line, purely motivational.
                             }
                         }
 
+
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -1901,9 +1942,9 @@ Output ≤1 line, purely motivational.
                                     2.dp,
                                     Brush.linearGradient(
                                         listOf(
-                                            lerp(Color(0xFFFF7A7A), Color(0xFFFF3D3D), riseEffectProgress)
+                                            lerp(theme.primary, theme.secondary, riseEffectProgress)
                                                 .copy(alpha = (0.70f + 0.26f * hype).coerceIn(0f, 1f)),
-                                            lerp(Color(0xFF4A1515), Color(0xFF7A1F1F), riseEffectProgress)
+                                            lerp(theme.secondary, theme.tertiary, riseEffectProgress)
                                                 .copy(alpha = (0.55f + 0.28f * hype).coerceIn(0f, 1f))
                                         )
                                     ),
@@ -1952,7 +1993,7 @@ Output ≤1 line, purely motivational.
                             },
                             shape = RoundedCornerShape(25.dp),
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = lerp(Color(0xFF4A2515), Color(0xFF4A1F3D), riseEffectProgress).copy(alpha = 0.5f + 0.15f * hype),
+                                containerColor = lerp(theme.tertiary, theme.secondary, riseEffectProgress).copy(alpha = 0.5f + 0.15f * hype),
                                 contentColor = Color.White
                             ),
                             modifier = Modifier.animateContentSize(
@@ -1965,7 +2006,7 @@ Output ≤1 line, purely motivational.
                             enabled = isPaused,
                             shape = RoundedCornerShape(25.dp),
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = lerp(Color(0xFF8B0000), Color(0xFF6C1A52), riseEffectProgress).copy(alpha = 0.8f),
+                                containerColor = lerp(theme.secondary, theme.tertiary, riseEffectProgress).copy(alpha = 0.8f),
                                 contentColor = Color.White,
                                 disabledContainerColor = Color(0xFF2A0D0D).copy(alpha = 0.4f),
                                 disabledContentColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
@@ -1979,13 +2020,10 @@ Output ≤1 line, purely motivational.
                     Spacer(modifier = Modifier.height(16.dp))
                 }
                 if (showCountdown) {
-                    CountdownOverlay(countdownValue = countdownValue)
+                    CountdownOverlay(countdownValue = countdownValue, theme = theme)
                 }
                 if (showSyncDialog.showSyncDialog.value) {
-                    val cardioExerciseNames = listOf(
-                        "Running (Treadmill)", "Stair Climber", "Elliptical Trainer",
-                        "Rowing Machine", "Stationary Bike", "Swimming"
-                    )
+
                     ThemedConfirmationDialog(
                         title = "Sync to health connect",
                         text = "Sync this workout to health connect?",
@@ -2100,9 +2138,10 @@ fun SetProgressDetails(
     currentReps: Int,
     goalReps: Int,
     currentSet: Int,
-    goalSets: Int
+    goalSets: Int,
+    theme: ColorSchemeAppTheme
 ) {
-    val accent = Color(0xFF8B0000)
+    val accent = theme.primary
     Surface(
         modifier = Modifier.fillMaxWidth(),
         color = Color.Transparent,
@@ -2125,7 +2164,7 @@ fun SetProgressDetails(
                     Column(
                         modifier = Modifier
                             .weight(1f)
-                            .background(Color(0xFF3D0000).copy(0.12f), RoundedCornerShape(18.dp))
+                            .background(theme.secondary.copy(0.12f), RoundedCornerShape(18.dp))
                             .padding(vertical = 14.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
@@ -2144,7 +2183,7 @@ fun SetProgressDetails(
                     Column(
                         modifier = Modifier
                             .weight(1f)
-                            .background(Color(0xFF3D0000).copy(0.12f), RoundedCornerShape(18.dp))
+                            .background(theme.secondary.copy(0.12f), RoundedCornerShape(18.dp))
                             .padding(vertical = 14.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
@@ -2161,14 +2200,14 @@ fun SetProgressDetails(
                         )
                     }
                 }
-                DetailedSetsProgressBar(currentSet = currentSet, goalSets = goalSets)
+                DetailedSetsProgressBar(currentSet = currentSet, goalSets = goalSets, theme = theme)
             }
         }
     }
 }
 
 @Composable
-fun DetailedSetsProgressBar(currentSet: Int, goalSets: Int, modifier: Modifier = Modifier) {
+fun DetailedSetsProgressBar(currentSet: Int, goalSets: Int, modifier: Modifier = Modifier, theme: ColorSchemeAppTheme) {
     if (goalSets <= 0) return
     val target = when {
         goalSets <= 1 -> if (currentSet >= 1) 1f else 0f
@@ -2198,8 +2237,8 @@ fun DetailedSetsProgressBar(currentSet: Int, goalSets: Int, modifier: Modifier =
     val shimmer = (animationClock / 1.8f) % 1.4f - 0.2f
     val pulse = 1.05f + 0.15f * sin(animationClock * 2 * PI.toFloat())
 
-    val accent = Color(0xFF8B0000)
-    val accentBright = Color(0xFFFF6666).copy(alpha = 0.95f)
+    val accent = theme.secondary
+    val accentBright = theme.primary.copy(alpha = 0.95f)
 
     if (goalSets <= 8) {
         Canvas(
@@ -2333,20 +2372,18 @@ fun DetailedSetsProgressBar(currentSet: Int, goalSets: Int, modifier: Modifier =
 
 
 
-
-
 @Composable
 private fun distancePillBackground(): Brush = Brush.linearGradient(
     listOf(
-        DarkMaroon.copy(alpha = 0.85f),
-        DeepRed.copy(alpha = 0.65f)
+        Crimson.copy(alpha = 0.85f),
+        Crimson.copy(alpha = 0.65f)
     )
 )
 
 @Composable
 private fun distanceIconBackground(pressed: Boolean): Brush {
     val start = if (pressed) Crimson.copy(alpha = 0.25f) else Crimson.copy(alpha = 0.20f)
-    val end = if (pressed) Crimson.copy(alpha = 0.12f) else DarkMaroon.copy(alpha = 0.10f)
+    val end = if (pressed) Crimson.copy(alpha = 0.12f) else Crimson.copy(alpha = 0.10f)
     return Brush.radialGradient(listOf(start, end))
 }
 
@@ -2640,8 +2677,11 @@ fun GoalSelector(
     navController: NavController,
     selectedType: String,
     onTypeSelected: (String) -> Unit,
+) {
+    val context = LocalContext.current
+    val appearanceOptions by AppearanceOptionsManagerAppTheme.flow(context).collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
+    val theme = appearanceOptions.selectedTheme.colors
 
-    ) {
     val workoutState by remember { workout }
     val cardioExerciseNames = listOf(
         "Running (Treadmill)", "Stair Climber", "Elliptical Trainer",
@@ -2656,11 +2696,11 @@ fun GoalSelector(
     Card(
         shape = RoundedCornerShape(18.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.10f),
+            containerColor = theme.secondary.copy(alpha = 0.10f), // Dynamic container color
         ),
         border = BorderStroke(
             1.dp,
-            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)
+            theme.primary.copy(alpha = 0.2f) // Dynamic border color
         ),
         modifier = Modifier.fillMaxWidth()
     ) {
@@ -2676,61 +2716,57 @@ fun GoalSelector(
                     text = "Time",
                     isSelected = selectedType == "Time",
                     shape = RoundedCornerShape(topStart = 12.dp, bottomStart = 12.dp),
-                    onClick = { onTypeSelected("Time") }
+                    onClick = { onTypeSelected("Time") },
+                    themeColors = theme
                 )
             }
             Spacer(
                 modifier = Modifier
                     .width(1.dp)
                     .height(30.dp)
-                    .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f))
+                    .background(theme.primary.copy(alpha = 0.3f)) // Dynamic divider
             )
             if (!canShowDistance && ConnectedWorkout.currentMode.value == WorkoutMode.INACTIVE) {
                 SegmentedButton(
                     text = "Sets",
                     isSelected = selectedType == "Reps",
                     shape = RoundedCornerShape(topEnd = 12.dp, bottomEnd = 12.dp),
-                    onClick = { onTypeSelected("Reps") }
+                    onClick = { onTypeSelected("Reps") },
+                    themeColors = theme
                 )
             } else {
                 SegmentedButton(
                     text = "Distance",
                     isSelected = selectedType == "Distance",
                     shape = RoundedCornerShape(topEnd = 12.dp, bottomEnd = 12.dp),
-                    onClick = { onTypeSelected("Distance") }
+                    onClick = { onTypeSelected("Distance") },
+                    themeColors = theme
                 )
             }
         }
     }
 }
 
-private val Crimson = Color(0xFFDC143C)
-private val DarkMaroon = Color(0xFF2C0A0A)
-private val DeepRed = Color(0xFF7B1113)
-private val SoftRed = Color(0x33DC143C)
-
 @Composable
-private fun segmentContainerBrush(selected: Boolean, pressed: Boolean): Brush {
+private fun segmentContainerBrush(selected: Boolean, pressed: Boolean, themeColors: ColorSchemeAppTheme): Brush {
     return if (selected) {
-
         Brush.linearGradient(
             listOf(
-                DarkMaroon.copy(alpha = if (pressed) 0.95f else 0.90f),
-                DeepRed.copy(alpha = if (pressed) 0.75f else 0.65f)
+                themeColors.secondary.copy(alpha = if (pressed) 0.95f else 0.90f),
+                themeColors.primary.copy(alpha = if (pressed) 0.75f else 0.65f)
             )
         )
     } else {
-
-        val start = if (pressed) Crimson.copy(alpha = 0.10f) else Color.Transparent
-        val end = if (pressed) DarkMaroon.copy(alpha = 0.06f) else Color.Transparent
+        val start = if (pressed) themeColors.primary.copy(alpha = 0.10f) else Color.Transparent
+        val end = if (pressed) themeColors.secondary.copy(alpha = 0.06f) else Color.Transparent
         Brush.linearGradient(listOf(start, end))
     }
 }
 
 @Composable
-private fun segmentBorderBrush(selected: Boolean, pressed: Boolean): Brush {
+private fun segmentBorderBrush(selected: Boolean, pressed: Boolean, themeColors: ColorSchemeAppTheme): Brush {
     val hi = if (selected) Color.White.copy(alpha = 0.55f) else Color.White.copy(alpha = 0.20f)
-    val lo = if (selected) Crimson.copy(alpha = if (pressed) 0.35f else 0.25f)
+    val lo = if (selected) themeColors.primary.copy(alpha = if (pressed) 0.35f else 0.25f)
     else Color.White.copy(alpha = 0.06f)
     return Brush.linearGradient(listOf(hi, lo))
 }
@@ -2747,17 +2783,10 @@ private fun segmentTextColor(selected: Boolean, pressed: Boolean): Color {
 }
 
 @Composable
-private fun defaultSegmentShape(): Shape = RoundedCornerShape(12.dp)
-
-@Composable
 private fun pressedScale(pressed: Boolean): Float {
     val scale by animateFloatAsState(if (pressed) 0.96f else 1f, label = "segmentScale")
     return scale
 }
-
-@Composable
-private fun selectable(connectedInactive: Boolean, onTap: () -> Unit): (() -> Unit)? =
-    if (connectedInactive) onTap else null
 
 @Composable
 private fun isInactive(): Boolean =
@@ -2768,7 +2797,8 @@ private fun RowScope.SegmentedButtonInternal(
     text: String,
     isSelected: Boolean,
     shape: Shape,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    themeColors: ColorSchemeAppTheme
 ) {
     val haptics = LocalHapticFeedback.current
     val interactionSource = remember { MutableInteractionSource() }
@@ -2776,8 +2806,8 @@ private fun RowScope.SegmentedButtonInternal(
     val inactive = isInactive()
 
     val scale = pressedScale(isPressed)
-    val bgBrush = segmentContainerBrush(isSelected && inactive, isPressed && inactive)
-    val border = segmentBorderBrush(isSelected && inactive, isPressed && inactive)
+    val bgBrush = segmentContainerBrush(isSelected && inactive, isPressed && inactive, themeColors)
+    val border = segmentBorderBrush(isSelected && inactive, isPressed && inactive, themeColors)
     val labelColor = segmentTextColor(isSelected && inactive, isPressed && inactive)
 
     Box(
@@ -2810,44 +2840,43 @@ private fun RowScope.SegmentedButtonInternal(
     }
 }
 
-
 @Composable
 fun RowScope.SegmentedButton(
     text: String,
     isSelected: Boolean,
     shape: Shape,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    themeColors: ColorSchemeAppTheme
 ) {
     SegmentedButtonInternal(
         text = text,
         isSelected = isSelected,
         shape = shape,
-        onClick = onClick
+        onClick = onClick,
+        themeColors = themeColors
     )
 }
 
-
-
 @Composable
-private fun stepperPillBackground(): Brush {
+private fun stepperPillBackground(themeColors: ColorSchemeAppTheme): Brush {
     return Brush.linearGradient(
         listOf(
-            DarkMaroon.copy(alpha = 0.85f),
-            DeepRed.copy(alpha = 0.65f)
+            themeColors.secondary.copy(alpha = 0.85f),
+            themeColors.primary.copy(alpha = 0.55f)
         )
     )
 }
 
 @Composable
-private fun stepperIconBackground(pressed: Boolean): Brush {
-    val start = if (pressed) Crimson.copy(alpha = 0.25f) else SoftRed
-    val end = if (pressed) Crimson.copy(alpha = 0.12f) else DarkMaroon.copy(alpha = 0.1f)
+private fun stepperIconBackground(pressed: Boolean, themeColors: ColorSchemeAppTheme): Brush {
+    val start = if (pressed) themeColors.primary.copy(alpha = 0.25f) else themeColors.primary.copy(alpha = 0.1f)
+    val end = if (pressed) themeColors.primary.copy(alpha = 0.12f) else themeColors.secondary.copy(alpha = 0.1f)
     return Brush.radialGradient(listOf(start, end))
 }
 
 @Composable
-private fun stepperIconTint(pressed: Boolean): Color {
-    val base = Crimson
+private fun stepperIconTint(pressed: Boolean, themeColors: ColorSchemeAppTheme): Color {
+    val base = themeColors.primary
     val elevated by animateColorAsState(
         targetValue = if (pressed) base.copy(alpha = 1f) else base.copy(alpha = 0.9f),
         animationSpec = tween(160, easing = FastOutSlowInEasing)
@@ -2863,6 +2892,10 @@ fun NumberStepper(
     onValueChange: (Int) -> Unit,
     range: IntRange = 0..999
 ) {
+    val context = LocalContext.current
+    val appearanceOptions by AppearanceOptionsManagerAppTheme.flow(context).collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
+    val theme = appearanceOptions.selectedTheme.colors
+
     val haptics = LocalHapticFeedback.current
     if (ConnectedWorkout.currentMode.value == WorkoutMode.INACTIVE) {
         Row(
@@ -2895,14 +2928,14 @@ fun NumberStepper(
                     modifier = Modifier
                         .size(48.dp)
                         .scale(decScale)
-                        .border(1.dp, Color.Red.copy(alpha = 0.15f), CircleShape)
+                        .border(1.dp, theme.primary.copy(alpha = 0.25f), CircleShape)
                         .clip(CircleShape)
-                        .background(stepperIconBackground(decPressed))
+                        .background(stepperIconBackground(decPressed, theme))
                 ) {
                     Icon(
                         imageVector = Icons.Default.Remove,
                         contentDescription = "Decrement $label",
-                        tint = stepperIconTint(decPressed),
+                        tint = stepperIconTint(decPressed, theme),
                         modifier = Modifier
                             .combinedClickable(
                                 interactionSource = decInteraction,
@@ -2924,7 +2957,7 @@ fun NumberStepper(
                         .widthIn(min = 64.dp)
                         .heightIn(min = 48.dp)
                         .clip(CircleShape)
-                        .background(stepperPillBackground())
+                        .background(stepperPillBackground(theme))
                         .padding(horizontal = 12.dp, vertical = 6.dp),
                     contentAlignment = Alignment.Center
                 ) {
@@ -2953,144 +2986,415 @@ fun NumberStepper(
                         .size(48.dp)
                         .scale(incScale)
                         .clip(CircleShape)
-                        .border(1.dp, Color.Red.copy(alpha = 0.15f), CircleShape)
-                        .background(stepperIconBackground(incPressed)),
+                        .border(1.dp, theme.primary.copy(alpha = 0.25f), CircleShape)
+                        .background(stepperIconBackground(incPressed, theme)),
                     interactionSource = incInteraction
                 ) {
                     Icon(
                         imageVector = Icons.Default.Add,
                         contentDescription = "Increment $label",
                         modifier = Modifier,
-                        tint = stepperIconTint(incPressed)
+                        tint = stepperIconTint(incPressed, theme)
                     )
                 }
             }
         }
     }
 }
+
+
+
+// The specific list of exercises that trigger the Barbell UI
+val barbellVisualExercises = setOf(
+    "Barbell Bench Press",
+    "Incline Barbell Press",
+    "Barbell Back Squat",
+    "Front Squat",
+    "Deadlifts",
+    "Sumo Deadlifts",
+    "Romanian Deadlifts",
+    "Overhead Press (Barbell)",
+    "Push Press",
+    "Bent-Over Rows",
+    "Pendlay Rows",
+    "Good Mornings",
+    "Hip Thrusts",
+    "Barbell Curls",
+    "Barbell Shrugs"
+)
+
+
+
+
+
+
+
 
 @Composable
 fun NumberStepperWeights(
     label: String,
     value: Double,
     onValueChange: (Double) -> Unit,
+    workoutName: String, // Pass workout.value here
     step: Double = 1.0
 ) {
-    val haptics = LocalHapticFeedback.current
+    val context = LocalContext.current
+    val appearanceOptions by AppearanceOptionsManagerAppTheme.flow(context).collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
+    val theme = appearanceOptions.selectedTheme.colors
+
+    // Check if the current workout is in the barbell list
+    val useBarbellVisual = remember(workoutName) {
+        barbellVisualExercises.contains(workoutName)
+    }
+
     if (ConnectedWorkout.currentMode.value == WorkoutMode.INACTIVE) {
-        Row(
+        if (useBarbellVisual) {
+            BarbellStyleInput(
+                label = label,
+                value = value,
+                onValueChange = onValueChange,
+                theme = theme
+            )
+        } else {
+            StandardStepperInput(
+                label = label,
+                value = value,
+                onValueChange = onValueChange,
+                step = step,
+                theme = theme
+            )
+        }
+    }
+}
+
+// --- Sub-Component: The New Barbell Visual UI ---
+
+@Composable
+private fun BarbellStyleInput(
+    label: String,
+    value: Double,
+    onValueChange: (Double) -> Unit,
+    theme: ColorSchemeAppTheme
+) {
+    val haptics = LocalHapticFeedback.current
+    val sidePlates = remember(value) { calculateSidePlates(value) }
+    val barColor = Color.LightGray
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        // Header
+        Text(
+            text = label.uppercase(),
+            style = MaterialTheme.typography.labelMedium,
+            color = theme.primary.copy(alpha = 0.95f)
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = "${String.format("%.1f", value)} kg",
+            style = MaterialTheme.typography.displaySmall.copy(fontWeight = FontWeight.Bold),
+            color = theme.primary
+        )
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // Barbell Visual
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+                .height(100.dp),
+            contentAlignment = Alignment.Center
         ) {
-            Text(
-                text = label,
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.SemiBold,
-                color = Color.White
+            // Shaft
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(0.9f)
+                    .height(12.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(barColor)
             )
 
+            // Plates
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(16.dp)
+                horizontalArrangement = Arrangement.Center,
+                modifier = Modifier.fillMaxWidth()
             ) {
-                val decInteraction = remember { MutableInteractionSource() }
-                val decPressed by decInteraction.collectIsPressedAsState()
-                val decScale by animateFloatAsState(
-                    targetValue = if (decPressed) 0.92f else 1f,
-                    animationSpec = tween(120, easing = FastOutSlowInEasing)
+                // Left Side
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(2.dp, Alignment.End),
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    sidePlates.reversed().forEach { config -> PlateVisual(config) }
+                    Box(Modifier.size(width = 8.dp, height = 25.dp).background(barColor.copy(alpha=0.8f)))
+                    Spacer(Modifier.width(10.dp))
+                }
+
+                // Center Grip
+                Box(
+                    modifier = Modifier
+                        .width(60.dp)
+                        .height(14.dp)
+                        .background(barColor.copy(0.6f))
                 )
-                IconButton(
-                    onClick = {
-                        val newValue = (value - step).coerceAtLeast(0.0)
+
+                // Right Side
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(2.dp, Alignment.Start),
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Spacer(Modifier.width(10.dp))
+                    Box(Modifier.size(width = 8.dp, height = 25.dp).background(barColor.copy(alpha=0.8f)))
+                    sidePlates.forEach { config -> PlateVisual(config) }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // Controls
+        Text(
+            text = "Add/Remove Pair",
+            style = MaterialTheme.typography.bodySmall,
+            color = theme.secondary
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier.horizontalScroll(rememberScrollState())
+        ) {
+            standardPlates.forEach { config ->
+                PlateControlColumn(
+                    config = config,
+                    onAdd = {
+                        onValueChange(value + (config.weightKg * 2))
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                    },
+                    onRemove = {
+                        val newValue = (value - (config.weightKg * 2)).coerceAtLeast(BAR_WEIGHT)
                         onValueChange(newValue)
                         haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                     },
-                    modifier = Modifier
-                        .size(48.dp)
-                        .scale(decScale)
-                        .clip(CircleShape)
-                        .border(1.dp, Color.Red.copy(alpha = 0.15f), CircleShape)
-                        .background(stepperIconBackground(decPressed)),
-                    interactionSource = decInteraction
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Remove,
-                        contentDescription = "Decrement $label",
-                        tint = stepperIconTint(decPressed)
-                    )
-                }
-
-                OutlinedTextField(
-                    value = String.format("%.1f", value.coerceAtLeast(0.0)),
-                    onValueChange = { raw ->
-                        val cleaned = raw.replace(',', '.')
-                        val parsed = cleaned.toDoubleOrNull()
-                        when {
-                            parsed == null && raw.isEmpty() -> onValueChange(0.0)
-                            parsed != null -> onValueChange(parsed.coerceAtLeast(0.0))
-                        }
-                    },
-                    modifier = Modifier
-                        .width(120.dp)
-                        .heightIn(min = 56.dp)
-                        .clip(CircleShape)
-                        .background(stepperPillBackground()),
-                    textStyle = TextStyle(
-                        fontSize = 28.sp,
-                        fontWeight = FontWeight.Bold,
-                        textAlign = TextAlign.Center,
-                        color = Color.White
-                    ),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    singleLine = true,
-                    shape = CircleShape,
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedContainerColor = Color.Transparent,
-                        unfocusedContainerColor = Color.Transparent,
-                        focusedBorderColor = Crimson.copy(alpha = 0.8f),
-                        unfocusedBorderColor = Color.White.copy(alpha = 0.25f),
-                        cursorColor = Crimson
-                    )
+                    theme = theme
                 )
+            }
+        }
 
-                val incInteraction = remember { MutableInteractionSource() }
-                val incPressed by incInteraction.collectIsPressedAsState()
-                val incScale by animateFloatAsState(
-                    targetValue = if (incPressed) 0.92f else 1f,
-                    animationSpec = tween(120, easing = FastOutSlowInEasing)
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Reset
+        OutlinedButton(
+            onClick = {
+                onValueChange(BAR_WEIGHT)
+                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+            },
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = theme.primary),
+            border = BorderStroke(1.dp, theme.primary.copy(alpha = 0.5f))
+        ) {
+            Text("Reset to Empty Bar (${BAR_WEIGHT.toInt()}kg)")
+        }
+    }
+}
+
+// --- Sub-Component: The Old Standard Stepper UI ---
+
+@Composable
+private fun StandardStepperInput(
+    label: String,
+    value: Double,
+    onValueChange: (Double) -> Unit,
+    step: Double,
+    theme: ColorSchemeAppTheme
+) {
+    val haptics = LocalHapticFeedback.current
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.SemiBold,
+            color = Color.White
+        )
+
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            // Decrement Button
+            val decInteraction = remember { MutableInteractionSource() }
+            val decPressed by decInteraction.collectIsPressedAsState()
+            val decScale by animateFloatAsState(
+                targetValue = if (decPressed) 0.92f else 1f,
+                animationSpec = tween(120, easing = FastOutSlowInEasing)
+            )
+            IconButton(
+                onClick = {
+                    val newValue = (value - step).coerceAtLeast(0.0)
+                    onValueChange(newValue)
+                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                },
+                modifier = Modifier
+                    .size(48.dp)
+                    .scale(decScale)
+                    .clip(CircleShape)
+                    .border(1.dp, theme.primary.copy(alpha = 0.25f), CircleShape)
+                    .background(stepperIconBackground(decPressed, theme)),
+                interactionSource = decInteraction
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Remove,
+                    contentDescription = "Decrement $label",
+                    tint = stepperIconTint(decPressed, theme)
                 )
-                IconButton(
-                    onClick = {
-                        onValueChange((value + step).coerceAtLeast(0.0))
-                        haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                    },
-                    modifier = Modifier
-                        .size(48.dp)
-                        .scale(incScale)
-                        .clip(CircleShape)
-                        .border(1.dp, Color.Red.copy(alpha = 0.15f), CircleShape)
-                        .background(stepperIconBackground(incPressed)),
+            }
 
-                    interactionSource = incInteraction
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Add,
-                        contentDescription = "Increment $label",
-                        tint = stepperIconTint(incPressed)
-                    )
-                }
+            // Text Field
+            OutlinedTextField(
+                value = String.format("%.1f", value.coerceAtLeast(0.0)),
+                onValueChange = { raw ->
+                    val cleaned = raw.replace(',', '.')
+                    val parsed = cleaned.toDoubleOrNull()
+                    when {
+                        parsed == null && raw.isEmpty() -> onValueChange(0.0)
+                        parsed != null -> onValueChange(parsed.coerceAtLeast(0.0))
+                    }
+                },
+                modifier = Modifier
+                    .width(120.dp)
+                    .heightIn(min = 56.dp)
+                    .clip(CircleShape)
+                    .background(stepperPillBackground(theme)),
+                textStyle = TextStyle(
+                    fontSize = 28.sp,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center,
+                    color = Color.White
+                ),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                singleLine = true,
+                shape = CircleShape,
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedContainerColor = Color.Transparent,
+                    unfocusedContainerColor = Color.Transparent,
+                    focusedBorderColor = theme.primary.copy(alpha = 0.8f),
+                    unfocusedBorderColor = Color.White.copy(alpha = 0.25f),
+                    cursorColor = theme.primary
+                )
+            )
+
+            // Increment Button
+            val incInteraction = remember { MutableInteractionSource() }
+            val incPressed by incInteraction.collectIsPressedAsState()
+            val incScale by animateFloatAsState(
+                targetValue = if (incPressed) 0.92f else 1f,
+                animationSpec = tween(120, easing = FastOutSlowInEasing)
+            )
+            IconButton(
+                onClick = {
+                    onValueChange((value + step).coerceAtLeast(0.0))
+                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                },
+                modifier = Modifier
+                    .size(48.dp)
+                    .scale(incScale)
+                    .clip(CircleShape)
+                    .border(1.dp, theme.primary.copy(alpha = 0.25f), CircleShape)
+                    .background(stepperIconBackground(incPressed, theme)),
+                interactionSource = incInteraction
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Add,
+                    contentDescription = "Increment $label",
+                    tint = stepperIconTint(incPressed, theme)
+                )
             }
         }
     }
 }
 
-@Composable fun WeightSelector() = NumberStepperWeights("Weight", CurrentWeight.value, { CurrentWeight.value = it })
+// --- Helper Functions for UI (Colors/Visuals) ---
+
+@Composable
+fun PlateVisual(config: PlateConfig) {
+    Box(
+        modifier = Modifier
+            .width(10.dp)
+            .height(config.heightDp)
+            .clip(RoundedCornerShape(2.dp))
+            .background(config.color)
+            .border(1.dp, Color.Black.copy(alpha = 0.2f), RoundedCornerShape(2.dp))
+    )
+}
+
+@Composable
+fun PlateControlColumn(
+    config: PlateConfig,
+    onAdd: () -> Unit,
+    onRemove: () -> Unit,
+    theme: ColorSchemeAppTheme
+) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Surface(
+            onClick = onAdd,
+            shape = CircleShape,
+            color = config.color,
+            modifier = Modifier.size(56.dp),
+            shadowElevation = 4.dp,
+            border = BorderStroke(2.dp, theme.primary.copy(alpha = 0.3f))
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Text(
+                    text = config.label,
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Black),
+                    color = Color.White.copy(alpha = 0.9f),
+                    textAlign = TextAlign.Center
+                )
+            }
+        }
+        Spacer(modifier = Modifier.height(4.dp))
+        IconButton(
+            onClick = onRemove,
+            modifier = Modifier.size(32.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.RemoveCircleOutline,
+                contentDescription = "Remove pair of ${config.label}",
+                tint = theme.secondary.copy(alpha = 0.6f)
+            )
+        }
+    }
+}
+
+@Composable fun WeightSelector() = NumberStepperWeights("Weight", CurrentWeight.value, workoutName = workout.value ,
+    onValueChange = { CurrentWeight.value = it })
 @Composable fun RepSelector() = NumberStepper("Reps", GoalReps.intValue, { GoalReps.intValue = it })
 @Composable fun SetSelector() = NumberStepper("Sets", GoalSets.intValue, { GoalSets.intValue = it })
+@Composable
+fun stepperIconBackground(pressed: Boolean, theme: ColorScheme): Color {
+    return if (pressed) theme.primary.copy(alpha = 0.3f) else Color.Transparent
+}
 
+@Composable
+fun stepperIconTint(pressed: Boolean, theme: ColorScheme): Color {
+    return if (pressed) Color.White else theme.primary
+}
+
+@Composable
+fun stepperPillBackground(theme: ColorScheme): Color {
+    return theme.surfaceVariant.copy(alpha = 0.3f)
+}
 data class SetRecord(
     val reps: MutableState<String>,
     val weight: MutableState<String>
@@ -3177,122 +3481,243 @@ private fun SetDetailTextField(
 
 
 
-enum class FxVariant { Fireworks, Confetti, Stars, Ribbons }
 
-
-object GoalCompletionFX {
-    @JvmStatic var isPr: Boolean = false
-}
 
 private data class Particle(
     val color: Color,
-    val startPosition: Offset,
     val velocity: Offset,
     val size: Float,
-    val maxLife: Float
+    val rotationSpeed: Float,
+    val type: ParticleType
 )
+
+private enum class ParticleType { CIRCLE, SQUARE, SHARD }
 
 @Composable
 fun GoalCompletionAnimation(
-    onAnimationFinished: () -> Unit,
-    aggression: Float = 1.0f,
-    preferred: FxVariant? = null
+    onAnimationFinished: () -> Unit
 ) {
-    val isPr = remember { GoalCompletionFX.isPr }
+    val density = LocalDensity.current.density
+    val haptics = LocalHapticFeedback.current
 
-    val progress = remember { Animatable(0f) }
-    val textScale = remember { Animatable(0.5f) }
+    val animationTime = remember { Animatable(0f) }
+    val textScale = remember { Animatable(0f) }
     val textAlpha = remember { Animatable(0f) }
-    val shockwave = remember { Animatable(0f) }
+    val iconScale = remember { Animatable(0f) }
+    val iconRotation = remember { Animatable(-30f) }
+    val lightBurst = remember { Animatable(0f) }
+    val ornamentProgress = remember { Animatable(0f) }
+
+    val sets = remember { ConnectedWorkout.CurrentSets.intValue.coerceAtLeast(1) }
+    val reps = remember { ConnectedWorkout.CurrentReps.intValue.coerceAtLeast(1) }
 
     var particles by remember { mutableStateOf(emptyList<Particle>()) }
 
     LaunchedEffect(Unit) {
+        particles = generateCrimsonParticles()
+        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+
         coroutineScope {
             launch {
-                delay(50)
-                particles = generateParticles(isPr, aggression)
+                animationTime.animateTo(
+                    targetValue = 1f,
+                    animationSpec = tween(durationMillis = 2000, easing = LinearEasing)
+                )
+                onAnimationFinished()
             }
             launch {
-                shockwave.animateTo(
-                    targetValue = 1f,
-                    animationSpec = spring(dampingRatio = 0.45f, stiffness = 150f)
+                lightBurst.animateTo(1f, tween(100, easing = FastOutSlowInEasing))
+                lightBurst.animateTo(0f, tween(500))
+            }
+            launch {
+                delay(100)
+                iconScale.animateTo(
+                    1f,
+                    spring(dampingRatio = 0.3f, stiffness = 200f)
                 )
             }
             launch {
                 delay(100)
-                textAlpha.animateTo(1f, spring(stiffness = 300f))
-                textScale.animateTo(1.0f, spring(dampingRatio = 0.5f, stiffness = 400f))
-            }
-            launch {
-                progress.animateTo(
-                    targetValue = 1f,
-                    animationSpec = spring(stiffness = 10f)
+                iconRotation.animateTo(
+                    0f,
+                    spring(dampingRatio = 0.4f, stiffness = 150f)
                 )
             }
+            launch {
+                delay(150)
+                ornamentProgress.animateTo(
+                    1f,
+                    spring(dampingRatio = 0.5f, stiffness = 100f)
+                )
+            }
+            launch {
+                delay(200)
+                textAlpha.animateTo(1f, tween(300))
+            }
+            launch {
+                delay(200)
+                textScale.animateTo(
+                    1f,
+                    spring(dampingRatio = 0.4f, stiffness = 300f)
+                )
+            }
+            launch {
+                delay(100)
+                repeat(3) {
+                    delay(150)
+                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                }
+            }
         }
-
-        GoalCompletionFX.isPr = false
-        onAnimationFinished()
     }
-
 
     Box(
         modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.Center
     ) {
-        val density = LocalDensity.current.density
-
         Canvas(modifier = Modifier.fillMaxSize()) {
-            val t = progress.value
-            val shockwaveT = shockwave.value
-            val shockwaveRadius = size.maxDimension * 0.8f * shockwaveT
-            val shockwaveAlpha = (1f - shockwaveT.pow(2))
+            val time = animationTime.value * 2.5f
 
-            if (shockwaveAlpha > 0) {
+            if (lightBurst.value > 0) {
                 drawCircle(
-                    brush = Brush.radialGradient(
-                        colors = listOf(
-                            Color.White.copy(alpha = 0.3f * shockwaveAlpha),
-                            Color.Transparent
-                        ),
-                        center = center,
-                        radius = shockwaveRadius.coerceAtLeast(0.1f)
-                    ),
-                    radius = shockwaveRadius,
+                    color = Color(0xFFDC143C).copy(alpha = lightBurst.value * 0.5f),
+                    radius = size.maxDimension * lightBurst.value,
                     center = center
                 )
             }
 
-            particles.forEach { particle ->
-                val particleProgress = (t * particle.maxLife).coerceIn(0f, 1f)
-                if (particleProgress > 0) {
-                    val easedProgress = 1 - (1 - particleProgress).pow(3)
+            if (time > 0) {
+                particles.forEach { particle ->
+                    val gravity = 2000f * density
+                    val x = center.x + (particle.velocity.x * density * time)
+                    val y = center.y + (particle.velocity.y * density * time) + (0.5f * gravity * time * time)
 
-                    val currentPos = particle.startPosition + (particle.velocity * easedProgress * density * 2f) +
-                            Offset(0f, 2500f * easedProgress.pow(2) * density)
+                    val particleAlpha = (1f - (time / 2.0f)).coerceIn(0f, 1f)
 
-                    val alpha = (1f - particleProgress).pow(0.5f)
-
-                    drawCircle(
-                        color = particle.color,
-                        center = currentPos,
-                        radius = particle.size * density * (1f - easedProgress),
-                        alpha = alpha,
-                        blendMode = BlendMode.Plus
-                    )
+                    if (particleAlpha > 0f) {
+                        rotate(degrees = particle.rotationSpeed * time * 100f, pivot = Offset(x, y)) {
+                            when (particle.type) {
+                                ParticleType.CIRCLE -> drawCircle(
+                                    color = particle.color,
+                                    center = Offset(x, y),
+                                    radius = particle.size * density * particleAlpha,
+                                    alpha = particleAlpha
+                                )
+                                ParticleType.SQUARE -> drawRect(
+                                    color = particle.color,
+                                    topLeft = Offset(x - particle.size, y - particle.size),
+                                    size = Size(particle.size * 2, particle.size * 2),
+                                    alpha = particleAlpha
+                                )
+                                ParticleType.SHARD -> drawLine(
+                                    color = particle.color,
+                                    start = Offset(x, y),
+                                    end = Offset(x + particle.velocity.x * 0.05f, y + particle.velocity.y * 0.05f),
+                                    strokeWidth = particle.size * density * 0.5f,
+                                    alpha = particleAlpha
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }
 
-        val mainText = if (isPr) "NEW PR!\nMONSTER MODE" else "WORKOUT\nCOMPLETE"
-        val gradient = if (isPr) {
-            Brush.linearGradient(listOf(Color(0xFFFFF8E1), Color(0xFFFFD54F), Color(0xFFFFA000)))
-        } else {
-            Brush.linearGradient(listOf(Color(0xFFFF5454), Color(0xFFFF6F00), Color(0xFFFFB800)))
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier.offset(y = (-60).dp)
+        ) {
+            Canvas(
+                modifier = Modifier
+                    .size(200.dp)
+                    .graphicsLayer {
+                        scaleX = iconScale.value
+                        scaleY = iconScale.value
+                        rotationZ = iconRotation.value
+                    }
+            ) {
+                val w = size.width
+                val h = size.height
+                val centerX = w / 2
+                val centerY = h / 2
+
+                if (ornamentProgress.value > 0) {
+                    val ornamentCount = 8 + (sets * 2).coerceAtMost(24)
+                    val maxRadius = (w * 0.4f) + (reps * 2f * density).coerceAtMost(w * 0.3f)
+                    val baseRadius = w * 0.25f
+
+                    rotate(degrees = animationTime.value * 20f) {
+                        for (i in 0 until ornamentCount) {
+                            val angle = (2 * PI / ornamentCount) * i
+                            val currentRadius = baseRadius + (maxRadius - baseRadius) * ornamentProgress.value
+
+                            val startX = centerX + cos(angle).toFloat() * baseRadius
+                            val startY = centerY + sin(angle).toFloat() * baseRadius
+                            val endX = centerX + cos(angle).toFloat() * currentRadius
+                            val endY = centerY + sin(angle).toFloat() * currentRadius
+
+                            val spikePath = Path().apply {
+                                moveTo(startX, startY)
+                                lineTo(endX, endY)
+                                lineTo(
+                                    centerX + cos(angle + 0.1).toFloat() * (baseRadius + 10f),
+                                    centerY + sin(angle + 0.1).toFloat() * (baseRadius + 10f)
+                                )
+                                close()
+                            }
+
+                            drawPath(
+                                path = spikePath,
+                                brush = Brush.linearGradient(
+                                    colors = listOf(Color(0xFFDC143C), Color(0xFF8B0000))
+                                )
+                            )
+
+                            drawCircle(
+                                color = Color(0xFFFF1744),
+                                radius = 3.dp.toPx() * ornamentProgress.value,
+                                center = Offset(endX, endY),
+                                alpha = ornamentProgress.value
+                            )
+                        }
+                    }
+                }
+
+                val crownPath = Path().apply {
+                    val cw = w * 0.6f
+                    val ch = h * 0.6f
+                    val ox = (w - cw) / 2
+                    val oy = (h - ch) / 2 + (h * 0.1f)
+
+                    moveTo(ox + cw * 0.2f, oy + ch * 0.7f)
+                    lineTo(ox + cw * 0.8f, oy + ch * 0.7f)
+                    lineTo(ox + cw * 0.9f, oy + ch * 0.3f)
+                    lineTo(ox + cw * 0.65f, oy + ch * 0.5f)
+                    lineTo(ox + cw * 0.5f, oy + ch * 0.15f)
+                    lineTo(ox + cw * 0.35f, oy + ch * 0.5f)
+                    lineTo(ox + cw * 0.1f, oy + ch * 0.3f)
+                    close()
+                }
+
+                drawPath(
+                    path = crownPath,
+                    brush = Brush.linearGradient(
+                        colors = listOf(Color(0xFFD50000), Color(0xFFDC143C), Color(0xFFB71C1C))
+                    )
+                )
+
+                drawPath(
+                    path = crownPath,
+                    style = Stroke(width = 4.dp.toPx(), join = StrokeJoin.Round),
+                    color = Color(0xFFFF8A80)
+                )
+            }
         }
-        val glowColor = (if (isPr) Color(0xFFFFC107) else Color(0xFF7DB3FF)).copy(alpha = 0.8f)
-        val textSize = if (isPr) 62.sp else 52.sp
+
+        val mainText = "WORKOUT\nCOMPLETE"
+        val gradient = Brush.verticalGradient(
+            listOf(Color(0xFFFF5252), Color(0xFFDC143C), Color(0xFFB71C1C))
+        )
 
         val styledText = remember(mainText, gradient) {
             buildAnnotatedString { withStyle(SpanStyle(brush = gradient)) { append(mainText) } }
@@ -3301,47 +3726,55 @@ fun GoalCompletionAnimation(
         Text(
             text = styledText,
             modifier = Modifier
+                .offset(y = 60.dp)
                 .graphicsLayer {
                     scaleX = textScale.value
                     scaleY = textScale.value
                     alpha = textAlpha.value
                 },
             textAlign = TextAlign.Center,
+            lineHeight = 50.sp,
             style = TextStyle(
-                fontSize = textSize,
+                fontSize = 52.sp,
                 fontWeight = FontWeight.Black,
                 shadow = Shadow(
-                    color = glowColor,
-                    offset = Offset.Zero,
-                    blurRadius = 30f
+                    color = Color(0xFF8B0000).copy(alpha = 0.8f),
+                    offset = Offset(0f, 4f),
+                    blurRadius = 16f
                 )
             )
         )
     }
 }
 
-private fun generateParticles(isPr: Boolean, aggression: Float): List<Particle> {
+private fun generateCrimsonParticles(): List<Particle> {
     val rng = Random(System.currentTimeMillis())
-    val count = 400
-    val palette = if (isPr) {
-        listOf(Color(0xFFFFD700), Color(0xFFFFC107), Color(0xFFFFE082), Color(0xFFFFF3E0), Color.White)
-    } else {
-        listOf(Color(0xFFFCE18A), Color(0xFFFF726D), Color(0xFFB48DEF), Color(0xFFF4306D), Color(0xFF8CE99A))
-    }
+    val count = 600
+    val colors = listOf(
+        Color(0xFFDC143C),
+        Color(0xFFD50000),
+        Color(0xFFFF1744),
+        Color(0xFFB71C1C),
+        Color(0xFFFF8A80),
+        Color.White
+    )
 
     return List(count) {
         val angle = rng.nextDouble(0.0, 2 * PI)
-        val speed = (rng.nextFloat() * 300f + 150f) * (0.8f + aggression * 0.4f)
+        val speed = rng.nextFloat() * 1400f + 600f
+
+        val vx = cos(angle).toFloat() * speed * rng.nextFloat()
+        val vy = sin(angle).toFloat() * speed * rng.nextFloat() - 1000f
+
         Particle(
-            color = palette.random(rng),
-            startPosition = Offset(0f, 0f),
-            velocity = Offset(cos(angle).toFloat() * speed, sin(angle).toFloat() * speed),
-            size = rng.nextFloat() * 4f + 2f,
-            maxLife = rng.nextFloat() * 0.6f + 0.4f
+            color = colors.random(rng),
+            velocity = Offset(vx, vy),
+            size = rng.nextFloat() * 9f + 3f,
+            rotationSpeed = (rng.nextFloat() - 0.5f) * 12f,
+            type = ParticleType.entries.toTypedArray().random(rng)
         )
     }
 }
-
 
 object ConnectedWorkout{
     enum class WorkoutMode { INACTIVE, ACTIVE, RESTING }
@@ -3367,8 +3800,51 @@ object ConnectedWorkout{
     var interMinute = mutableIntStateOf(0)
     var interSecond = mutableIntStateOf(0)
 }
+data class PlateConfig(
+    val weightKg: Double,
+    val color: Color,
+    val heightDp: Dp,
+    val label: String
+)
 
+// Standard Olympic Plate colors and relative sizes
+val standardPlates = listOf(
+    PlateConfig(20.0, Color(0xFFCE2B37), 90.dp, "20"), // Red
+    PlateConfig(10.0, Color(0xFF005BD6), 80.dp, "10"), // Blue
+    PlateConfig(5.0, Color(0xFFF1C40F), 70.dp, "5"),   // Yellow
+    PlateConfig(2.5, Color(0xFF2ECC71), 60.dp, "2.5"), // Green
+    PlateConfig(1.25, Color(0xFF95A5A6), 50.dp, "1.25"),
+            PlateConfig(0.5, Color(0xFF6C6C6C), 50.dp, "0.5")
+// Grey/White
+)
+
+val BAR_WEIGHT = 20.0
+
+// Helper to determine which plates are on one side based on total weight
+fun calculateSidePlates(totalWeight: Double): List<PlateConfig> {
+    var remainingWeightPerSide = ((totalWeight - BAR_WEIGHT).coerceAtLeast(0.0)) / 2.0
+    val plates = mutableListOf<PlateConfig>()
+
+    // Greedy algorithm: fit biggest plates first
+    standardPlates.forEach { plateConfig ->
+        // Using a small epsilon for floating point comparison safety
+        while (remainingWeightPerSide >= plateConfig.weightKg - 0.01) {
+            plates.add(plateConfig)
+            remainingWeightPerSide -= plateConfig.weightKg
+        }
+    }
+    return plates
+}
 
 object showSyncDialog {
     var showSyncDialog = mutableStateOf(false)
 }
+val Crimson = Color(0xFFB00020)
+
+val CrimsonDark = Color(0xFF660011)
+
+val CrimsonLight = Color(0xFFFF5370)
+
+val CrimsonDull = Color(0xFF442226)
+
+private val CrimsonBorderLocked = Color(0x33FF5370)

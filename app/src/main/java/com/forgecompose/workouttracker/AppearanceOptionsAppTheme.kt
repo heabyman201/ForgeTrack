@@ -1,7 +1,5 @@
 package com.forgecompose.workouttracker
 
-
-
 import android.app.Application
 import android.content.Context
 import androidx.compose.foundation.background
@@ -14,6 +12,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -28,6 +27,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import androidx.lifecycle.AndroidViewModel
@@ -35,19 +35,24 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import java.io.IOException
 
 private val Context.appearanceDataStore by preferencesDataStore("appearance_options")
 
 @Immutable
 data class AppearanceOptionsAppTheme(
-    val selectedTheme: ColorThemeApp
+    val selectedTheme: ColorThemeApp,
+    val customColors: ColorSchemeAppTheme
 ) {
+    val colors: ColorSchemeAppTheme
+        get() = if (selectedTheme == ColorThemeApp.Custom) customColors else selectedTheme.colors
+
     companion object {
         val Defaults = AppearanceOptionsAppTheme(
-            selectedTheme = ColorThemeApp.Default
+            selectedTheme = ColorThemeApp.Default,
+            customColors = ColorThemeApp.Default.colors
         )
     }
 }
@@ -57,27 +62,136 @@ enum class ColorThemeApp(val themeName: String, val colors: ColorSchemeAppTheme)
         "Default",
         ColorSchemeAppTheme(
             primary = Color(0xFFE53935),
-            secondary = Color(0xFFD81B60),
-            tertiary = Color(0xFF8E24AA),
-            background = Color(0xFF121212)
+            secondary = Color(0xFF652121),
+            tertiary = Color(0xFF2B0E0E),
+            background = Color(0xFF120707)
         )
     ),
     Ocean(
         "Ocean",
         ColorSchemeAppTheme(
-            primary = Color(0xFF03A9F4),
-            secondary = Color(0xFF00BCD4),
-            tertiary = Color(0xFF009688),
-            background = Color(0xFF121212)
+            primary = Color(0xFF039BE5),
+            secondary = Color(0xFF1A3B5A),
+            tertiary = Color(0xFF0A1A2A),
+            background = Color(0xFF03080C)
         )
     ),
     Forest(
         "Forest",
         ColorSchemeAppTheme(
-            primary = Color(0xFF4CAF50),
-            secondary = Color(0xFF8BC34A),
-            tertiary = Color(0xFFCDDC39),
-            background = Color(0xFF121212)
+            primary = Color(0xFF43A047),
+            secondary = Color(0xFF1E3F20),
+            tertiary = Color(0xFF0A1F0B),
+            background = Color(0xFF020A03)
+        )
+    ),
+    Sunset(
+        "Sunset",
+        ColorSchemeAppTheme(
+            primary = Color(0xFFF4511E),
+            secondary = Color(0xFF5A2210),
+            tertiary = Color(0xFF260E05),
+            background = Color(0xFF0D0402)
+        )
+    ),
+    Midnight(
+        "Midnight",
+        ColorSchemeAppTheme(
+            primary = Color(0xFF5E35B1),
+            secondary = Color(0xFF2D1B4E),
+            tertiary = Color(0xFF120824),
+            background = Color(0xFF06030C)
+        )
+    ),
+    Cyber(
+        "Cyber",
+        ColorSchemeAppTheme(
+            primary = Color(0xFF00ACC1),
+            secondary = Color(0xFF103C42),
+            tertiary = Color(0xFF05181A),
+            background = Color(0xFF010809)
+        )
+    ),
+//    Lavender(
+//        "Lavender",
+//        ColorSchemeAppTheme(
+//            primary = Color(0xFFAB47BC),
+//            secondary = Color(0xFF4A148C),
+//            tertiary = Color(0xFF1F0A29),
+//            background = Color(0xFF0E0512)
+//        )
+//    ),
+Synthwave(
+    "Synthwave",
+    ColorSchemeAppTheme(
+        primary = Color(0xFFFF2A6D),
+        secondary = Color(0xFF3C1053),
+        tertiary = Color(0xFF180522),
+        background = Color(0xFF10002B)
+    )
+),
+
+    Noir(
+        "Noir",
+        ColorSchemeAppTheme(
+            primary = Color(0xFFE0E0E0),
+            secondary = Color(0xFF424242),
+            tertiary = Color(0xFF212121),
+            background = Color(0xFF000000)
+        )
+    ),
+    Toxic(
+        "Toxic",
+        ColorSchemeAppTheme(
+            primary = Color(0xFFAEEA00),
+            secondary = Color(0xFF4A148C),
+            tertiary = Color(0xFF240845),
+            background = Color(0xFF0D0014)
+        )
+    ),
+    Solar(
+        "Solar",
+        ColorSchemeAppTheme(
+            primary = Color(0xFFFFD600),
+            secondary = Color(0xFF827717),
+            tertiary = Color(0xFF262408),
+            background = Color(0xFF121103)
+        )
+    ),
+    Slate(
+        "Slate",
+        ColorSchemeAppTheme(
+            primary = Color(0xFF90A4AE),
+            secondary = Color(0xFF37474F),
+            tertiary = Color(0xFF181F22),
+            background = Color(0xFF0B0E0F)
+        )
+    ),
+    Mint(
+        "Mint",
+        ColorSchemeAppTheme(
+            primary = Color(0xFF69F0AE),
+            secondary = Color(0xFF004D40),
+            tertiary = Color(0xFF00211B),
+            background = Color(0xFF000D0B)
+        )
+    ),
+    Terminal(
+        "Terminal",
+        ColorSchemeAppTheme(
+            primary = Color(0xFF4E9F60),
+            secondary = Color(0xFF19291C),
+            tertiary = Color(0xFF081209),
+            background = Color(0xFF000000)
+        )
+    ),
+    Custom(
+        "Custom",
+        ColorSchemeAppTheme(
+            primary = Color.White,
+            secondary = Color.Gray,
+            tertiary = Color.DarkGray,
+            background = Color.Black
         )
     )
 }
@@ -92,37 +206,55 @@ data class ColorSchemeAppTheme(
 
 object AppearanceOptionsManagerAppTheme {
     private val keySelectedTheme = stringPreferencesKey("selectedTheme")
+    private val keyCustomPrimary = longPreferencesKey("custom_primary")
+    private val keyCustomSecondary = longPreferencesKey("custom_secondary")
+    private val keyCustomTertiary = longPreferencesKey("custom_tertiary")
+    private val keyCustomBackground = longPreferencesKey("custom_background")
 
-    private val snapshot = MutableStateFlow(AppearanceOptionsAppTheme.Defaults)
-    val current: StateFlow<AppearanceOptionsAppTheme> = snapshot
-
-    private var initJob: Job? = null
-
-    fun initialize(context: Context) {
-        if (initJob != null) return
-        initJob = kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
-            context.appearanceDataStore.data
-                .map { p ->
-                    val themeName = p[keySelectedTheme] ?: AppearanceOptionsAppTheme.Defaults.selectedTheme.name
-                    val theme = ColorThemeApp.valueOf(themeName)
-                    AppearanceOptionsAppTheme(selectedTheme = theme)
+    fun flow(context: Context): Flow<AppearanceOptionsAppTheme> {
+        return context.appearanceDataStore.data
+            .catch { exception ->
+                if (exception is IOException) {
+                    emit(androidx.datastore.preferences.core.emptyPreferences())
+                } else {
+                    throw exception
                 }
-                .collectLatest { snapshot.value = it }
-        }
-    }
+            }
+            .map { preferences ->
+                val themeName = preferences[keySelectedTheme] ?: AppearanceOptionsAppTheme.Defaults.selectedTheme.name
+                val theme = try {
+                    ColorThemeApp.valueOf(themeName)
+                } catch (e: IllegalArgumentException) {
+                    ColorThemeApp.Default
+                }
 
-    fun flow(context: Context): Flow<AppearanceOptionsAppTheme> = current
+                val defaultCustom = ColorThemeApp.Custom.colors
+                val customPrimary = preferences[keyCustomPrimary]?.let { Color(it.toULong()) } ?: defaultCustom.primary
+                val customSecondary = preferences[keyCustomSecondary]?.let { Color(it.toULong()) } ?: defaultCustom.secondary
+                val customTertiary = preferences[keyCustomTertiary]?.let { Color(it.toULong()) } ?: defaultCustom.tertiary
+                val customBackground = preferences[keyCustomBackground]?.let { Color(it.toULong()) } ?: defaultCustom.background
+
+                AppearanceOptionsAppTheme(
+                    selectedTheme = theme,
+                    customColors = ColorSchemeAppTheme(customPrimary, customSecondary, customTertiary, customBackground)
+                )
+            }
+    }
 
     suspend fun set(context: Context, v: AppearanceOptionsAppTheme) {
         context.appearanceDataStore.edit { p ->
             p[keySelectedTheme] = v.selectedTheme.name
+            p[keyCustomPrimary] = v.customColors.primary.value.toLong()
+            p[keyCustomSecondary] = v.customColors.secondary.value.toLong()
+            p[keyCustomTertiary] = v.customColors.tertiary.value.toLong()
+            p[keyCustomBackground] = v.customColors.background.value.toLong()
         }
-        snapshot.value = v
     }
 }
 
 class AppearanceViewModelAppTheme(app: Application) : AndroidViewModel(app) {
     private val ctx = app.applicationContext
+
     val options = AppearanceOptionsManagerAppTheme.flow(ctx).stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
@@ -144,11 +276,16 @@ fun AppearanceScreen(
     vm: AppearanceViewModelAppTheme = viewModel(),
 ) {
     val opts by vm.options.collectAsState()
+    val themeColors = opts.colors
 
-    val staticGradientBrush = remember {
+    val dynamicGradientBrush = remember(themeColors) {
         Brush.radialGradient(
-            colors = listOf(Color(0xFF2A0F0F), Color(0xFF3D0000), Color(0xFF060202)),
-            radius = 1200f,
+            colors = listOf(
+                themeColors.secondary,
+                themeColors.tertiary,
+                themeColors.background
+            ),
+            radius = 1500f,
             center = Offset(0.5f, 0.4f)
         )
     }
@@ -158,8 +295,8 @@ fun AppearanceScreen(
             .fillMaxSize()
             .drawWithCache {
                 onDrawBehind {
-                    drawRect(Color(0xFF060202))
-                    drawRect(staticGradientBrush)
+                    drawRect(themeColors.background)
+                    drawRect(dynamicGradientBrush, alpha = 0.6f)
                 }
             }
     ) {
@@ -192,16 +329,34 @@ fun AppearanceScreen(
                 verticalArrangement = Arrangement.spacedBy(24.dp)
             ) {
                 item {
-                    SettingsSectionCard(title = "App Appearance") {
+                    SettingsSectionCardHealth(
+                        title = "App Appearance",
+                        themeColors = themeColors
+                    ) {
                         ColorThemeApp.values().forEach { theme ->
                             ColorThemeRow(
                                 theme = theme,
                                 isSelected = opts.selectedTheme == theme,
-                                onSelected = { vm.update { it.copy(selectedTheme = theme) } }
+                                onSelected = { vm.update { it.copy(selectedTheme = theme) } },
+                                accentColor = if (theme == ColorThemeApp.Custom && opts.selectedTheme == ColorThemeApp.Custom) opts.customColors.primary else theme.colors.primary
                             )
                         }
                     }
                 }
+
+                if (opts.selectedTheme == ColorThemeApp.Custom) {
+                    item {
+                        CustomThemeEditor(
+                            currentColors = opts.customColors,
+                            onColorChanged = { newColors ->
+                                vm.update { it.copy(customColors = newColors) }
+                            },
+                            uiAccentColor = themeColors.primary
+                        )
+                    }
+                }
+
+                item { Spacer(Modifier.height(32.dp)) }
             }
         }
     }
@@ -211,7 +366,8 @@ fun AppearanceScreen(
 private fun ColorThemeRow(
     theme: ColorThemeApp,
     isSelected: Boolean,
-    onSelected: () -> Unit
+    onSelected: () -> Unit,
+    accentColor: Color
 ) {
     Row(
         modifier = Modifier
@@ -228,20 +384,180 @@ private fun ColorThemeRow(
             )
             Spacer(modifier = Modifier.height(4.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                ColorCircle(color = theme.colors.primary)
-                ColorCircle(color = theme.colors.secondary)
-                ColorCircle(color = theme.colors.tertiary)
+                if (theme == ColorThemeApp.Custom) {
+                    Text("Tap to edit", style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.5f))
+                } else {
+                    ColorCircle(color = theme.colors.primary)
+                    ColorCircle(color = theme.colors.secondary)
+                    ColorCircle(color = theme.colors.tertiary)
+                }
             }
         }
         if (isSelected) {
             Icon(
                 imageVector = Icons.Default.Check,
                 contentDescription = "Selected",
-                tint = Color(0xFFFF3B30),
+                tint = accentColor,
                 modifier = Modifier.size(24.dp)
             )
         }
     }
+}
+
+@Composable
+private fun CustomThemeEditor(
+    currentColors: ColorSchemeAppTheme,
+    onColorChanged: (ColorSchemeAppTheme) -> Unit,
+    uiAccentColor: Color
+) {
+    var editingColorType by remember { mutableStateOf<String?>(null) }
+    var colorToEdit by remember { mutableStateOf(Color.White) }
+
+    if (editingColorType != null) {
+        ColorPickerDialog(
+            initialColor = colorToEdit,
+            onDismiss = { editingColorType = null },
+            onColorSelected = { newColor ->
+                val newScheme = when (editingColorType) {
+                    "Primary" -> currentColors.copy(primary = newColor)
+                    "Secondary" -> currentColors.copy(secondary = newColor)
+                    "Tertiary" -> currentColors.copy(tertiary = newColor)
+                    "Background" -> currentColors.copy(background = newColor)
+                    else -> currentColors
+                }
+                onColorChanged(newScheme)
+                editingColorType = null
+            },
+            title = "Edit $editingColorType"
+        )
+    }
+
+    SettingsSectionCardHealth(
+        title = "Edit Custom Theme",
+        themeColors = currentColors
+    ) {
+        CustomColorRow("Primary", currentColors.primary) {
+            colorToEdit = currentColors.primary
+            editingColorType = "Primary"
+        }
+        CustomColorRow("Secondary", currentColors.secondary) {
+            colorToEdit = currentColors.secondary
+            editingColorType = "Secondary"
+        }
+        CustomColorRow("Tertiary", currentColors.tertiary) {
+            colorToEdit = currentColors.tertiary
+            editingColorType = "Tertiary"
+        }
+        CustomColorRow("Background", currentColors.background) {
+            colorToEdit = currentColors.background
+            editingColorType = "Background"
+        }
+    }
+}
+
+@Composable
+private fun CustomColorRow(
+    label: String,
+    color: Color,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyLarge,
+            color = Color.White.copy(alpha = 0.9f)
+        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            ColorCircle(color = color)
+            Spacer(Modifier.width(12.dp))
+            Icon(
+                imageVector = Icons.Default.Edit,
+                contentDescription = "Edit",
+                tint = Color.White.copy(alpha = 0.5f),
+                modifier = Modifier.size(20.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun ColorPickerDialog(
+    initialColor: Color,
+    onDismiss: () -> Unit,
+    onColorSelected: (Color) -> Unit,
+    title: String
+) {
+    var red by remember { mutableFloatStateOf(initialColor.red) }
+    var green by remember { mutableFloatStateOf(initialColor.green) }
+    var blue by remember { mutableFloatStateOf(initialColor.blue) }
+
+    val currentColor = Color(red, green, blue)
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Color(0xFF1A1A1A),
+        titleContentColor = Color.White,
+        textContentColor = Color.White.copy(alpha = 0.8f),
+        title = { Text(title) },
+        text = {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(60.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(currentColor)
+                        .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(12.dp))
+                )
+
+                Column {
+                    Text("Red: ${(red * 255).toInt()}", color = Color.White, style = MaterialTheme.typography.bodySmall)
+                    Slider(
+                        value = red,
+                        onValueChange = { red = it },
+                        colors = SliderDefaults.colors(thumbColor = Color.Red, activeTrackColor = Color.Red.copy(alpha = 0.7f))
+                    )
+
+                    Text("Green: ${(green * 255).toInt()}", color = Color.White, style = MaterialTheme.typography.bodySmall)
+                    Slider(
+                        value = green,
+                        onValueChange = { green = it },
+                        colors = SliderDefaults.colors(thumbColor = Color.Green, activeTrackColor = Color.Green.copy(alpha = 0.7f))
+                    )
+
+                    Text("Blue: ${(blue * 255).toInt()}", color = Color.White, style = MaterialTheme.typography.bodySmall)
+                    Slider(
+                        value = blue,
+                        onValueChange = { blue = it },
+                        colors = SliderDefaults.colors(thumbColor = Color.Blue, activeTrackColor = Color.Blue.copy(alpha = 0.7f))
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onColorSelected(currentColor) },
+                colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color.Black)
+            ) {
+                Text("Apply")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel", color = Color.White.copy(alpha = 0.7f))
+            }
+        }
+    )
 }
 
 @Composable
@@ -255,8 +571,9 @@ private fun ColorCircle(color: Color) {
 }
 
 @Composable
-private fun SettingsSectionCard(
+private fun SettingsSectionCardHealth(
     title: String,
+    themeColors: ColorSchemeAppTheme,
     content: @Composable ColumnScope.() -> Unit
 ) {
     val cornerRadius = 24.dp
@@ -267,14 +584,17 @@ private fun SettingsSectionCard(
             .drawWithCache {
                 val cornerRpx = cornerRadius.toPx()
                 val bgBrush = Brush.radialGradient(
-                    colors = listOf(Color(0xFF180909).copy(alpha = 0.9f), Color(0xFF100404).copy(alpha = 0.95f)),
+                    colors = listOf(
+                        themeColors.secondary.copy(alpha = 0.8f),
+                        themeColors.tertiary.copy(alpha = 0.9f)
+                    ),
                     center = Offset(size.width / 2f, size.height * 0.1f),
                     radius = size.width * 1.5f
                 )
                 val borderBrush = Brush.linearGradient(
                     colors = listOf(
-                        Color(0xFFFF5555).copy(alpha = 0.2f),
-                        Color(0xFF8B0000).copy(alpha = 0.1f)
+                        themeColors.primary.copy(alpha = 0.4f),
+                        themeColors.secondary.copy(alpha = 0.2f)
                     )
                 )
                 onDrawBehind {
@@ -292,7 +612,7 @@ private fun SettingsSectionCard(
         )
         HorizontalDivider(
             modifier = Modifier.padding(vertical = 12.dp),
-            color = Color(0xFFFF3535).copy(alpha = 0.3f)
+            color = themeColors.primary.copy(alpha = 0.3f)
         )
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             content()

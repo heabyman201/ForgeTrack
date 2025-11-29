@@ -4,6 +4,7 @@ import android.os.Build
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
+import android.util.Log
 import android.widget.Toast
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -87,6 +88,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -164,6 +166,13 @@ fun OnboardingScreen(
     val k3 by wobble.animateFloat(-1f, 1f, infiniteRepeatable(tween(22000, easing = LinearEasing), RepeatMode.Reverse), label = "k3")
 
     LaunchedEffect(pagerState.currentPage) { h.performHapticFeedback(HapticFeedbackType.TextHandleMove) }
+    val db = FirebaseFirestore.getInstance()
+    val usersRef = db.collection("userName")
+
+
+
+
+
 
     Box(
         modifier = Modifier
@@ -237,7 +246,8 @@ fun OnboardingScreen(
                 if (!lastCan && canContinue) hapticSuccess(context)
                 lastCan = canContinue
             }
-
+            val data2 = mapOf("userName" to name)
+            val usersRef = db.collection("userName")
             Column(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
@@ -300,9 +310,15 @@ fun OnboardingScreen(
                                 name,
                                 experience.ifBlank { "0" },
                                 preferredStyle,
-                                importantMuscles
+                                importantMuscles,
+
+
                             )
                             hapticSuccess(context)
+                            usersRef.document(name)
+                                .set(data2)
+                                .addOnSuccessListener { Log.d("Firestore", "Username saved!") }
+                                .addOnFailureListener { Log.e("Firestore", "Failed to save username", it) }
                         } else {
                             scope.launch { pagerState.animateScrollToPage(p + 1) }
                         }

@@ -1,6 +1,5 @@
 package com.forgecompose.workouttracker
 
-import android.R
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -26,6 +25,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -36,6 +37,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -45,6 +47,10 @@ fun GlassCard(
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit
 ) {
+    val context = LocalContext.current
+    val appearanceOptions by AppearanceOptionsManagerAppTheme.flow(context).collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
+    val theme = appearanceOptions.selectedTheme.colors
+
     val cornerRadius = 24.dp
     val borderWidth = 1.dp
     Box(
@@ -55,14 +61,14 @@ fun GlassCard(
                 val bw = borderWidth.toPx()
                 val fill = Brush.linearGradient(
                     listOf(
-                        Color(0xFF130000).copy(alpha = 0.65f),
-                        Color(0xFF100404).copy(alpha = 0.65f)
+                        theme.tertiary.copy(alpha = 0.65f),
+                        theme.background.copy(alpha = 0.65f)
                     )
                 )
                 val stroke = Brush.linearGradient(
                     listOf(
-                        Color(0xFFFF5555).copy(alpha = 0.2f),
-                        Color(0xFF8B0000).copy(alpha = 0.1f)
+                        theme.primary.copy(alpha = 0.2f),
+                        theme.secondary.copy(alpha = 0.1f)
                     )
                 )
                 onDrawWithContent {
@@ -160,13 +166,17 @@ fun LabeledStat(label: String, value: String) {
 
 @Composable
 fun LoadingBlock(padding: PaddingValues) {
+    val context = LocalContext.current
+    val appearanceOptions by AppearanceOptionsManagerAppTheme.flow(context).collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
+    val theme = appearanceOptions.selectedTheme.colors
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .padding(padding),
         contentAlignment = Alignment.Center
     ) {
-        CircularProgressIndicator(color = Color(0xFFFF3B30))
+        CircularProgressIndicator(color = theme.primary)
     }
 }
 
@@ -196,6 +206,10 @@ fun MissingBlock(padding: PaddingValues) {
 
 @Composable
 fun EmptyState() {
+    val context = LocalContext.current
+    val appearanceOptions by AppearanceOptionsManagerAppTheme.flow(context).collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
+    val theme = appearanceOptions.selectedTheme.colors
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -206,7 +220,7 @@ fun EmptyState() {
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            val accent = Color(0xFFFF3B30)
+            val accent = theme.primary
             Icon(
                 imageVector = Icons.Filled.History,
                 contentDescription = "No History",
@@ -232,6 +246,10 @@ fun EmptyState() {
 
 @Composable
 fun GlowingCard(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+    val context = LocalContext.current
+    val appearanceOptions by AppearanceOptionsManagerAppTheme.flow(context).collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
+    val theme = appearanceOptions.selectedTheme.colors
+
     val cornerRadius = 22.dp
     Box(
         modifier = modifier
@@ -239,14 +257,14 @@ fun GlowingCard(modifier: Modifier = Modifier, content: @Composable () -> Unit) 
             .drawWithCache {
                 val r = cornerRadius.toPx()
                 val bg = Brush.radialGradient(
-                    colors = listOf(Color(0xFF1A0808), Color(0xFF100404)),
+                    colors = listOf(theme.tertiary, theme.background),
                     center = Offset(size.width / 2f, size.height * 0.1f),
                     radius = size.width * 1.5f
                 )
                 val stroke = Brush.linearGradient(
                     colors = listOf(
-                        Color(0xFFFF5555).copy(alpha = 0.2f),
-                        Color(0xFF8B0000).copy(alpha = 0.1f)
+                        theme.primary.copy(alpha = 0.2f),
+                        theme.secondary.copy(alpha = 0.1f)
                     )
                 )
                 onDrawBehind {
@@ -270,6 +288,10 @@ fun ThemedConfirmationDialog(
     onCustomAction: () -> Unit,
     onDismiss: () -> Unit
 ) {
+    val context = LocalContext.current
+    val appearanceOptions by AppearanceOptionsManagerAppTheme.flow(context).collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
+    val theme = appearanceOptions.selectedTheme.colors
+
     Dialog(onDismissRequest = onDismiss) {
         val cornerRadius = 28.dp
         Box(
@@ -279,11 +301,11 @@ fun ThemedConfirmationDialog(
                 .drawWithCache {
                     val cornerRpx = cornerRadius.toPx()
                     val bgBrush = Brush.radialGradient(
-                        colors = listOf(Color(0xFF3A0E0E), Color(0xFF120707)),
+                        colors = listOf(theme.tertiary, theme.background),
                         radius = size.width
                     )
                     val borderBrush = Brush.linearGradient(
-                        colors = listOf(Color(0xFFFF5555).copy(alpha = 0.5f), Color(0xFF8B0000).copy(alpha = 0.3f))
+                        colors = listOf(theme.primary.copy(alpha = 0.5f), theme.secondary.copy(alpha = 0.3f))
                     )
                     onDrawBehind {
                         drawRoundRect(brush = bgBrush, cornerRadius = CornerRadius(cornerRpx))
@@ -317,7 +339,7 @@ fun ThemedConfirmationDialog(
                     Button(
                         onClick = onConfirm,
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFF802121),
+                            containerColor = theme.secondary,
                             contentColor = Color.White
                         )
                     ) {
@@ -335,7 +357,7 @@ fun ThemedConfirmationDialog(
                         Button(
                             onClick = onCustomAction,
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = Color(0xFF802121),
+                                containerColor = theme.secondary,
                                 contentColor = Color.White
                             )
                         ) {

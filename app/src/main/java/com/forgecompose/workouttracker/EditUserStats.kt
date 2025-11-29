@@ -1,5 +1,6 @@
 package com.forgecompose.workouttracker
 
+import android.util.Log
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
@@ -67,6 +68,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
+import com.google.firebase.crashlytics.ktx.crashlytics
+import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.ktx.Firebase
 
 @OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
@@ -109,7 +113,8 @@ fun EditUserStats(navcontroller: NavController) {
     }
     var showIntro by remember { mutableStateOf(true) }
     val introProgress by animateFloatAsState(targetValue = if (showIntro) 0f else 1f, animationSpec = tween(650, easing = LinearEasing), label = "introFade")
-    LaunchedEffect(Unit) { showIntro = false }
+    LaunchedEffect(Unit) { showIntro = false;
+        Firebase.crashlytics.setCustomKey("current_screen", "Edit user stats screen")}
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -172,6 +177,17 @@ fun EditUserStats(navcontroller: NavController) {
                             UserPreferencesManager(context).saveUserData(
                                 userName, userAge, userHeight, userWeight, getExp, preferredStyle, importantMuscles
                             )
+                            val db = FirebaseFirestore.getInstance()
+                            val usersRef = db.collection("userName")
+
+                            val data = mapOf("userName" to userName)
+
+
+                            usersRef.document(userName)
+                                .set(data)
+                                .addOnSuccessListener { Log.d("Firestore", "Username saved!") }
+                                .addOnFailureListener { Log.e("Firestore", "Failed to save username", it) }
+
                             navcontroller.navigate("UserProfile")
                         },
                         modifier = Modifier

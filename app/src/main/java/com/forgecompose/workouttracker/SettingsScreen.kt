@@ -25,15 +25,19 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
+import com.google.firebase.crashlytics.ktx.crashlytics
+import com.google.firebase.ktx.Firebase
 
 import java.time.LocalTime
 import kotlin.math.PI
@@ -119,6 +123,7 @@ fun SettingsScreen(
     )
     LaunchedEffect(Unit) {
         showIntro = false
+        Firebase.crashlytics.setCustomKey("current_screen", "Settings Screen")
     }
 
     Box(
@@ -182,7 +187,19 @@ fun SettingsScreen(
                         )
                     }
                 }
+                item{
+                    SettingsSectionCard(title = "Appearance") {
+                        SettingsOptionRow(
+                            title = "App theme",
+                            subtitle = "Change app theme",
+                            icon = Icons.Default.Palette,
+                            onClick = {
+                                navController.navigate("AppearanceScreen")
 
+                            }
+                        )
+                    }
+                }
 
                 item {
                     SettingsSectionCard(title = "Preferences") {
@@ -202,19 +219,7 @@ fun SettingsScreen(
                         )
                     }
                 }
-//                item{
-//                    SettingsSectionCard(title = "Appearance") {
-//                        SettingsOptionRow(
-//                            title = "App theme",
-//                            subtitle = "Change app theme",
-//                            icon = Icons.Default.Palette,
-//                            onClick = {
-//navController.navigate("AppearanceScreen")
-//
-//                            }
-//                        )
-//                    }
-//                }
+
 
 
             }
@@ -225,10 +230,14 @@ fun SettingsScreen(
 
 
 @Composable
-private fun SettingsSectionCard(
+fun SettingsSectionCard(
     title: String,
     content: @Composable ColumnScope.() -> Unit
 ) {
+    val context = LocalContext.current
+    val appearanceOptions by AppearanceOptionsManagerAppTheme.flow(context).collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
+    val theme = appearanceOptions.selectedTheme.colors
+
     val cornerRadius = 24.dp
     Column(
         modifier = Modifier
@@ -236,29 +245,31 @@ private fun SettingsSectionCard(
             .clip(RoundedCornerShape(cornerRadius))
             .drawWithCache {
                 val cornerRpx = cornerRadius.toPx()
+                // Dynamic background using Secondary -> Tertiary/Background
                 val bgBrush = Brush.radialGradient(
                     colors = listOf(
-                        Color(0xFF180909).copy(alpha = 0.9f),
-                        Color(0xFF100404).copy(alpha = 0.95f)
+                        theme.secondary.copy(alpha = 0.6f),
+                        theme.background.copy(alpha = 0.95f)
                     ),
                     center = Offset(size.width / 2f, size.height * 0.1f),
                     radius = size.width * 1.5f
                 )
+                // Dynamic border using Primary -> Secondary
                 val borderBrush = Brush.linearGradient(
                     colors = listOf(
-                        Color(0xFFFF5555).copy(alpha = 0.2f),
-                        Color(0xFF8B0000).copy(alpha = 0.1f)
+                        theme.primary.copy(alpha = 0.2f),
+                        theme.secondary.copy(alpha = 0.1f)
                     )
                 )
                 onDrawBehind {
                     drawRoundRect(
                         brush = bgBrush,
-                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(cornerRpx)
+                        cornerRadius = CornerRadius(cornerRpx)
                     )
                     drawRoundRect(
                         brush = borderBrush,
-                        style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.dp.toPx()),
-                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(cornerRpx)
+                        style = Stroke(width = 1.dp.toPx()),
+                        cornerRadius = CornerRadius(cornerRpx)
                     )
                 }
             }
@@ -273,7 +284,7 @@ private fun SettingsSectionCard(
         )
         HorizontalDivider(
             modifier = Modifier.padding(vertical = 12.dp),
-            color = Color(0xFFFF3535).copy(alpha = 0.3f)
+            color = theme.primary.copy(alpha = 0.3f)
         )
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             content()
@@ -283,12 +294,16 @@ private fun SettingsSectionCard(
 
 
 @Composable
-private fun SettingsOptionRow(
+fun SettingsOptionRow(
     title: String,
     subtitle: String,
     icon: ImageVector,
     onClick: () -> Unit
 ) {
+    val context = LocalContext.current
+    val appearanceOptions by AppearanceOptionsManagerAppTheme.flow(context).collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
+    val theme = appearanceOptions.selectedTheme.colors
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -300,7 +315,7 @@ private fun SettingsOptionRow(
         Icon(
             imageVector = icon,
             contentDescription = null,
-            tint = Color(0xFFFF3B30),
+            tint = theme.primary, // Use Theme Primary
             modifier = Modifier.size(24.dp)
         )
         Spacer(modifier = Modifier.width(16.dp))
@@ -322,7 +337,7 @@ private fun SettingsOptionRow(
         Icon(
             imageVector = Icons.Default.ArrowForwardIos,
             contentDescription = null,
-            tint = Color.White.copy(alpha = 0.5f),
+            tint = theme.secondary.copy(alpha = 0.5f), // Use Theme Secondary for navigation arrow
             modifier = Modifier.size(16.dp)
         )
     }

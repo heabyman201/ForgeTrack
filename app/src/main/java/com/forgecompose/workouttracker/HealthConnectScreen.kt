@@ -54,12 +54,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.health.connect.client.PermissionController
-import androidx.lifecycle.ViewModel
-import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import androidx.navigation.NavController
+import com.google.firebase.crashlytics.ktx.crashlytics
+import com.google.firebase.ktx.Firebase
 import java.time.LocalTime
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -110,7 +110,8 @@ fun HealthConnectScreen(
     val showIntro by showIntroState
     val introProgress by animateFloatAsState(targetValue = if (showIntro) 0f else 1f, animationSpec = tween(700, easing = LinearEasing), label = "introProgress")
     val introBrush = remember(introColors) { Brush.horizontalGradient(colors = introColors) }
-    LaunchedEffect(Unit) { showIntroState.value = false }
+    LaunchedEffect(Unit) { showIntroState.value = false;
+        Firebase.crashlytics.setCustomKey("current_screen", "Health Connect Screen")}
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -150,7 +151,7 @@ fun HealthConnectScreen(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 item {
-                    SettingsSectionCard(title = "Sync Workouts") {
+                    SettingsSectionCardHealth(title = "Sync Workouts") {
                         HealthConnectStatusContent(
                             availability = availability,
                             permissionsGranted = permissionsGranted,
@@ -285,7 +286,7 @@ private fun installHealthConnect(context: Context) {
 }
 
 @Composable
-private fun SettingsSectionCard(
+private fun SettingsSectionCardHealth(
     title: String,
     content: @Composable ColumnScope.() -> Unit
 ) {

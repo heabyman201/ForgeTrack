@@ -7,12 +7,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowForward
-import androidx.compose.material.icons.filled.ArrowRightAlt
-import androidx.compose.material.icons.filled.Start
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -28,37 +28,44 @@ import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 
 @Composable
-fun QuickStartWorkout(navController: NavController){
-    val haptics = LocalHapticFeedback.current
+fun QuickStartWorkout(navController: NavController) {
     val context = LocalContext.current
+    val appearanceOptions by AppearanceOptionsManagerAppTheme.flow(context).collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
+    val theme = appearanceOptions.selectedTheme.colors
 
+    val haptics = LocalHapticFeedback.current
 
-    val textBrush = remember {
+    val textBrush = remember(theme) {
         Brush.horizontalGradient(
             colors = listOf(
-                Color(0xFFFCBFC3),
+                theme.primary,
                 Color.White.copy(alpha = 0.9f)
             )
         )
     }
+    val dynamicTexts = listOf(
+        "Select a new workout",
+        "Pick a new workout",
+        "Start a new workout"
+    )
+
+    val chosenText = remember { dynamicTexts.random() }
 
     TextButton(
         modifier = Modifier.fillMaxWidth(),
         onClick = {
             haptics.performHapticFeedback(HapticFeedbackType.LongPress)
             navController.navigate("WorkoutSelector")
-        },
-
-        ) {
+        }
+    ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween,
             modifier = Modifier.fillMaxWidth()
         ) {
             Text(
-                text = "Start a new workout",
+                text = chosenText,
                 modifier = Modifier.weight(1f),
-
                 style = TextStyle(
                     fontSize = 29.sp,
                     fontWeight = FontWeight.Bold,
@@ -66,10 +73,12 @@ fun QuickStartWorkout(navController: NavController){
                 )
             )
             Icon(
-                Icons.Default.ArrowForward, contentDescription = "Start a new workout",
-                tint = Color.White,
-
-                modifier = Modifier.padding(end = 8.dp).size(32.dp)
+                Icons.Default.ArrowForward,
+                contentDescription = "Start workout",
+                tint = theme.primary,
+                modifier = Modifier
+                    .padding(end = 8.dp)
+                    .size(32.dp)
             )
         }
     }

@@ -19,6 +19,8 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.*
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -30,25 +32,21 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.wear.compose.foundation.lazy.ScalingLazyColumn
+import androidx.wear.compose.foundation.lazy.ScalingLazyListAnchorType.Companion.ItemStart
 import androidx.wear.compose.foundation.lazy.items
 import androidx.wear.compose.foundation.lazy.rememberScalingLazyListState
 import androidx.wear.compose.material.*
 import androidx.wear.compose.navigation.SwipeDismissableNavHost
 import androidx.wear.compose.navigation.composable
 import androidx.wear.compose.navigation.rememberSwipeDismissableNavController
-import com.google.android.gms.wearable.CapabilityClient
 import com.google.android.gms.wearable.Node
-import com.google.android.gms.wearable.PutDataMapRequest
 import com.google.android.gms.wearable.Wearable
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
-import kotlinx.coroutines.withContext
 import java.util.concurrent.TimeUnit
 
 class MainActivity : ComponentActivity() {
@@ -66,75 +64,64 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-object WorkoutDataSync : CapabilityClient.OnCapabilityChangedListener {
+object WorkoutDataSync { // Removed Capability Listener (simplified for reliability)
     private const val TAG = "WorkoutDataSync"
     private const val WORKOUT_STATE_PATH = "/workout_state"
     private const val HR_PATH = "/hr"
-    private const val WEAR_CAPABILITY = "wear_app"
     private val scope = CoroutineScope(Dispatchers.IO)
-    private val reachableNodesFlow = MutableStateFlow<List<Node>>(emptyList())
-    val reachableNodes: StateFlow<List<Node>> = reachableNodesFlow
-    @Volatile private var latestNodeId: String? = null
 
-    fun init(context: Context) {
-        val client = Wearable.getCapabilityClient(context)
-        client.addListener(this, WEAR_CAPABILITY)
-        scope.launch {
-            try {
-                val info = client.getCapability(WEAR_CAPABILITY, CapabilityClient.FILTER_REACHABLE).await()
-                val nodes = info.nodes.toList()
-                reachableNodesFlow.value = nodes
-                latestNodeId = nodes.firstOrNull()?.id
-            } catch (_: Exception) { }
+    // Helper to get all connected nodes (Phone, etc.)
+    private suspend fun getConnectedNodes(context: Context): List<Node> {
+        return try {
+            Wearable.getNodeClient(context).connectedNodes.await()
+        } catch (e: Exception) {
+            emptyList()
         }
     }
 
+    fun init(context: Context) {
+        // No complex init needed for this direct broadcast approach
+    }
+
     fun shutdown(context: Context) {
-        Wearable.getCapabilityClient(context).removeListener(this, WEAR_CAPABILITY)
+        // Cleanup if needed
     }
 
-    override fun onCapabilityChanged(info: com.google.android.gms.wearable.CapabilityInfo) {
-        val nodes = info.nodes.toList()
-        reachableNodesFlow.value = nodes
-        latestNodeId = nodes.firstOrNull()?.id
-        Log.d(TAG, "reachable=${nodes.map { it.displayName }}")
-    }
-
-    suspend fun sendHeartRate(context: Context, bpm: Int) {
-        val req = PutDataMapRequest.create(HR_PATH).apply {
-            dataMap.putInt("bpm", bpm)
-            dataMap.putLong("ts", System.currentTimeMillis())
-        }.asPutDataRequest().setUrgent()
-        withContext(Dispatchers.IO) {
-            Wearable.getDataClient(context).putDataItem(req).await()
+    // Now uses MessageClient for Instant updates
+    fun sendHeartRate(context: Context, bpm: Int) {
+        val payload = bpm.toString().toByteArray(Charsets.UTF_8)
+        scope.launch {
+            val nodes = getConnectedNodes(context)
+            nodes.forEach { node ->
+                try {
+                    Wearable.getMessageClient(context).sendMessage(node.id, HR_PATH, payload)
+                        .await()
+                    Log.d(TAG, "Sent HR $bpm to ${node.displayName}")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to send HR to ${node.displayName}", e)
+                }
+            }
         }
     }
 
     fun sendWorkoutState(context: Context) {
         val payload = ConnectedWorkout.toSyncString().toByteArray(Charsets.UTF_8)
-        val messageClient = Wearable.getMessageClient(context)
         scope.launch {
-            try {
-                var nodeId = latestNodeId
-                if (nodeId == null) {
-                    val info = Wearable.getCapabilityClient(context).getCapability(WEAR_CAPABILITY, CapabilityClient.FILTER_REACHABLE).await()
-                    val nodes = info.nodes.toList()
-                    reachableNodesFlow.value = nodes
-                    nodeId = nodes.firstOrNull()?.id
-                    latestNodeId = nodeId
+            val nodes = getConnectedNodes(context)
+            nodes.forEach { node ->
+                try {
+                    Wearable.getMessageClient(context)
+                        .sendMessage(node.id, WORKOUT_STATE_PATH, payload).await()
+                    Log.d(TAG, "Sent State to ${node.displayName}")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to send State to ${node.displayName}", e)
                 }
-                if (nodeId != null) {
-                    messageClient.sendMessage(nodeId, WORKOUT_STATE_PATH, payload).await()
-                    Log.d(TAG, "workout_state sent")
-                } else {
-                    Log.w(TAG, "no reachable node")
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "sendWorkoutState failed", e)
             }
         }
     }
 }
+
+
 
 object ConnectedWorkout {
     enum class WorkoutMode { INACTIVE, ACTIVE, RESTING, COMPLETED }
@@ -182,13 +169,18 @@ object ConnectedWorkout {
     }
 }
 
-val workoutPresets = listOf(
+val extendedWorkoutPresets = listOf(
     "Bench Press", "Squat", "Deadlift", "Overhead Press",
     "Pull Up", "Push Up", "Bicep Curl", "Tricep Extension",
     "Leg Press", "Lat Pulldown", "Running (Treadmill)", "Stationary Bike",
-    "Plank", "Crunches", "Dumbbell Row", "Barbell Row"
+    "Plank", "Crunches", "Dumbbell Row", "Barbell Row",
+    "Incline Bench Press", "Dips", "Chin Up", "Romanian Deadlift",
+    "Lateral Raise", "Face Pull", "Hammer Curl", "Skullcrushers",
+    "Walking Lunge", "Leg Extension", "Leg Curl", "Calf Raise",
+    "Seated Cable Row", "Dumbbell Press", "Hack Squat", "Front Squat",
+    "Preacher Curl", "Cable Fly", "Russian Twist", "Hanging Leg Raise",
+    "Jump Rope", "Rowing Machine", "Elliptical", "Cycling (Outdoor)"
 )
-
 private val wearColorPalette = Colors(
     primary = Color(0xFFE57373),
     primaryVariant = Color(0xFF4A0000),
@@ -207,6 +199,7 @@ fun WorkoutAppWear() {
     val navController = rememberSwipeDismissableNavController()
     val workoutState = remember { ConnectedWorkout }
     val context = LocalContext.current
+
     MaterialTheme(colors = wearColorPalette) {
         SwipeDismissableNavHost(
             navController = navController,
@@ -282,21 +275,31 @@ fun WorkoutSelectorScreen(onWorkoutSelected: (String) -> Unit) {
         ScalingLazyColumn(
             state = listState,
             modifier = Modifier.fillMaxSize(),
+            anchorType = ItemStart,
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically)
+            contentPadding = PaddingValues(top = 30.dp, bottom = 30.dp)
         ) {
             item {
-                Text(
-                    text = "Choose Workout",
-                    style = MaterialTheme.typography.title3,
-                    textAlign = TextAlign.Center
-                )
+                ListHeader {
+                    Text(
+                        text = "Select Workout",
+                        style = MaterialTheme.typography.title3,
+                        textAlign = TextAlign.Center
+                    )
+                }
             }
-            items(workoutPresets) { workout ->
+            items(extendedWorkoutPresets) { workout ->
                 Chip(
                     onClick = { onWorkoutSelected(workout) },
-                    label = { Text(workout) },
-                    modifier = Modifier.fillMaxWidth(0.8f)
+                    label = {
+                        Text(
+                            text = workout,
+                            maxLines = 1,
+                            style = MaterialTheme.typography.body2
+                        )
+                    },
+                    colors = ChipDefaults.secondaryChipColors(),
+                    modifier = Modifier.fillMaxWidth(0.9f)
                 )
             }
         }
@@ -321,12 +324,14 @@ fun GoalSetterScreen(
     onGoalDistanceChange: (Double) -> Unit
 ) {
     val listState = rememberScalingLazyListState()
-    val isCardio = workoutName().contains("Running") || workoutName().contains("Bike")
+    val isCardio = workoutName().contains("Running") || workoutName().contains("Bike") || workoutName().contains("Cycling")
     val context = LocalContext.current
+
     LaunchedEffect(isCardio) {
         onGoalTypeChange(if (isCardio) "Distance" else "Reps")
         WorkoutDataSync.sendWorkoutState(context)
     }
+
     Scaffold(
         timeText = { TimeText(modifier = Modifier.scrollAway(listState)) },
         vignette = { Vignette(vignettePosition = VignettePosition.TopAndBottom) },
@@ -335,80 +340,104 @@ fun GoalSetterScreen(
         ScalingLazyColumn(
             state = listState,
             modifier = Modifier.fillMaxSize(),
+            anchorType = ItemStart,
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically),
-            contentPadding = PaddingValues(top = 24.dp, bottom = 24.dp)
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = PaddingValues(top = 40.dp, bottom = 60.dp)
         ) {
             item {
-                Text(
-                    text = workoutName(),
-                    style = MaterialTheme.typography.title3,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(horizontal = 8.dp)
-                )
+                ListHeader {
+                    Text(
+                        text = workoutName(),
+                        style = MaterialTheme.typography.title3,
+                        textAlign = TextAlign.Center,
+                        color = MaterialTheme.colors.primary
+                    )
+                }
             }
+
             if (!isCardio) {
                 item {
                     Row(
-                        modifier = Modifier.fillMaxWidth(0.9f),
+                        modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.Center
                     ) {
                         CompactChip(
-                            onClick = {
-                                onGoalTypeChange("Reps")
-                                WorkoutDataSync.sendWorkoutState(context)
-                            },
+                            onClick = { onGoalTypeChange("Reps") },
                             label = { Text("Reps") },
                             colors = ChipDefaults.chipColors(
-                                backgroundColor = if (goalType() == "Reps") MaterialTheme.colors.primary else Color.DarkGray
-                            ),
+                                backgroundColor = if (goalType() == "Reps") MaterialTheme.colors.primary else MaterialTheme.colors.surface,
+                                contentColor = if (goalType() == "Reps") MaterialTheme.colors.onPrimary else MaterialTheme.colors.onSurface
+                            )
                         )
-                        Spacer(Modifier.width(8.dp))
+                        Spacer(Modifier.width(10.dp))
                         CompactChip(
-                            onClick = {
-                                onGoalTypeChange("Time")
-                                WorkoutDataSync.sendWorkoutState(context)
-                            },
+                            onClick = { onGoalTypeChange("Time") },
                             label = { Text("Time") },
                             colors = ChipDefaults.chipColors(
-                                backgroundColor = if (goalType() == "Time") MaterialTheme.colors.primary else Color.DarkGray
+                                backgroundColor = if (goalType() == "Time") MaterialTheme.colors.primary else MaterialTheme.colors.surface,
+                                contentColor = if (goalType() == "Time") MaterialTheme.colors.onPrimary else MaterialTheme.colors.onSurface
                             )
                         )
                     }
                 }
             }
-            item { Spacer(modifier = Modifier.height(4.dp)) }
+
             when (goalType()) {
                 "Reps" -> {
                     item {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        Stepper(
+                            value = goalSets(),
+                            onValueChange = {
+                                onGoalSetsChange(it)
+                                WorkoutDataSync.sendWorkoutState(context)
+                            },
+                            valueProgression = 1..50,
+                            increaseIcon = { Icon(StepperDefaults.Increase, "Increase") },
+                            decreaseIcon = { Icon(StepperDefaults.Decrease, "Decrease") },
+                            modifier = Modifier.fillMaxWidth(0.9f)
                         ) {
-                            Stepper(
-                                value = goalSets(), onValueChange = {
-                                    onGoalSetsChange(it)
-                                    WorkoutDataSync.sendWorkoutState(context)
-                                }, valueProgression = 1..50,
-                                increaseIcon = { Icon(StepperDefaults.Increase, "Increase") },
-                                decreaseIcon = { Icon(StepperDefaults.Decrease, "Decrease") }
-                            ) { Text("Sets: ${goalSets()}") }
-                            Stepper(
-                                value = goalReps(), onValueChange = {
-                                    onGoalRepsChange(it)
-                                    WorkoutDataSync.sendWorkoutState(context)
-                                }, valueProgression = 1..100,
-                                increaseIcon = { Icon(StepperDefaults.Increase, "Increase") },
-                                decreaseIcon = { Icon(StepperDefaults.Decrease, "Decrease") }
-                            ) { Text("Reps: ${goalReps()}") }
-                            Stepper(
-                                value = currentWeight(), onValueChange = {
-                                    onCurrentWeightChange(it)
-                                    WorkoutDataSync.sendWorkoutState(context)
-                                }, valueRange = 0f..500f, steps = 7,
-                                increaseIcon = { Icon(StepperDefaults.Increase, "Increase") },
-                                decreaseIcon = { Icon(StepperDefaults.Decrease, "Decrease") }
-                            ) { Text("Weight: ${String.format("%.1f", currentWeight())} kg") }
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("SETS", style = MaterialTheme.typography.caption2, color = Color.Gray)
+                                Text(goalSets().toString(), style = MaterialTheme.typography.title2)
+                            }
+                        }
+                    }
+                    item {
+                        Stepper(
+                            value = goalReps(),
+                            onValueChange = {
+                                onGoalRepsChange(it)
+                                WorkoutDataSync.sendWorkoutState(context)
+                            },
+                            valueProgression = 1..100,
+                            increaseIcon = { Icon(StepperDefaults.Increase, "Increase") },
+                            decreaseIcon = { Icon(StepperDefaults.Decrease, "Decrease") },
+                            modifier = Modifier.fillMaxWidth(0.9f)
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("REPS", style = MaterialTheme.typography.caption2, color = Color.Gray)
+                                Text(goalReps().toString(), style = MaterialTheme.typography.title2)
+                            }
+                        }
+                    }
+                    item {
+                        Stepper(
+                            value = currentWeight(),
+                            onValueChange = {
+                                onCurrentWeightChange(it)
+                                WorkoutDataSync.sendWorkoutState(context)
+                            },
+                            valueRange = 0f..500f,
+                            steps = 199,
+                            increaseIcon = { Icon(StepperDefaults.Increase, "Increase") },
+                            decreaseIcon = { Icon(StepperDefaults.Decrease, "Decrease") },
+                            modifier = Modifier.fillMaxWidth(0.9f)
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("WEIGHT", style = MaterialTheme.typography.caption2, color = Color.Gray)
+                                Text("${String.format("%.1f", currentWeight())} kg", style = MaterialTheme.typography.body1)
+                            }
                         }
                     }
                 }
@@ -416,13 +445,21 @@ fun GoalSetterScreen(
                     item {
                         val minutes = (goalTime() / 60000).toInt()
                         Stepper(
-                            value = minutes, onValueChange = {
+                            value = minutes,
+                            onValueChange = {
                                 onGoalTimeChange(it * 60000L)
                                 WorkoutDataSync.sendWorkoutState(context)
-                            }, valueProgression = 1..120,
+                            },
+                            valueProgression = 1..180,
                             increaseIcon = { Icon(StepperDefaults.Increase, "Increase") },
-                            decreaseIcon = { Icon(StepperDefaults.Decrease, "Decrease") }
-                        ) { Text("Time: $minutes min") }
+                            decreaseIcon = { Icon(StepperDefaults.Decrease, "Decrease") },
+                            modifier = Modifier.fillMaxWidth(0.9f)
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("MINUTES", style = MaterialTheme.typography.caption2, color = Color.Gray)
+                                Text(minutes.toString(), style = MaterialTheme.typography.title2)
+                            }
+                        }
                     }
                 }
                 "Distance" -> {
@@ -433,14 +470,32 @@ fun GoalSetterScreen(
                                 onGoalDistanceChange(it.toDouble() / 10.0)
                                 WorkoutDataSync.sendWorkoutState(context)
                             },
-                            valueRange = 1f..500f, steps = 9,
+                            valueRange = 1f..500f,
+                            steps = 499,
                             increaseIcon = { Icon(StepperDefaults.Increase, "Increase") },
-                            decreaseIcon = { Icon(StepperDefaults.Decrease, "Decrease") }
-                        ) { Text("Dist: ${String.format("%.1f", goalDistance())} km") }
+                            decreaseIcon = { Icon(StepperDefaults.Decrease, "Decrease") },
+                            modifier = Modifier.fillMaxWidth(0.9f)
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("KM", style = MaterialTheme.typography.caption2, color = Color.Gray)
+                                Text(String.format("%.1f", goalDistance()), style = MaterialTheme.typography.title2)
+                            }
+                        }
                     }
                 }
             }
-            item { Button(onClick = onStart, modifier = Modifier.padding(top = 16.dp)) { Text("Start") } }
+
+            item {
+                Button(
+                    onClick = onStart,
+                    modifier = Modifier
+                        .fillMaxWidth(0.8f)
+                        .height(48.dp),
+                    colors = ButtonDefaults.buttonColors(backgroundColor = MaterialTheme.colors.secondary)
+                ) {
+                    Text("START", fontWeight = FontWeight.Bold)
+                }
+            }
         }
     }
 }
@@ -455,6 +510,7 @@ fun WorkoutScreen(onFinish: () -> Unit, onRest: () -> Unit, workoutState: Connec
     var heartRate by remember { mutableIntStateOf(0) }
     val sensorManager = remember { context.getSystemService(Context.SENSOR_SERVICE) as SensorManager }
     val hrSensor = remember { sensorManager.getDefaultSensor(Sensor.TYPE_HEART_RATE) }
+
     DisposableEffect(isPaused, hrSensor) {
         if (!isPaused && hrSensor != null) {
             val listener = object : SensorEventListener {
@@ -469,9 +525,11 @@ fun WorkoutScreen(onFinish: () -> Unit, onRest: () -> Unit, workoutState: Connec
             onDispose { }
         }
     }
+
     LaunchedEffect(heartRate) {
         if (heartRate > 0) WorkoutDataSync.sendHeartRate(context, heartRate)
     }
+
     LaunchedEffect(isPaused) {
         if (!isPaused) {
             val now = SystemClock.elapsedRealtime()
@@ -488,6 +546,7 @@ fun WorkoutScreen(onFinish: () -> Unit, onRest: () -> Unit, workoutState: Connec
             accMs = workoutState.currentTime.longValue
         }
     }
+
     LaunchedEffect(workoutState.goalType.value) {
         if (workoutState.goalType.value == "Distance") {
             continuousStepDetectionAndDistanceCalculation(
@@ -500,6 +559,7 @@ fun WorkoutScreen(onFinish: () -> Unit, onRest: () -> Unit, workoutState: Connec
             )
         }
     }
+
     val progress by remember {
         derivedStateOf {
             when (workoutState.goalType.value) {
@@ -522,7 +582,9 @@ fun WorkoutScreen(onFinish: () -> Unit, onRest: () -> Unit, workoutState: Connec
             }
         }
     }
+
     val animatedProgress by animateFloatAsState(targetValue = progress, animationSpec = tween(500), label = "progress")
+
     LaunchedEffect(progress) {
         if (progress >= 1f) {
             haptics.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -530,31 +592,52 @@ fun WorkoutScreen(onFinish: () -> Unit, onRest: () -> Unit, workoutState: Connec
             onFinish()
         }
     }
+
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         CircularProgressIndicator(
-            progress = animatedProgress, modifier = Modifier.fillMaxSize(),
-            startAngle = 290f, endAngle = 250f, strokeWidth = 6.dp
+            progress = animatedProgress,
+            modifier = Modifier.fillMaxSize(),
+            startAngle = 290f,
+            endAngle = 250f,
+            strokeWidth = 8.dp,
+            trackColor = MaterialTheme.colors.surface
         )
+
         Column(
             modifier = Modifier.fillMaxSize(),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(2.dp, Alignment.CenterVertically)
+            verticalArrangement = Arrangement.Center
         ) {
+            Spacer(modifier = Modifier.height(16.dp))
+
             Text(
-                text = workoutState.workout.value, textAlign = TextAlign.Center,
-                style = MaterialTheme.typography.caption1, modifier = Modifier.padding(horizontal = 12.dp)
+                text = workoutState.workout.value.uppercase(),
+                style = MaterialTheme.typography.caption2,
+                color = MaterialTheme.colors.secondary,
+                maxLines = 1
             )
+
             AnimatedContent(targetState = workoutState.goalType.value, label = "workout_metric") { type ->
                 when (type) {
                     "Reps" -> {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Row(verticalAlignment = Alignment.Bottom) {
+                                Text(
+                                    text = "${workoutState.currentReps.intValue}",
+                                    style = MaterialTheme.typography.display3,
+                                    color = MaterialTheme.colors.primary
+                                )
+                                Text(
+                                    text = "/${workoutState.goalReps.intValue}",
+                                    style = MaterialTheme.typography.title3,
+                                    color = Color.Gray,
+                                    modifier = Modifier.padding(bottom = 6.dp)
+                                )
+                            }
                             Text(
-                                "${workoutState.currentReps.intValue}/${workoutState.goalReps.intValue}",
-                                style = MaterialTheme.typography.display1, fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                "Set: ${workoutState.currentSets.intValue + 1}/${workoutState.goalSets.intValue}",
-                                style = MaterialTheme.typography.title3
+                                text = "SET ${workoutState.currentSets.intValue + 1} OF ${workoutState.goalSets.intValue}",
+                                style = MaterialTheme.typography.caption1,
+                                fontWeight = FontWeight.Bold
                             )
                         }
                     }
@@ -563,25 +646,41 @@ fun WorkoutScreen(onFinish: () -> Unit, onRest: () -> Unit, workoutState: Connec
                         val minutes = TimeUnit.MILLISECONDS.toMinutes(time)
                         val seconds = TimeUnit.MILLISECONDS.toSeconds(time) % 60
                         Text(
-                            String.format("%02d:%02d", minutes, seconds),
-                            style = MaterialTheme.typography.display1, fontWeight = FontWeight.Bold
+                            text = String.format("%02d:%02d", minutes, seconds),
+                            style = MaterialTheme.typography.display2,
+                            color = MaterialTheme.colors.primary
                         )
                     }
                     "Distance" -> {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text(
-                                String.format("%.2f", workoutState.currentDistance.doubleValue),
-                                style = MaterialTheme.typography.display1, fontWeight = FontWeight.Bold
+                                text = String.format("%.2f", workoutState.currentDistance.doubleValue),
+                                style = MaterialTheme.typography.display3,
+                                color = MaterialTheme.colors.primary
                             )
-                            Text("km", style = MaterialTheme.typography.title3)
+                            Text("KILOMETERS", style = MaterialTheme.typography.caption2)
                         }
                     }
                 }
             }
-            Text("$heartRate bpm", style = MaterialTheme.typography.title2, modifier = Modifier.padding(top = 4.dp))
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = androidx.compose.material.icons.Icons.Default.Favorite,
+                    contentDescription = "Heart Rate",
+                    tint = Color.Red,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("$heartRate", style = MaterialTheme.typography.title3)
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
             Row(
-                modifier = Modifier.padding(top = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 if (workoutState.goalType.value == "Reps") {
@@ -601,15 +700,28 @@ fun WorkoutScreen(onFinish: () -> Unit, onRest: () -> Unit, workoutState: Connec
                             WorkoutDataSync.sendWorkoutState(context)
                         },
                         colors = ButtonDefaults.buttonColors(backgroundColor = MaterialTheme.colors.primary),
-                        modifier = Modifier.size(ButtonDefaults.LargeButtonSize)
-                    ) { Text("REP", fontWeight = FontWeight.Bold) }
+                        modifier = Modifier.size(56.dp)
+                    ) {
+                        Text("+1", style = MaterialTheme.typography.title2, fontWeight = FontWeight.Black)
+                    }
                 } else {
-                    Button(onClick = { isPaused = !isPaused }) { Text(if (isPaused) "Resume" else "Pause") }
+                    CompactChip(
+                        onClick = { isPaused = !isPaused },
+                        label = { Text(if (isPaused) "RESUME" else "PAUSE") },
+                        colors = ChipDefaults.secondaryChipColors()
+                    )
                 }
-                CompactChip(
-                    onClick = onFinish, label = { Text("End") },
-                    colors = ChipDefaults.chipColors(backgroundColor = Color.DarkGray)
-                )
+
+                Button(
+                    onClick = onFinish,
+                    colors = ButtonDefaults.buttonColors(backgroundColor = MaterialTheme.colors.error),
+                    modifier = Modifier.size(48.dp)
+                ) {
+                    Icon(
+                        imageVector = androidx.compose.material.icons.Icons.Default.Close,
+                        contentDescription = "End"
+                    )
+                }
             }
         }
     }
@@ -621,6 +733,7 @@ fun RestScreen(onFinishRest: () -> Unit, restTimeProvider: () -> Long) {
     var remainingTime by remember { mutableLongStateOf(totalRestTime) }
     val haptics = LocalHapticFeedback.current
     val context = LocalContext.current
+
     LaunchedEffect(Unit) {
         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
         val startTime = SystemClock.elapsedRealtime()
@@ -632,18 +745,29 @@ fun RestScreen(onFinishRest: () -> Unit, restTimeProvider: () -> Long) {
         }
         onFinishRest()
     }
+
     val progress = 1f - (remainingTime.toFloat() / totalRestTime.toFloat())
     val animatedProgress by animateFloatAsState(targetValue = progress, label = "rest_progress", animationSpec = tween(200))
+
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        CircularProgressIndicator(progress = animatedProgress, modifier = Modifier.fillMaxSize(), strokeWidth = 6.dp)
+        CircularProgressIndicator(
+            progress = animatedProgress,
+            modifier = Modifier.fillMaxSize(),
+            strokeWidth = 8.dp,
+            trackColor = MaterialTheme.colors.surface.copy(alpha = 0.3f),
+            indicatorColor = MaterialTheme.colors.secondary
+        )
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-            Text("REST", style = MaterialTheme.typography.title1)
+            Text("REST", style = MaterialTheme.typography.title3, color = MaterialTheme.colors.secondary)
             Text(
-                "${TimeUnit.MILLISECONDS.toSeconds(remainingTime) + 1}s",
-                style = MaterialTheme.typography.display1, fontWeight = FontWeight.Bold
+                "${TimeUnit.MILLISECONDS.toSeconds(remainingTime) + 1}",
+                style = MaterialTheme.typography.display1,
+                fontWeight = FontWeight.Bold,
+                color = Color.White
             )
-            Spacer(modifier = Modifier.height(16.dp))
-            Button(onClick = onFinishRest) { Text("Skip") }
+            Text("SECONDS", style = MaterialTheme.typography.caption2, color = Color.Gray)
+            Spacer(modifier = Modifier.height(12.dp))
+            CompactChip(onClick = onFinishRest, label = { Text("SKIP") })
         }
     }
 }

@@ -7,6 +7,7 @@ import android.annotation.SuppressLint
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.RenderEffect
+import android.graphics.RenderEffect.createBlurEffect
 import android.graphics.Shader
 import android.os.Build
 import android.os.Bundle
@@ -107,6 +108,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
@@ -133,6 +135,8 @@ import com.forgecompose.workouttracker.blurAnim.length
 import com.forgecompose.workouttracker.ui.theme.WorkoutTrackerTheme
 import com.google.firebase.analytics.ktx.analytics
 import com.google.firebase.analytics.ktx.logEvent
+import com.google.firebase.crashlytics.crashlytics
+import com.google.firebase.crashlytics.ktx.crashlytics
 import com.google.firebase.ktx.Firebase
 
 import dev.chrisbanes.haze.ExperimentalHazeApi
@@ -148,6 +152,7 @@ import kotlin.collections.emptyList
 import kotlin.math.PI
 import kotlin.math.max
 import kotlin.math.roundToInt
+import kotlin.system.exitProcess
 
 //private fun lastAndPrevSameName(workouts: List<Workout>): Pair<Workout?, Workout?> {
 //    val last = workouts.maxByOrNull { it.date } ?: return null to null
@@ -173,21 +178,42 @@ import kotlin.math.roundToInt
 
 var startDestination = "home"
 class MainActivity : ComponentActivity() {
+
     private lateinit var onboardingManager: OnboardingManager
     private lateinit var userPreferencesManager: UserPreferencesManager
+
+    // Grab your repo once
+    private val workoutRepository by lazy {
+        (application as MyApplication).workoutRepository
+    }
+
+    // Existing main screen VM
     private val mainScreenViewModel: MainScreenViewModel by viewModels {
-        val application = application as MyApplication
-        MainScreenViewModelFactory(application.workoutRepository)
+        MainScreenViewModelFactory(workoutRepository)
+    }
+
+    // Workout list VM (moved out of onCreate)
+    private val workoutListViewModel: WorkoutListViewModel by viewModels {
+        WorkoutListViewModelFactory(workoutRepository)
+    }
+
+    // Badge VM (using a simple in-memory storage for now)
+    private val badgeViewModel: BadgeViewModel by viewModels {
+        BadgeViewModelFactory(
+            badgeStorage = InMemoryBadgeStorage()
+        )
     }
 
 
     @RequiresApi(Build.VERSION_CODES.TIRAMISU)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
         if (!isTaskRoot) {
             finish()
             return
         }
+
         enableEdgeToEdge(
             statusBarStyle = SystemBarStyle.auto(
                 android.graphics.Color.TRANSPARENT,
@@ -209,13 +235,7 @@ class MainActivity : ComponentActivity() {
         }
 
         onboardingManager = OnboardingManager(this)
-
-        val application = application as MyApplication
-        val workoutRepository = application.workoutRepository
-        val factory = WorkoutListViewModelFactory(workoutRepository)
-
-        val workoutListViewModel: WorkoutListViewModel by viewModels { factory }
-        val secondViewModel = MainScreenViewModel(workoutRepository)
+        userPreferencesManager = UserPreferencesManager(this)
 
         startDestination = if (onboardingManager.isFirstTimeLaunch()) {
             "onboarding"
@@ -223,17 +243,13 @@ class MainActivity : ComponentActivity() {
             "HomeScreen"
         }
 
-        userPreferencesManager = UserPreferencesManager(this)
-
         setContent {
             WorkoutTrackerTheme {
                 val context = LocalContext.current
 
                 val notifPermissionLauncher = rememberLauncherForActivityResult(
                     contract = ActivityResultContracts.RequestPermission()
-                ) {
-
-                }
+                ) { /* no-op for now */ }
 
                 var showNotifDialog by remember { mutableStateOf(false) }
 
@@ -268,13 +284,14 @@ class MainActivity : ComponentActivity() {
 
                 MainScreen(
                     viewModel = workoutListViewModel,
-                    viewModel2 = secondViewModel
+                    viewModel2 = mainScreenViewModel,
+                    badgeViewModel = badgeViewModel
                 )
             }
-
         }
     }
 }
+
 
     object Routes {
     const val DetailedWorkout = "DetailedWorkout"
@@ -283,7 +300,7 @@ class MainActivity : ComponentActivity() {
 }
 @RequiresApi(Build.VERSION_CODES.TIRAMISU)
 @Composable
-fun MainScreen(viewModel: WorkoutListViewModel, viewModel2: MainScreenViewModel) {
+fun MainScreen(viewModel: WorkoutListViewModel, viewModel2: MainScreenViewModel,badgeViewModel: BadgeViewModel) {
     val navController = rememberNavController()
     val context = LocalContext.current
     val onboardingManager = remember { OnboardingManager(context) }
@@ -294,7 +311,7 @@ fun MainScreen(viewModel: WorkoutListViewModel, viewModel2: MainScreenViewModel)
         stiffness = Spring.StiffnessLow,
         visibilityThreshold = IntOffset.VisibilityThreshold
     )
-
+    val badgeList by badgeViewModel.badges.collectAsState()
     val fadeInSpec = tween<Float>(durationMillis = 140, easing = LinearEasing)
     val fadeOutSpec = tween<Float>(durationMillis = 120, easing = LinearEasing)
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -313,10 +330,20 @@ fun MainScreen(viewModel: WorkoutListViewModel, viewModel2: MainScreenViewModel)
             emptyList<PersonalRecord>() to emptyList<Workout>()
         }
     }
+    val allWorkouts = (uiState as? WorkoutListUiState.Success)?.workouts.orEmpty()
 
+    val totalWorkouts = remember(uiState) {
+        allWorkouts.size
+    }
+    LaunchedEffect(totalWorkouts) {
+
+        badgeViewModel.syncTotalWorkouts(totalWorkouts)
+    }
+    val appearanceOptions by AppearanceOptionsManagerAppTheme.flow(context).collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
+    val theme = appearanceOptions.selectedTheme.colors
     Surface(
         modifier = Modifier.fillMaxSize(),
-        color = Color(0xFF230C0C)
+        color = theme.background
     ) {
         NavHost(
             navController = navController,
@@ -374,6 +401,9 @@ fun MainScreen(viewModel: WorkoutListViewModel, viewModel2: MainScreenViewModel)
                     }
                 }
             }
+            composable("Survey") {
+                RecommendationSurveyScreen(navController = navController)
+            }
             composable(
                 route = "WorkoutSelector",
                 enterTransition = {
@@ -416,29 +446,42 @@ fun MainScreen(viewModel: WorkoutListViewModel, viewModel2: MainScreenViewModel)
             composable("WorkoutHistory",
                 enterTransition = {
 
+                    if (initialState.destination.route == "UserProfile") {
+                        slideInHorizontally(
+                            animationSpec = tween(200, easing = LinearEasing),
+                            initialOffsetX = { it }
+                        )
+                    } else {
                         fadeIn(animationSpec = fadeInSpec) +
                                 scaleIn(
                                     initialScale = 0.92f,
                                     animationSpec = spring(dampingRatio = 0.78f, stiffness = 300f),
                                     transformOrigin = TransformOrigin.Center
                                 )
-
+                    }
                 },
-                // WorkoutHistory
+
                 exitTransition = {
-                    fadeOut(animationSpec = fadeOutSpec) +
-                            scaleOut(
-                                targetScale = 1.04f,
-                                animationSpec = tween(800, easing = LinearEasing),
-                                transformOrigin = TransformOrigin.Center
-                            )
+                    if (targetState.destination.route == "UserProfile") {
+                        slideOutHorizontally(
+                            animationSpec = tween(200, easing = LinearEasing),
+                            targetOffsetX = { it }
+                        )
+                    } else {
+                        fadeOut(animationSpec = fadeOutSpec) +
+                                scaleOut(
+                                    targetScale = 1.04f,
+                                    animationSpec = tween(200, easing = LinearEasing),
+                                    transformOrigin = TransformOrigin.Center
+                                )
+                    }
                 },
             ) { WorkoutHistory(viewModel, navController) }
             composable(
                 Routes.DetailedWorkoutRoute,
                 arguments = listOf(navArgument(Routes.ArgId) { type = NavType.LongType })
             ) { WorkoutDetailScreen(navController, viewModel2, viewModel) }
-            composable("UserProfile") { UserProfileScreen(navController, viewModel) }
+            composable("UserProfile") { UserProfileScreen(navController, viewModel,badgeViewModel) }
             composable("PersonaSettings",
                 enterTransition = {
 
@@ -669,6 +712,45 @@ fun MainScreen(viewModel: WorkoutListViewModel, viewModel2: MainScreenViewModel)
             ) {
                 HealthConnectScreen(navController = navController)
             }
+            composable("badges",
+                enterTransition = {
+
+                    if (initialState.destination.route == "UserProfile") {
+                        slideInHorizontally(
+                            animationSpec = tween(200, easing = LinearEasing),
+                            initialOffsetX = { it }
+                        )
+                    } else {
+                        fadeIn(animationSpec = fadeInSpec) +
+                                scaleIn(
+                                    initialScale = 0.92f,
+                                    animationSpec = spring(dampingRatio = 0.78f, stiffness = 300f),
+                                    transformOrigin = TransformOrigin.Center
+                                )
+                    }
+                },
+
+                exitTransition = {
+                    if (targetState.destination.route == "UserProfile") {
+                        slideOutHorizontally(
+                            animationSpec = tween(200, easing = LinearEasing),
+                            targetOffsetX = { it }
+                        )
+                    } else {
+                        fadeOut(animationSpec = fadeOutSpec) +
+                                scaleOut(
+                                    targetScale = 1.04f,
+                                    animationSpec = tween(200, easing = LinearEasing),
+                                    transformOrigin = TransformOrigin.Center
+                                )
+                    }
+                },) {
+                BadgesScreen(
+                    navController = navController,
+                    badgeViewModel = badgeViewModel
+                )
+            }
+
 
 
         }
@@ -719,7 +801,15 @@ fun WorkoutListScreen(
     navController: NavController,
     viewModel2: MainScreenViewModel,
 ) {
+
     val context = LocalContext.current
+
+    // Theme Subscription
+    val appearanceOptions by AppearanceOptionsManagerAppTheme
+        .flow(context)
+        .collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
+    val theme = appearanceOptions.selectedTheme.colors
+
     val performanceOptions by PerformanceOptionsManager.flow(context).collectAsState(initial = PerformanceOptions.Defaults)
     val movingEffectsEnabled = performanceOptions.movingGradientAndParticles
     val blurEnabled = performanceOptions.blurEnabled
@@ -735,17 +825,19 @@ fun WorkoutListScreen(
     val showIntroState = remember { mutableStateOf(true) }
     val showIntro by showIntroState
     val introProgress by animateFloatAsState(targetValue = if (showIntro) 0f else 1f, animationSpec = tween(700, easing = LinearEasing), label = "introProgress")
-    val hour = remember { LocalTime.now().hour }
-    val introColors = remember(hour) {
-        when (hour) {
-            in 5..10 -> listOf(Color(0xFF2B1A00), Color(0xFF3C2405), Color(0xFF5A360A), Color(0xFF7A4A12))
-            in 11..16 -> listOf(Color(0xFF332300), Color(0xFF4A3408), Color(0xFF6B4B0F), Color(0xFF8C6217))
-            in 17..20 -> listOf(Color(0xFF1A0614), Color(0xFF2A0A20), Color(0xFF3D0F2D), Color(0xFF52153A))
-            else -> listOf(Color(0xFF02040A), Color(0xFF0A1324), Color(0xFF15243D), Color(0xFF1E3352))
-        }
+
+    val introColors = remember(theme) {
+        listOf(
+            theme.secondary.copy(alpha = 0.8f),
+            theme.tertiary,
+            theme.background,
+            theme.background
+        )
     }
     val introBrush = remember(introColors) { Brush.horizontalGradient(colors = introColors) }
-    LaunchedEffect(Unit) { showIntroState.value = false }
+
+    LaunchedEffect(Unit) { showIntroState.value = false ;
+        Firebase.crashlytics.setCustomKey("current_screen", "HomeScreen")}
     LaunchedEffect(isExpanded) {
         if (isExpanded) {
             delay(animationDuration.toLong())
@@ -793,27 +885,53 @@ fun WorkoutListScreen(
     val usageMap by usageTracker.usageFlow.collectAsState(initial = emptyMap())
     val onSurface = MaterialTheme.colorScheme.onSurface
     val surface = MaterialTheme.colorScheme.surface
-    val borderBrushStatic = remember {
+
+    // Dynamic Border Brush
+    val borderBrushStatic = remember(theme) {
         Brush.linearGradient(
             colors = listOf(
-                Color(0xFF622121).copy(alpha = 0.92f),
-                Color.White.copy(alpha = 0.10f)
+                theme.secondary.copy(alpha = 0.92f),
+                theme.primary.copy(alpha = 0.10f)
             )
         )
     }
+
     val blurLength = length.value.toInt()
     val blurIntro by animateDpAsState(
         if (showIntro && blurEnabled) 32.dp else 0.dp,
         animationSpec = tween(durationMillis = blurLength, easing = LinearEasing),
         label = "blurIntro"
     )
+    val density = LocalDensity.current
+
+
+    val blurRadiusPx = remember(blurIntro, blurEnabled, density) {
+        if (!blurEnabled) {
+            0f
+        } else {
+            with(density) { blurIntro.toPx() }
+                .takeIf { it.isFinite() && it >= 0f }
+
+                ?.coerceAtMost(80f)
+                ?: 0f
+        }
+    }
+
     val isLite = remember(movingEffectsEnabled, stages.after600ms) { !movingEffectsEnabled || !stages.after600ms }
     WorkoutTrackerTheme {
         Scaffold(
             containerColor = Color.Transparent,
             modifier = Modifier.fillMaxSize()
-                .graphicsLayer{
-                    renderEffect = RenderEffect.createBlurEffect(blurIntro.value, blurIntro.value, Shader.TileMode.DECAL).asComposeRenderEffect()
+                .graphicsLayer {
+                    renderEffect = if (blurRadiusPx > 0f) {
+                        createBlurEffect(
+                            blurRadiusPx,
+                            blurRadiusPx,
+                            Shader.TileMode.DECAL
+                        ).asComposeRenderEffect()
+                    } else {
+                        null
+                    }
                 }
         ) { paddingValues ->
             Box(modifier = Modifier.fillMaxSize()) {
@@ -837,7 +955,10 @@ fun WorkoutListScreen(
                     when (val currentState = uiState) {
                         is WorkoutListUiState.Loading -> {
                             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                CircularProgressIndicator(color = Color.White.copy(alpha = 0.9f), strokeWidth = 3.dp)
+                                CircularProgressIndicator(
+                                    color = theme.primary.copy(alpha = 0.9f),
+                                    strokeWidth = 3.dp
+                                )
                             }
                         }
                         is WorkoutListUiState.Success -> {
@@ -895,14 +1016,17 @@ fun WorkoutListScreen(
 
                             Spacer(modifier = Modifier.height(16.dp))
                             QuickStartWorkout(navController = navController)
-                            val dividerBrush = remember {
+
+                            // Dynamic Divider Brush
+                            val dividerBrush = remember(theme) {
                                 Brush.horizontalGradient(
                                     colors = listOf(
-                                        Color(0xFF9B111E),
+                                        theme.primary,
                                         Color.White.copy(alpha = 0.4f)
                                     )
                                 )
                             }
+
                             Box(
                                 modifier = Modifier
                                     .padding(vertical = 8.dp)
@@ -1027,10 +1151,10 @@ fun WorkoutListScreen(
                                                         Text(
                                                             text = if (isFavorite) "Favorite" else "Suggested",
                                                             style = MaterialTheme.typography.labelMedium,
-                                                            color = onSurface.copy(alpha = 0.8f),
+                                                            color = onSurface.copy(alpha = 0.9f),
                                                             modifier = Modifier
                                                                 .clip(RoundedCornerShape(10.dp))
-                                                                .background(onSurface.copy(alpha = 0.08f))
+                                                                .background(theme.primary.copy(alpha = 0.25f)) // Theme tint
                                                                 .padding(horizontal = 8.dp, vertical = 4.dp)
                                                         )
                                                     }

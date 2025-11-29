@@ -107,7 +107,7 @@ object PersonaPrefs {
 }
 
 fun String.sanitizePersona(): String = when (val v = lowercase()) {
-    "coach","drill","companion","companion_plus","hype","minimal","nerd","monk","scientist" -> v
+    "coach","drill","companion","companion_plus","hype","minimal","nerd","monk","scientist","surgeon_apex" -> v
     else -> "coach"
 }
 
@@ -122,14 +122,25 @@ fun PersonaSettingsScreen(
     PersonaPrefs.init(context)
     val cfg by dynamicModel.personaConfig
 
-    val staticGradientBrush = remember {
+    // --- Theme Hook ---
+    val appearanceOptions by AppearanceOptionsManagerAppTheme
+        .flow(context)
+        .collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
+    val theme = appearanceOptions.selectedTheme.colors
+
+    val staticGradientBrush = remember(theme) {
         Brush.radialGradient(
-            colors = listOf(Color(0xFF2A0F0F), Color(0xFF3D0000), Color(0xFF060202)),
+            colors = listOf(
+                theme.secondary.copy(alpha = 0.5f),
+                theme.tertiary.copy(alpha = 0.8f),
+                theme.background
+            ),
             radius = 1200f,
             center = Offset(0.5f, 0.4f)
         )
     }
-val performanceOptions = remember { PerformanceOptionsManager.current }
+
+    val performanceOptions = remember { PerformanceOptionsManager.current }
     val movingEnabled = performanceOptions.collectAsState().value.movingGradientAndParticles
 
     Box(
@@ -144,7 +155,7 @@ val performanceOptions = remember { PerformanceOptionsManager.current }
             enableWaves = movingEnabled,
             enableAnimation = movingEnabled,
 
-        )
+            )
         Scaffold(
 
             containerColor = Color.Transparent,
@@ -174,7 +185,7 @@ val performanceOptions = remember { PerformanceOptionsManager.current }
                 verticalArrangement = Arrangement.spacedBy(24.dp)
             ) {
                 item {
-                    PersonaSectionCard(title = "Assistant") {
+                    PersonaSectionCard(title = "Assistant", theme = theme) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically,
@@ -198,8 +209,8 @@ val performanceOptions = remember { PerformanceOptionsManager.current }
                                     PersonaPrefs.writeConfig(updated)
                                 },
                                 colors = SwitchDefaults.colors(
-                                    checkedThumbColor = Color(0xFFFF3B30),
-                                    checkedTrackColor = Color(0xFF8B0000),
+                                    checkedThumbColor = theme.primary,
+                                    checkedTrackColor = theme.secondary,
                                     uncheckedThumbColor = Color.Gray,
                                     uncheckedTrackColor = Color.DarkGray
                                 )
@@ -211,7 +222,7 @@ val performanceOptions = remember { PerformanceOptionsManager.current }
                 item {
                     val enabled = cfg.enabled
                     val alpha = if (enabled) 1f else 0.45f
-                    PersonaSectionCard(title = "Persona Style", bodyAlpha = alpha) {
+                    PersonaSectionCard(title = "Persona Style", bodyAlpha = alpha, theme = theme) {
                         val onSelect: (String) -> Unit = { mode ->
                             val updated = cfg.copy(mode = mode.sanitizePersona())
                             dynamicModel.personaConfig.value = updated
@@ -224,79 +235,98 @@ val performanceOptions = remember { PerformanceOptionsManager.current }
                             value = "coach",
                             selected = cfg.mode,
                             enabled = enabled,
-                            onSelect = onSelect
+                            onSelect = onSelect,
+                            theme = theme
                         )
-                        PersonaDivider()
+                        PersonaDivider(theme)
                         PersonaOptionRow(
                             title = "Disciplined Trainer",
                             subtitle = "Crisp, direct, safety-first",
                             value = "drill",
                             selected = cfg.mode,
                             enabled = enabled,
-                            onSelect = onSelect
+                            onSelect = onSelect,
+                            theme = theme
                         )
-                        PersonaDivider()
+                        PersonaDivider(theme)
                         PersonaOptionRow(
-                            title = "Training Buddy",
+                            title = "companion",
                             subtitle = "Warm, supportive, practical",
                             value = "companion",
                             selected = cfg.mode,
                             enabled = enabled,
-                            onSelect = onSelect
+                            onSelect = onSelect,
+                            theme = theme
                         )
-                        PersonaDivider()
+                        PersonaDivider(theme)
                         PersonaOptionRow(
-                            title = "Hype Companion",
+                            title = "companion_plus",
                             subtitle = "Energetic, upbeat, playful",
                             value = "companion_plus",
                             selected = cfg.mode,
                             enabled = enabled,
-                            onSelect = onSelect
+                            onSelect = onSelect,
+                            theme = theme
                         )
-                        PersonaDivider()
+                        PersonaDivider(theme)
                         PersonaOptionRow(
                             title = "Hype Master",
                             subtitle = "High energy, punchy lines",
                             value = "hype",
                             selected = cfg.mode,
                             enabled = enabled,
-                            onSelect = onSelect
+                            onSelect = onSelect,
+                            theme = theme
                         )
-                        PersonaDivider()
+                        PersonaDivider(theme)
                         PersonaOptionRow(
                             title = "Minimal",
                             subtitle = "One-line, straight to point",
                             value = "minimal",
                             selected = cfg.mode,
                             enabled = enabled,
-                            onSelect = onSelect
+                            onSelect = onSelect,
+                            theme = theme
                         )
-                        PersonaDivider()
+                        PersonaDivider(theme)
                         PersonaOptionRow(
                             title = "Nerd Scholar",
                             subtitle = "Precise, geeky metaphors",
                             value = "nerd",
                             selected = cfg.mode,
                             enabled = enabled,
-                            onSelect = onSelect
+                            onSelect = onSelect,
+                            theme = theme
                         )
-                        PersonaDivider()
+                        PersonaDivider(theme)
                         PersonaOptionRow(
                             title = "Zen Monk",
                             subtitle = "Calm, reflective, minimal",
                             value = "monk",
                             selected = cfg.mode,
                             enabled = enabled,
-                            onSelect = onSelect
+                            onSelect = onSelect,
+                            theme = theme
                         )
-                        PersonaDivider()
+                        PersonaDivider(theme)
                         PersonaOptionRow(
                             title = "Scientist",
                             subtitle = "Evidence-driven, biohacker tone",
                             value = "scientist",
                             selected = cfg.mode,
                             enabled = enabled,
-                            onSelect = onSelect
+                            onSelect = onSelect,
+                            theme = theme
+                        )
+                        PersonaDivider(theme)
+                        PersonaOptionRow(
+                            title = "surgeon_apex",
+                            subtitle = "Cold, calculated and precise",
+                            value = "surgeon_apex",
+                            selected = cfg.mode,
+                            enabled = enabled,
+                            onSelect = onSelect,
+                            theme = theme
                         )
                     }
                 }
@@ -317,6 +347,7 @@ val performanceOptions = remember { PerformanceOptionsManager.current }
 private fun PersonaSectionCard(
     title: String,
     bodyAlpha: Float = 1f,
+    theme: ColorSchemeAppTheme,
     content: @Composable ColumnScope.() -> Unit
 ) {
     val cornerRadius = 24.dp
@@ -327,14 +358,17 @@ private fun PersonaSectionCard(
             .drawWithCache {
                 val cornerRpx = cornerRadius.toPx()
                 val bgBrush = Brush.radialGradient(
-                    colors = listOf(Color(0xFF180909).copy(alpha = 0.9f), Color(0xFF100404).copy(alpha = 0.95f)),
+                    colors = listOf(
+                        theme.secondary.copy(alpha = 0.8f),
+                        theme.tertiary.copy(alpha = 0.95f)
+                    ),
                     center = Offset(size.width / 2f, size.height * 0.1f),
                     radius = size.width * 1.5f
                 )
                 val borderBrush = Brush.linearGradient(
                     colors = listOf(
-                        Color(0xFFFF5555).copy(alpha = 0.2f),
-                        Color(0xFF8B0000).copy(alpha = 0.1f)
+                        theme.primary.copy(alpha = 0.2f),
+                        theme.secondary.copy(alpha = 0.1f)
                     )
                 )
                 onDrawBehind {
@@ -352,7 +386,7 @@ private fun PersonaSectionCard(
         )
         HorizontalDivider(
             modifier = Modifier.padding(vertical = 12.dp),
-            color = Color(0xFFFF3535).copy(alpha = 0.3f)
+            color = theme.primary.copy(alpha = 0.3f)
         )
         Column(
             modifier = Modifier.graphicsLayer { this.alpha = bodyAlpha },
@@ -364,8 +398,8 @@ private fun PersonaSectionCard(
 }
 
 @Composable
-private fun PersonaDivider() {
-    HorizontalDivider(color = Color.White.copy(alpha = 0.06f))
+private fun PersonaDivider(theme: ColorSchemeAppTheme) {
+    HorizontalDivider(color = theme.primary.copy(alpha = 0.1f))
 }
 
 @Composable
@@ -375,17 +409,18 @@ private fun PersonaOptionRow(
     value: String,
     selected: String,
     enabled: Boolean,
+    theme: ColorSchemeAppTheme,
     onSelect: (String) -> Unit
 ) {
     val isSelected = selected == value
-    val accent = Color(0xFFFF3B30)
+    val accent = theme.primary
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
             .let { m -> if (enabled) m.clickable { onSelect(value) } else m }
-            .background(if (isSelected) Color(0x22FF3B30) else Color.Transparent, RoundedCornerShape(16.dp))
+            .background(if (isSelected) accent.copy(alpha = 0.15f) else Color.Transparent, RoundedCornerShape(16.dp))
             .drawWithCache {
                 val r = 16.dp.toPx()
                 val stroke = 1.dp.toPx()

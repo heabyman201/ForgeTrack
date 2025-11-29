@@ -32,6 +32,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -47,6 +48,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -114,40 +116,154 @@ fun GraphBar(
         }
     }
 }
+fun parseExperienceToYears(raw: String?): Float {
+    if (raw.isNullOrBlank()) return 0f
+
+    val lower = raw.lowercase()
+
+    // grab first number like "6", "1.5", "12"
+    val number = Regex("""\d+(\.\d+)?""")
+        .find(lower)
+        ?.value
+        ?.toFloatOrNull()
+        ?: return 0f
+
+    return when {
+        "month" in lower -> number / 12f
+        "year" in lower  -> number
+        "years" in lower -> number
+        "months" in lower -> number / 12f
+        else             -> number
+    }
+}
 
 @Composable
 fun MuscleLoadRow(
     muscle: String,
-    wr: Float
+    wr: Float,
+    modifier: Modifier = Modifier
 ) {
-    val lowCap = 30f
-    val medCap = 60f
-    val highCap = 90f
+    val context = LocalContext.current
+
+    // --- Theme Hook ---
+    val appearanceOptions by AppearanceOptionsManagerAppTheme
+        .flow(context)
+        .collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
+    val theme = appearanceOptions.selectedTheme.colors
+
+    // --- User prefs (all stored as Strings) ---
+    val prefsManager = remember { UserPreferencesManager(context) }
+
+    val userNameRaw = remember { prefsManager.getName() }
+    val userAgeRaw = remember { prefsManager.getAge() }
+    val userHeightRaw = remember { prefsManager.getHeight() }
+    val userWeightRaw = remember { prefsManager.getWeight() }
+    val userExperienceRaw = remember { prefsManager.getExperience() }
+
+    // --- Parsed values (numbers) ---
+    val userAge = remember(userAgeRaw) { userAgeRaw.toIntOrNull() ?: 0 }
+    val userHeight = remember(userHeightRaw) { userHeightRaw.toFloatOrNull() ?: 0f }
+    val userWeight = remember(userWeightRaw) { userWeightRaw.toFloatOrNull() ?: 0f }
+    val experienceYears = remember(userExperienceRaw) {
+        parseExperienceToYears(userExperienceRaw)
+    }
+
+    // --- Experience factor ---
+    val experienceFactor = remember(experienceYears) {
+        when {
+            experienceYears < 0.5f -> 0.7f
+            experienceYears < 2f -> 1.0f
+            else -> 1.1f
+        }
+    }
+
+    // --- Age factor ---
+    val ageFactor = remember(userAge) {
+        when {
+            userAge <= 0 -> 1.0f
+            userAge < 16 -> 0.8f
+            userAge < 20 -> 0.9f
+            userAge < 40 -> 1.0f
+            userAge < 55 -> 0.9f
+            else -> 0.8f
+        }
+    }
+
+    // --- BMI factor ---
+    val bmi = remember(userHeight, userWeight) {
+        val hMeters = when {
+            userHeight <= 0f -> 0f
+            userHeight > 3f -> userHeight / 100f
+            else -> userHeight
+        }
+        if (hMeters > 0f && userWeight > 0f) {
+            userWeight / (hMeters * hMeters)
+        } else null
+    }
+
+    val bmiFactor = remember(bmi) {
+        when {
+            bmi == null -> 1.0f
+            bmi < 18f -> 0.85f
+            bmi < 26f -> 1.00f
+            bmi < 30f -> 0.95f
+            else -> 0.90f
+        }
+    }
+
+    // --- Recovery Factor ---
+    val recoveryFactor = remember(experienceFactor, ageFactor, bmiFactor) {
+        (experienceFactor * ageFactor * bmiFactor)
+            .coerceIn(0.6f, 1.2f)
+    }
+
+    // --- Base caps ---
+    val baseLowCap = 30f
+    val baseMedCap = 60f
+    val baseHighCap = 90f
+
+    val lowCap = baseLowCap * recoveryFactor
+    val medCap = baseMedCap * recoveryFactor
+    val highCap = baseHighCap * recoveryFactor
+
     val target = (wr / highCap).coerceIn(0f, 1f)
+
     val anim = remember { Animatable(0f) }
     var fill by remember { mutableStateOf(0f) }
+
     LaunchedEffect(target) {
         anim.snapTo(0f)
-        anim.animateTo(targetValue = target, animationSpec = tween(900, 100, LinearOutSlowInEasing))
+        anim.animateTo(
+            targetValue = target,
+            animationSpec = tween(900, 100, LinearOutSlowInEasing)
+        )
     }
+
     LaunchedEffect(anim) {
         snapshotFlow { anim.value }.collect { fill = it }
     }
-    val glow = Color(0xFFA43434)
-    val trackBrush = Brush.verticalGradient(listOf(Color(0xFF160C0C), Color(0xFF1E0E0E)))
+
+    // --- Dynamic Theme Colors ---
+    val glow = theme.primary
+    val trackBrush = Brush.verticalGradient(
+        listOf(theme.background, theme.tertiary.copy(alpha = 0.6f))
+    )
     val innerHighlight = Brush.verticalGradient(
         0f to Color.White.copy(alpha = 0.08f),
         0.55f to Color.Transparent,
         1f to Color.Black.copy(alpha = 0.10f)
     )
-    val barBrush = Brush.horizontalGradient(listOf(Color(0xFF5A1E1E), glow))
+    val barBrush = Brush.horizontalGradient(
+        listOf(theme.secondary, glow)
+    )
+
     val zone = when {
         wr < lowCap -> "Low"
         wr < medCap -> "Medium"
         else -> "High"
     }
 
-    Column(Modifier.fillMaxWidth()) {
+    Column(modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -158,7 +274,7 @@ fun MuscleLoadRow(
                 text = muscle,
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurface,
+                color = Color.White, // Keep white for readability against dark theme backgrounds
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f)
@@ -167,24 +283,25 @@ fun MuscleLoadRow(
                 Text(
                     text = "%.0f WR".format(wr),
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = Color.White.copy(alpha = 0.7f)
                 )
                 Spacer(Modifier.width(8.dp))
                 Box(
                     modifier = Modifier
                         .clip(CircleShape)
-                        .background(Color.White.copy(alpha = 0.15f))
+                        .background(theme.primary.copy(alpha = 0.15f)) // Tinted background based on theme
                         .padding(horizontal = 8.dp, vertical = 2.dp)
                 ) {
                     Text(
                         text = zone,
                         style = MaterialTheme.typography.labelSmall,
-                        color = Color.White,
+                        color = theme.primary, // Colored text for the zone
                         fontWeight = FontWeight.SemiBold
                     )
                 }
             }
         }
+
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -195,9 +312,21 @@ fun MuscleLoadRow(
                     val corner = CornerRadius(size.minDimension, size.minDimension)
                     val third = size.width / 3f
                     onDrawBehind {
-                        drawRoundRect(brush = innerHighlight, cornerRadius = corner, alpha = 1f)
-                        drawRect(Color(0x33FFFFFF), topLeft = Offset(third, 0f), size = Size(1.dp.toPx(), size.height))
-                        drawRect(Color(0x33FFFFFF), topLeft = Offset(third * 2f, 0f), size = Size(1.dp.toPx(), size.height))
+                        drawRoundRect(
+                            brush = innerHighlight,
+                            cornerRadius = corner,
+                            alpha = 1f
+                        )
+                        drawRect(
+                            Color(0x33FFFFFF),
+                            topLeft = Offset(third, 0f),
+                            size = Size(1.dp.toPx(), size.height)
+                        )
+                        drawRect(
+                            Color(0x33FFFFFF),
+                            topLeft = Offset(third * 2f, 0f),
+                            size = Size(1.dp.toPx(), size.height)
+                        )
                     }
                 }
                 .padding(horizontal = 2.dp)
@@ -221,7 +350,10 @@ fun MuscleLoadRow(
                                 val tipX = size.width
                                 drawRect(
                                     brush = Brush.radialGradient(
-                                        listOf(glow.copy(alpha = 0.75f), Color.Transparent),
+                                        listOf(
+                                            glow.copy(alpha = 0.75f),
+                                            Color.Transparent
+                                        ),
                                         center = Offset(tipX, size.height / 2f),
                                         radius = 22f
                                     )
@@ -233,6 +365,7 @@ fun MuscleLoadRow(
         }
     }
 }
+
 
 
 private val nameToMusclesWeighted: List<Pair<Regex, List<Pair<MuscleGroups, Float>>>> = listOf(

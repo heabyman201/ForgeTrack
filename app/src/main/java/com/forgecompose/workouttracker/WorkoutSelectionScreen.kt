@@ -107,6 +107,8 @@ import com.forgecompose.workouttracker.ConnectedWorkout.workout
 import com.forgecompose.workouttracker.blurAnim.intensity
 import com.forgecompose.workouttracker.blurAnim.length
 import com.forgecompose.workouttracker.ui.theme.WorkoutTrackerTheme
+import com.google.firebase.crashlytics.ktx.crashlytics
+import com.google.firebase.ktx.Firebase
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeEffect
 import dev.chrisbanes.haze.materials.HazeMaterials
@@ -224,7 +226,7 @@ object FavoritePresetStore {
 
 
 @Composable
-private fun MostUsedPill(stat: UsageStat?, modifier: Modifier = Modifier) {
+private fun MostUsedPill(stat: UsageStat?, color: Color, modifier: Modifier = Modifier) {
     if (stat == null || stat.count < 1) return
     val pillShape = remember { RoundedCornerShape(12.dp) }
     val now = System.currentTimeMillis()
@@ -244,7 +246,7 @@ private fun MostUsedPill(stat: UsageStat?, modifier: Modifier = Modifier) {
             shape = pillShape
         ),
         shape = pillShape,
-        color = Color(0xFF4A0000).copy(alpha = 0.6f),
+        color = color,
         tonalElevation = 0.dp,
         shadowElevation = 0.dp
     ) {
@@ -270,10 +272,7 @@ private fun MostUsedPill(stat: UsageStat?, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun ExperimentalPill( modifier: Modifier = Modifier) {
-
-
-
+private fun ExperimentalPill(color: Color, modifier: Modifier = Modifier) {
     val pillShape = remember { RoundedCornerShape(12.dp) }
 
     Surface(
@@ -283,7 +282,7 @@ private fun ExperimentalPill( modifier: Modifier = Modifier) {
             shape = pillShape
         ),
         shape = pillShape,
-        color = Color(0xFF4A0000).copy(alpha = 0.6f),
+        color = color,
         tonalElevation = 0.dp,
         shadowElevation = 0.dp
     ) {
@@ -292,7 +291,6 @@ private fun ExperimentalPill( modifier: Modifier = Modifier) {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
-
                 imageVector = Icons.Filled.Warning,
                 contentDescription = "Experimental Feature",
                 tint = Color.White.copy(alpha = 0.9f),
@@ -310,10 +308,7 @@ private fun ExperimentalPill( modifier: Modifier = Modifier) {
     }
 }
 @Composable
-private fun CustomPill( modifier: Modifier = Modifier) {
-
-
-
+private fun CustomPill(color: Color, modifier: Modifier = Modifier) {
     val pillShape = remember { RoundedCornerShape(12.dp) }
 
     Surface(
@@ -323,7 +318,7 @@ private fun CustomPill( modifier: Modifier = Modifier) {
             shape = pillShape
         ),
         shape = pillShape,
-        color = Color(0xFF4A0000).copy(alpha = 0.6f),
+        color = color,
         tonalElevation = 0.dp,
         shadowElevation = 0.dp
     ) {
@@ -332,7 +327,6 @@ private fun CustomPill( modifier: Modifier = Modifier) {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
-
                 imageVector = Icons.Filled.AddTask,
                 contentDescription = "Custom Preset",
                 tint = Color.White.copy(alpha = 0.9f),
@@ -350,10 +344,7 @@ private fun CustomPill( modifier: Modifier = Modifier) {
     }
 }
 @Composable
-private fun FavouritePill( modifier: Modifier = Modifier) {
-
-
-
+private fun FavouritePill(color: Color, modifier: Modifier = Modifier) {
     val pillShape = remember { RoundedCornerShape(12.dp) }
 
     Surface(
@@ -363,7 +354,7 @@ private fun FavouritePill( modifier: Modifier = Modifier) {
             shape = pillShape
         ),
         shape = pillShape,
-        color = Color(0xFF4A0000).copy(alpha = 0.6f),
+        color = color,
         tonalElevation = 0.dp,
         shadowElevation = 0.dp
     ) {
@@ -372,7 +363,6 @@ private fun FavouritePill( modifier: Modifier = Modifier) {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
-
                 imageVector = Icons.Filled.Favorite,
                 contentDescription = "Custom Preset",
                 tint = Color.White.copy(alpha = 0.9f),
@@ -401,11 +391,18 @@ fun WorkoutSelector(
         "Running (Treadmill)", "Stair Climber", "Elliptical Trainer",
         "Rowing Machine", "Stationary Bike", "Swimming"
     )
-
+    val routines = remember { workoutRoutines }
     val haze = remember { HazeState() }
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val haptics = LocalHapticFeedback.current
     val context = LocalContext.current
+
+    // --- Theme Subscription ---
+    val appearanceOptions by AppearanceOptionsManagerAppTheme
+        .flow(context)
+        .collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
+    val theme = appearanceOptions.selectedTheme.colors
+
     val scope = rememberCoroutineScope()
     val stages = rememberColdStartStages()
     val usageTracker = remember { PresetUsageTracker(context) }
@@ -422,19 +419,22 @@ fun WorkoutSelector(
             "dl" to "deadlift"
         )
     }
-    val hour = remember { java.time.LocalTime.now().hour }
-    val introColors = remember(hour) {
-        when (hour) {
-            in 5..10 -> listOf(Color(0xFF2B1A00), Color(0xFF3C2405), Color(0xFF5A360A), Color(0xFF7A4A12))
-            in 11..16 -> listOf(Color(0xFF332300), Color(0xFF4A3408), Color(0xFF6B4B0F), Color(0xFF8C6217))
-            in 17..20 -> listOf(Color(0xFF1A0614), Color(0xFF2A0A20), Color(0xFF3D0F2D), Color(0xFF52153A))
-            else -> listOf(Color(0xFF02040A), Color(0xFF0A1324), Color(0xFF15243D), Color(0xFF1E3352))
-        }
+
+    // Dynamic Intro Gradient based on Theme
+    val introColors = remember(theme) {
+        listOf(
+            theme.secondary.copy(alpha = 0.8f),
+            theme.tertiary,
+            theme.background,
+            theme.background
+        )
     }
     val introBrush = remember(introColors) { Brush.linearGradient(colors = introColors) }
+
     var showIntro by remember { mutableStateOf(true) }
     val introProgress by animateFloatAsState(targetValue = if (showIntro) 0f else 1f, animationSpec = tween(650, easing = LinearEasing), label = "introFade")
-    LaunchedEffect(Unit) { showIntro = false }
+    LaunchedEffect(Unit) { showIntro = false
+        Firebase.crashlytics.setCustomKey("current_screen", "Workout Selection Screen")}
     val blurAnim by animateDpAsState(if (showIntro) intensity.value else 0.dp, animationSpec = tween(length.value.toInt()), label = "blur")
 
     val performanceOptions by PerformanceOptionsManager.flow(context).collectAsState(initial = PerformanceOptions.Defaults)
@@ -601,13 +601,13 @@ fun WorkoutSelector(
                         leadingIcon = { Icon(imageVector = Icons.Default.Search, contentDescription = "Search", tint = Color.White.copy(alpha = 0.7f)) },
                         shape = RoundedCornerShape(24.dp),
                         colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = Color.White.copy(alpha = 0.5f),
+                            focusedBorderColor = theme.primary.copy(alpha = 0.5f),
                             unfocusedBorderColor = Color.White.copy(alpha = 0.2f),
-                            focusedContainerColor = Color(0xFF4A0000).copy(alpha = 0.25f),
-                            unfocusedContainerColor = Color(0xFF3D0000).copy(alpha = 0.2f),
+                            focusedContainerColor = theme.secondary.copy(alpha = 0.25f),
+                            unfocusedContainerColor = theme.tertiary.copy(alpha = 0.2f),
                             focusedTextColor = Color.White,
                             unfocusedTextColor = Color.White.copy(alpha = 0.9f),
-                            cursorColor = Color.White
+                            cursorColor = theme.primary
                         ),
                         singleLine = true,
                         keyboardOptions = KeyboardOptions.Default.copy(imeAction = ImeAction.Search),
@@ -639,7 +639,7 @@ fun WorkoutSelector(
                                     shape = RoundedCornerShape(16.dp),
                                     colors = FilterChipDefaults.filterChipColors(
                                         selectedContainerColor = Color.White.copy(alpha = 0.95f),
-                                        containerColor = Color(0xFF3D0000).copy(alpha = 0.4f),
+                                        containerColor = theme.tertiary.copy(alpha = 0.4f),
                                         selectedLabelColor = Color.Black,
                                         labelColor = Color.White
                                     ),
@@ -672,7 +672,7 @@ fun WorkoutSelector(
                                         .fillMaxWidth()
                                         .graphicsLayer { scaleX = scale; scaleY = scale }
                                         .hazeEffect(state = haze, style = HazeMaterials.ultraThick())
-                                        .border(width = 1.dp, color = Color.White.copy(alpha = 0.1f), shape = RoundedCornerShape(16.dp))
+                                        .border(width = 1.dp, color = theme.primary.copy(alpha = 0.1f), shape = RoundedCornerShape(16.dp))
                                         .combinedClickable(
                                             interactionSource = interactionSource,
                                             indication = null,
@@ -693,7 +693,7 @@ fun WorkoutSelector(
                                     shape = RoundedCornerShape(16.dp),
                                     colors = CardDefaults.cardColors(
                                         containerColor = if (ConnectedWorkout.currentMode.value == ConnectedWorkout.WorkoutMode.INACTIVE)
-                                            Color(0xFF3D0000).copy(alpha = 0.3f) else Color.DarkGray
+                                            theme.secondary.copy(alpha = 0.3f) else Color.DarkGray
                                     )
                                 ) {
                                     Row(
@@ -707,15 +707,17 @@ fun WorkoutSelector(
                                             Text(text = preset.name, style = MaterialTheme.typography.titleLarge, color = Color.White, fontWeight = FontWeight.Medium)
                                             val stat = usageMap[preset.name]
                                             val isFavorite = preset.name in favoritePresets
-                                            MostUsedPill(stat = stat, modifier = Modifier.padding(top = 6.dp))
+                                            // Pass theme-derived color to pills (e.g. secondary color)
+                                            val pillColor = theme.secondary.copy(alpha = 0.6f)
+                                            MostUsedPill(stat = stat, color = pillColor, modifier = Modifier.padding(top = 6.dp))
                                             if (preset.name in cardioExerciseNames) {
-                                                ExperimentalPill(modifier = Modifier.padding(top = 6.dp))
+                                                ExperimentalPill(color = pillColor, modifier = Modifier.padding(top = 6.dp))
                                             }
                                             if (preset.category == "Custom") {
-                                                CustomPill(modifier = Modifier.padding(top = 6.dp))
+                                                CustomPill(color = pillColor, modifier = Modifier.padding(top = 6.dp))
                                             }
                                             if (preset.name in favoritePresets){
-                                                FavouritePill(modifier = Modifier.padding(top = 6.dp))
+                                                FavouritePill(color = pillColor, modifier = Modifier.padding(top = 6.dp))
                                             }
                                         }
                                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -729,7 +731,7 @@ fun WorkoutSelector(
                                                 Icon(
                                                     imageVector = if (isFavorite) Icons.Filled.Star else Icons.Outlined.Star,
                                                     contentDescription = "Favorite",
-                                                    tint = if (isFavorite) Color(0xFFFF0000) else Color.White.copy(alpha = 0.7f)
+                                                    tint = if (isFavorite) theme.primary else Color.White.copy(alpha = 0.7f)
                                                 )
                                             }
                                             Icon(imageVector = Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, tint = Color.White.copy(alpha = 0.7f))
@@ -750,7 +752,7 @@ fun WorkoutSelector(
                             .padding(16.dp)
                             .hazeEffect(state = haze, style = HazeMaterials.ultraThick()),
                         shape = RoundedCornerShape(28.dp),
-                        color = Color(0xFF3D0000).copy(alpha = 1.0f),
+                        color = theme.tertiary.copy(alpha = 1.0f),
                         tonalElevation = 0.dp,
                         shadowElevation = 0.dp,
                         border = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f))
@@ -761,8 +763,8 @@ fun WorkoutSelector(
                                 .background(
                                     Brush.verticalGradient(
                                         listOf(
-                                            Color(0xFF4A0000).copy(alpha = 0.35f),
-                                            Color(0xFF1A0000).copy(alpha = 0.2f)
+                                            theme.secondary.copy(alpha = 0.35f),
+                                            theme.background.copy(alpha = 0.2f)
                                         )
                                     )
                                 )
@@ -775,8 +777,8 @@ fun WorkoutSelector(
                                     .background(
                                         Brush.horizontalGradient(
                                             listOf(
-                                                Color(0xFF8C3131),
-                                                Color(0xFF702727)
+                                                theme.primary.copy(alpha = 0.7f),
+                                                theme.secondary.copy(alpha = 0.8f)
                                             )
                                         ),
                                         shape = RoundedCornerShape(18.dp)
@@ -799,10 +801,10 @@ fun WorkoutSelector(
                                 singleLine = true,
                                 shape = RoundedCornerShape(16.dp),
                                 colors = OutlinedTextFieldDefaults.colors(
-                                    focusedBorderColor = Color.White.copy(alpha = 0.6f),
+                                    focusedBorderColor = theme.primary.copy(alpha = 0.6f),
                                     unfocusedBorderColor = Color.White.copy(alpha = 0.24f),
-                                    focusedContainerColor = Color(0xFF4A0000).copy(alpha = 0.25f),
-                                    unfocusedContainerColor = Color(0xFF3D0000).copy(alpha = 0.2f),
+                                    focusedContainerColor = theme.secondary.copy(alpha = 0.25f),
+                                    unfocusedContainerColor = theme.tertiary.copy(alpha = 0.2f),
                                     focusedTextColor = Color.White,
                                     unfocusedTextColor = Color.White.copy(alpha = 0.92f),
                                     cursorColor = Color.White
@@ -820,10 +822,10 @@ fun WorkoutSelector(
                                     shape = RoundedCornerShape(16.dp),
                                     trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
                                     colors = OutlinedTextFieldDefaults.colors(
-                                        focusedBorderColor = Color.White.copy(alpha = 0.6f),
+                                        focusedBorderColor = theme.primary.copy(alpha = 0.6f),
                                         unfocusedBorderColor = Color.White.copy(alpha = 0.24f),
-                                        focusedContainerColor = Color(0xFF4A0000).copy(alpha = 0.25f),
-                                        unfocusedContainerColor = Color(0xFF3D0000).copy(alpha = 0.2f),
+                                        focusedContainerColor = theme.secondary.copy(alpha = 0.25f),
+                                        unfocusedContainerColor = theme.tertiary.copy(alpha = 0.2f),
                                         focusedTextColor = Color.White,
                                         unfocusedTextColor = Color.White.copy(alpha = 0.92f),
                                         cursorColor = Color.White
@@ -850,10 +852,10 @@ fun WorkoutSelector(
                                     singleLine = true,
                                     shape = RoundedCornerShape(16.dp),
                                     colors = OutlinedTextFieldDefaults.colors(
-                                        focusedBorderColor = Color.White.copy(alpha = 0.6f),
+                                        focusedBorderColor = theme.primary.copy(alpha = 0.6f),
                                         unfocusedBorderColor = Color.White.copy(alpha = 0.24f),
-                                        focusedContainerColor = Color(0xFF4A0000).copy(alpha = 0.25f),
-                                        unfocusedContainerColor = Color(0xFF3D0000).copy(alpha = 0.2f),
+                                        focusedContainerColor = theme.secondary.copy(alpha = 0.25f),
+                                        unfocusedContainerColor = theme.tertiary.copy(alpha = 0.2f),
                                         focusedTextColor = Color.White,
                                         unfocusedTextColor = Color.White.copy(alpha = 0.92f),
                                         cursorColor = Color.White
@@ -867,10 +869,10 @@ fun WorkoutSelector(
                                     singleLine = true,
                                     shape = RoundedCornerShape(16.dp),
                                     colors = OutlinedTextFieldDefaults.colors(
-                                        focusedBorderColor = Color.White.copy(alpha = 0.6f),
+                                        focusedBorderColor = theme.primary.copy(alpha = 0.6f),
                                         unfocusedBorderColor = Color.White.copy(alpha = 0.24f),
-                                        focusedContainerColor = Color(0xFF4A0000).copy(alpha = 0.25f),
-                                        unfocusedContainerColor = Color(0xFF3D0000).copy(alpha = 0.2f),
+                                        focusedContainerColor = theme.secondary.copy(alpha = 0.25f),
+                                        unfocusedContainerColor = theme.tertiary.copy(alpha = 0.2f),
                                         focusedTextColor = Color.White,
                                         unfocusedTextColor = Color.White.copy(alpha = 0.92f),
                                         cursorColor = Color.White
@@ -886,10 +888,10 @@ fun WorkoutSelector(
                                 singleLine = true,
                                 shape = RoundedCornerShape(16.dp),
                                 colors = OutlinedTextFieldDefaults.colors(
-                                    focusedBorderColor = Color.White.copy(alpha = 0.6f),
+                                    focusedBorderColor = theme.primary.copy(alpha = 0.6f),
                                     unfocusedBorderColor = Color.White.copy(alpha = 0.24f),
-                                    focusedContainerColor = Color(0xFF4A0000).copy(alpha = 0.25f),
-                                    unfocusedContainerColor = Color(0xFF3D0000).copy(alpha = 0.2f),
+                                    focusedContainerColor = theme.secondary.copy(alpha = 0.25f),
+                                    unfocusedContainerColor = theme.tertiary.copy(alpha = 0.2f),
                                     focusedTextColor = Color.White,
                                     unfocusedTextColor = Color.White.copy(alpha = 0.92f),
                                     cursorColor = Color.White
@@ -943,7 +945,7 @@ fun WorkoutSelector(
                                     },
                                     shape = RoundedCornerShape(18.dp),
                                     colors = ButtonDefaults.buttonColors(
-                                        containerColor = Color.White.copy(alpha = 0.95f),
+                                        containerColor = theme.primary.copy(alpha = 0.95f),
                                         contentColor = Color.Black
                                     ),
                                     modifier = Modifier.weight(1f)

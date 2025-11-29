@@ -5,6 +5,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.os.Build
 import android.os.PowerManager
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateDpAsState
@@ -33,6 +34,7 @@ import androidx.compose.material.icons.filled.Animation
 import androidx.compose.material.icons.filled.Architecture
 import androidx.compose.material.icons.filled.BatteryChargingFull
 import androidx.compose.material.icons.filled.BlurOn
+import androidx.compose.material.icons.filled.Brush
 import androidx.compose.material.icons.filled.DataObject
 import androidx.compose.material.icons.filled.Grain
 import androidx.compose.material3.Button
@@ -61,7 +63,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.CornerRadius
@@ -88,6 +89,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.forgecompose.workouttracker.blurAnim.intensity
 import com.forgecompose.workouttracker.blurAnim.length
+import com.google.firebase.crashlytics.ktx.crashlytics
+import com.google.firebase.ktx.Firebase
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -109,14 +112,16 @@ data class PerformanceOptions(
     val blurEnabled: Boolean,
     val taskbarAnimations: Boolean,
     val movingGradientAndParticles: Boolean,
-    val blurLengthMs: Long
+    val blurLengthMs: Long,
+    val navEffects: Boolean
 ) {
     companion object {
         val Defaults = PerformanceOptions(
-            blurEnabled = true,
+            blurEnabled = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU,
             taskbarAnimations = true,
             movingGradientAndParticles = true,
-            blurLengthMs = 700L
+            blurLengthMs = 700L,
+            navEffects = true
         )
     }
 }
@@ -126,6 +131,8 @@ object PerformanceOptionsManager {
     private val keyTaskbarAnimations = booleanPreferencesKey("taskbarAnimations")
     private val keyMovingGradientParticles = booleanPreferencesKey("movingGradientAndParticles")
     private val keyBlurLengthMs = longPreferencesKey("blurLengthMs")
+
+    private val keyNavEffects = booleanPreferencesKey("navEffects")
 
     private val saved = MutableStateFlow(PerformanceOptions.Defaults)
     val current: StateFlow<PerformanceOptions> = saved
@@ -148,7 +155,8 @@ object PerformanceOptionsManager {
                         blurEnabled = p[keyBlurEnabled] ?: PerformanceOptions.Defaults.blurEnabled,
                         taskbarAnimations = p[keyTaskbarAnimations] ?: PerformanceOptions.Defaults.taskbarAnimations,
                         movingGradientAndParticles = p[keyMovingGradientParticles] ?: PerformanceOptions.Defaults.movingGradientAndParticles,
-                        blurLengthMs = p[keyBlurLengthMs] ?: PerformanceOptions.Defaults.blurLengthMs
+                        blurLengthMs = p[keyBlurLengthMs] ?: PerformanceOptions.Defaults.blurLengthMs,
+                        navEffects = p[keyNavEffects] ?: PerformanceOptions.Defaults.navEffects
                     )
                 }
                 .collectLatest { saved.value = it }
@@ -160,7 +168,8 @@ object PerformanceOptionsManager {
                 s.copy(
                     blurEnabled = s.blurEnabled && allow,
                     taskbarAnimations = s.taskbarAnimations && allow,
-                    movingGradientAndParticles = s.movingGradientAndParticles && allow
+                    movingGradientAndParticles = s.movingGradientAndParticles && allow,
+                    navEffects = s.navEffects && allow
                 )
             }.distinctUntilChanged().collect { _effective.value = it }
         }
@@ -208,6 +217,7 @@ object PerformanceOptionsManager {
             p[keyTaskbarAnimations] = v.taskbarAnimations
             p[keyMovingGradientParticles] = v.movingGradientAndParticles
             p[keyBlurLengthMs] = v.blurLengthMs
+            p[keyNavEffects] = v.navEffects
         }
         saved.value = v
     }
@@ -230,6 +240,10 @@ object PerformanceOptionsManager {
     suspend fun setBlurLengthMs(context: Context, ms: Long) {
         context.perfDataStore.edit { it[keyBlurLengthMs] = ms }
         saved.value = saved.value.copy(blurLengthMs = ms)
+    }
+    suspend fun setNavEffectsOn(context: Context, enabled: Boolean){
+        context.perfDataStore.edit { it[keyNavEffects] = enabled }
+        saved.value = saved.value.copy(navEffects = enabled)
     }
 }
 
@@ -264,6 +278,10 @@ class PerformanceOptionsViewModel(app: Application) : AndroidViewModel(app) {
     fun setBlurLengthMs(ms: Long) = viewModelScope.launch(Dispatchers.IO) {
         PerformanceOptionsManager.setBlurLengthMs(ctx, ms.coerceIn(300L, 1200L))
     }
+    fun setNavEffectsOn(b: Boolean) = viewModelScope.launch(Dispatchers.IO) {
+        PerformanceOptionsManager.setNavEffectsOn(ctx, b)
+    }
+
 }
 
 private enum class ResourceImpact(val label: String, val icon: ImageVector, val color: Color) {
@@ -282,17 +300,22 @@ fun PerformanceOptionsScreen(
     val effective by vm.effectiveOptions.collectAsState()
     val scope = rememberCoroutineScope()
 
+    val context = LocalContext.current
+    val appearanceOptions by AppearanceOptionsManagerAppTheme.flow(context).collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
+    val theme = appearanceOptions.selectedTheme.colors
+
     var showIntro by remember { mutableStateOf(true) }
     val introProgress by animateFloatAsState(
         targetValue = if (showIntro) 0f else 1f,
         animationSpec = tween(650, easing = LinearEasing),
         label = "introFade"
     )
-    LaunchedEffect(Unit) { showIntro = false }
+    LaunchedEffect(Unit) { showIntro = false;
+        Firebase.crashlytics.setCustomKey("current_screen", "PerformanceSettings")}
 
-    val staticGradientBrush = remember {
+    val staticGradientBrush = remember(theme) {
         Brush.radialGradient(
-            colors = listOf(Color(0xFF2A0F0F), Color(0xFF3D0000), Color(0xFF060202)),
+            colors = listOf(theme.secondary.copy(alpha = 0.8f), theme.tertiary, theme.background),
             radius = 1200f,
             center = Offset(0.5f, 0.4f)
         )
@@ -349,12 +372,14 @@ fun PerformanceOptionsScreen(
                 verticalArrangement = Arrangement.spacedBy(24.dp)
             ) {
                 item {
-                    SettingsSectionCard(title = "Display & Animation") {
+                    SettingsSectionCardHealth(title = "Display & Animation", theme = theme) {
                         PerformanceToggleRow(
                             label = "Enable Blur",
                             checked = saved.blurEnabled,
                             icon = Icons.Default.BlurOn,
-                            impacts = listOf(ResourceImpact.GPU)
+                            impacts = listOf(ResourceImpact.GPU),
+                            enabled = true,
+                            theme = theme
                         ) { b -> vm.setBlurEnabled(b) }
 
                         Spacer(Modifier.height(6.dp))
@@ -362,22 +387,37 @@ fun PerformanceOptionsScreen(
                         BlurLengthRow(
                             enabled = saved.blurEnabled,
                             currentMs = saved.blurLengthMs,
-                            onChange = { ms -> vm.setBlurLengthMs(ms) }
+                            onChange = { ms -> vm.setBlurLengthMs(ms) },
+                            theme = theme
                         )
 
                         PerformanceToggleRow(
                             label = "Taskbar Animations",
                             checked = saved.taskbarAnimations,
                             icon = Icons.Default.Animation,
-                            impacts = listOf(ResourceImpact.GPU)
+                            impacts = listOf(ResourceImpact.GPU),
+                            enabled = true,
+                            theme = theme
                         ) { b -> vm.setTaskbarAnimations(b) }
 
                         PerformanceToggleRow(
-                            label = "Moving Background Gradient & Particles",
+                            label = "Particles",
                             checked = saved.movingGradientAndParticles,
                             icon = Icons.Default.Grain,
-                            impacts = listOf(ResourceImpact.GPU, ResourceImpact.BATTERY)
+                            impacts = listOf(ResourceImpact.GPU, ResourceImpact.BATTERY),
+                            enabled = true,
+                            theme = theme
                         ) { b -> vm.setMovingGradientAndParticles(b) }
+                        PerformanceToggleRow(
+                            label = "Navigation Effects",
+                            checked = saved.navEffects,
+                            icon = Icons.Default.Brush,
+                            impacts = listOf(ResourceImpact.GPU),
+                            enabled = true,
+                            theme = theme
+                        ) {
+                                b -> vm.setNavEffectsOn(b)
+                        }
                     }
                 }
                 item {
@@ -391,7 +431,7 @@ fun PerformanceOptionsScreen(
                             .height(50.dp),
                         shape = RoundedCornerShape(16.dp),
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = Color.White.copy(alpha = 0.1f),
+                            containerColor = theme.secondary.copy(alpha = 0.4f),
                             contentColor = Color.White
                         )
                     ) { Text("Reset to Recommended") }
@@ -405,7 +445,8 @@ fun PerformanceOptionsScreen(
 private fun BlurLengthRow(
     enabled: Boolean,
     currentMs: Long,
-    onChange: (Long) -> Unit
+    onChange: (Long) -> Unit,
+    theme: ColorSchemeAppTheme
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(
@@ -431,8 +472,8 @@ private fun BlurLengthRow(
             steps = ((1200 - 300) / 50) - 1,
             enabled = enabled,
             colors = SliderDefaults.colors(
-                activeTrackColor = Color(0xFFFF3B30),
-                inactiveTrackColor = Color(0xFF8B0000),
+                activeTrackColor = theme.primary,
+                inactiveTrackColor = theme.secondary,
                 thumbColor = Color.White
             ),
             modifier = Modifier.fillMaxWidth()
@@ -448,8 +489,9 @@ private fun BlurLengthRow(
 }
 
 @Composable
-private fun SettingsSectionCard(
+private fun SettingsSectionCardHealth(
     title: String,
+    theme: ColorSchemeAppTheme,
     content: @Composable ColumnScope.() -> Unit
 ) {
     val cornerRadius = 24.dp
@@ -460,14 +502,14 @@ private fun SettingsSectionCard(
             .drawWithCache {
                 val cornerRpx = cornerRadius.toPx()
                 val bgBrush = Brush.radialGradient(
-                    colors = listOf(Color(0xFF180909).copy(alpha = 0.9f), Color(0xFF100404).copy(alpha = 0.95f)),
+                    colors = listOf(theme.secondary.copy(alpha = 0.6f), theme.tertiary.copy(alpha = 0.95f)),
                     center = Offset(size.width / 2f, size.height * 0.1f),
                     radius = size.width * 1.5f
                 )
                 val borderBrush = Brush.linearGradient(
                     colors = listOf(
-                        Color(0xFFFF5555).copy(alpha = 0.2f),
-                        Color(0xFF8B0000).copy(alpha = 0.1f)
+                        theme.primary.copy(alpha = 0.2f),
+                        theme.secondary.copy(alpha = 0.1f)
                     )
                 )
                 onDrawBehind {
@@ -485,7 +527,7 @@ private fun SettingsSectionCard(
         )
         HorizontalDivider(
             modifier = Modifier.padding(vertical = 12.dp),
-            color = Color(0xFFFF3535).copy(alpha = 0.3f)
+            color = theme.primary.copy(alpha = 0.3f)
         )
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             content()
@@ -499,8 +541,11 @@ private fun PerformanceToggleRow(
     checked: Boolean,
     icon: ImageVector,
     impacts: List<ResourceImpact>,
-    onToggle: (Boolean) -> Unit
-) {
+    enabled: Boolean,
+    theme: ColorSchemeAppTheme,
+    onToggle: (Boolean) -> Unit,
+
+    ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -515,7 +560,7 @@ private fun PerformanceToggleRow(
                     imageVector = icon,
                     contentDescription = null,
                     modifier = Modifier.size(22.dp),
-                    tint = Color(0xFFFF3B30)
+                    tint = theme.primary
                 )
                 Spacer(modifier = Modifier.width(12.dp))
                 Text(
@@ -528,11 +573,12 @@ private fun PerformanceToggleRow(
                 checked = checked,
                 onCheckedChange = onToggle,
                 colors = SwitchDefaults.colors(
-                    checkedThumbColor = Color(0xFFFF3B30),
-                    checkedTrackColor = Color(0xFF8B0000),
+                    checkedThumbColor = theme.primary,
+                    checkedTrackColor = theme.secondary,
                     uncheckedThumbColor = Color.Gray,
                     uncheckedTrackColor = Color.DarkGray
-                )
+                ),
+                enabled = enabled
             )
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

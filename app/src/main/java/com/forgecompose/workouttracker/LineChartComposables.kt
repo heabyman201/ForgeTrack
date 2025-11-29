@@ -2,17 +2,23 @@ package com.forgecompose.workouttracker
 
 import android.graphics.Paint
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -34,6 +40,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -408,171 +415,290 @@ fun LineChartSets(
 fun CombinedWorkoutChart(
     data: List<Workout>,
     modifier: Modifier = Modifier,
-    height: Dp = 250.dp
+    height: Dp = 280.dp
 ) {
     if (data.isEmpty()) return
+
     var selectedIndex by remember { mutableStateOf<Int?>(null) }
+
+
+    LaunchedEffect(data) {
+        selectedIndex = null
+    }
+
     val density = LocalDensity.current
 
-    val axisTextPaint = remember {
-        android.graphics.Paint().apply {
-            color = android.graphics.Color.argb(200, 255, 255, 255)
-            textSize = with(density) { 12.sp.toPx() }
-            textAlign = android.graphics.Paint.Align.CENTER
-            isAntiAlias = true
-        }
-    }
-    val tooltipTextPaint = remember {
-        android.graphics.Paint().apply {
-            color = android.graphics.Color.WHITE
-            textSize = with(density) { 14.sp.toPx() }
-            textAlign = android.graphics.Paint.Align.CENTER
-            isFakeBoldText = true
-            isAntiAlias = true
-        }
-    }
-
-    val weightBrush = remember { Brush.verticalGradient(listOf(Color(0xFFF85757), Color(0xFFD32F2F))) }
-    val setsBrush = remember { Brush.verticalGradient(listOf(Color(0xFF00E676), Color(0xFF1B8E4B))) }
-    val repsBrush = remember { Brush.verticalGradient(listOf(Color(0xFFFFC107), Color(0xFFFF8F00))) }
-
-    val wVals = remember(data) { data.map { (it.weight ?: 0.0) } }
+    val wVals = remember(data) { data.map { it.weight ?: 0.0 } }
     val sVals = remember(data) { data.map { (it.sets ?: 0).toDouble() } }
     val rVals = remember(data) { data.map { (it.reps ?: 0).toDouble() } }
 
+    val wMax = remember(wVals) { wVals.maxOrNull()?.takeIf { it > 0 } ?: 100.0 }
+    val sMax = remember(sVals) { sVals.maxOrNull()?.takeIf { it > 0 } ?: 5.0 }
+    val rMax = remember(rVals) { rVals.maxOrNull()?.takeIf { it > 0 } ?: 15.0 }
+
     val wMin = remember(wVals) { wVals.minOrNull() ?: 0.0 }
-    val wMax = remember(wVals) { wVals.maxOrNull() ?: 1.0 }
     val sMin = remember(sVals) { sVals.minOrNull() ?: 0.0 }
-    val sMax = remember(sVals) { sVals.maxOrNull() ?: 1.0 }
     val rMin = remember(rVals) { rVals.minOrNull() ?: 0.0 }
-    val rMax = remember(rVals) { rVals.maxOrNull() ?: 1.0 }
+
+    val wColor = Color(0xFFEF5350)
+    val sColor = Color(0xFF66BB6A)
+    val rColor = Color(0xFFFFCA28)
+
+    val wBrush = remember { Brush.verticalGradient(listOf(wColor, wColor.copy(alpha = 0.1f))) }
+    val sBrush = remember { Brush.verticalGradient(listOf(sColor, sColor.copy(alpha = 0.1f))) }
+    val rBrush = remember { Brush.verticalGradient(listOf(rColor, rColor.copy(alpha = 0.1f))) }
+
+    val textPaint = remember {
+        android.graphics.Paint().apply {
+            color = android.graphics.Color.LTGRAY
+            textSize = with(density) { 10.sp.toPx() }
+            textAlign = android.graphics.Paint.Align.CENTER
+            isAntiAlias = true
+        }
+    }
+
+    val tooltipTitlePaint = remember {
+        android.graphics.Paint().apply {
+            color = android.graphics.Color.WHITE
+            textSize = with(density) { 13.sp.toPx() }
+            typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
+            isAntiAlias = true
+        }
+    }
+
+    val tooltipValuePaint = remember {
+        android.graphics.Paint().apply {
+            textSize = with(density) { 12.sp.toPx() }
+            typeface = android.graphics.Typeface.DEFAULT
+            isAntiAlias = true
+        }
+    }
 
     val dateFormat = remember { SimpleDateFormat("MMM dd", Locale.getDefault()) }
 
-    Column(modifier = modifier) {
+    Column(
+        modifier = modifier
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f), RoundedCornerShape(16.dp))
+            .padding(16.dp)
+    ) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            LegendDot(text = "Weight", brush = weightBrush)
-            LegendDot(text = "Sets", brush = setsBrush)
-            LegendDot(text = "Reps", brush = repsBrush)
+            ChartLegendItem("Weight", wColor)
+            ChartLegendItem("Sets", sColor)
+            ChartLegendItem("Reps", rColor)
         }
+
         Canvas(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(height)
-                .padding(top = 8.dp, bottom = 24.dp, start = 8.dp, end = 8.dp)
                 .pointerInput(data) {
-                    detectTapGestures { tapOffset ->
-                        if (data.size < 2) return@detectTapGestures
-                        val xSpacing = size.width / (data.size - 1).coerceAtLeast(1)
-                        val idx = (tapOffset.x / xSpacing).roundToInt().coerceIn(0, data.lastIndex)
-                        selectedIndex = idx
+                    detectTapGestures { offset ->
+                        if (data.isEmpty()) return@detectTapGestures
+                        val step = size.width / (data.size - 1).coerceAtLeast(1)
+                        selectedIndex = (offset.x / step).roundToInt().coerceIn(0, data.lastIndex)
+                    }
+                }
+                .pointerInput(data) {
+                    detectDragGestures(
+                        onDragEnd = { selectedIndex = null },
+                        onDragCancel = { selectedIndex = null }
+                    ) { change, _ ->
+                        change.consume()
+                        if (data.isEmpty()) return@detectDragGestures
+                        val step = size.width / (data.size - 1).coerceAtLeast(1)
+                        selectedIndex = (change.position.x / step).roundToInt().coerceIn(0, data.lastIndex)
                     }
                 }
         ) {
             if (data.size < 2) return@Canvas
 
-            val xSpacing = size.width / (data.size - 1)
-            fun norm(v: Double, mn: Double, mx: Double): Float {
-                val r = (mx - mn).coerceAtLeast(1e-6)
-                return ((v - mn) / r).toFloat().coerceIn(0f, 1f)
+            val width = size.width
+            val height = size.height
+            val stepX = width / (data.size - 1)
+            val bottomY = height - 24.dp.toPx()
+
+            drawLine(
+                color = Color.Gray.copy(alpha = 0.2f),
+                start = Offset(0f, 0f),
+                end = Offset(width, 0f),
+                strokeWidth = 1f
+            )
+            drawLine(
+                color = Color.Gray.copy(alpha = 0.2f),
+                start = Offset(0f, bottomY / 2),
+                end = Offset(width, bottomY / 2),
+                strokeWidth = 1f
+            )
+            drawLine(
+                color = Color.Gray.copy(alpha = 0.2f),
+                start = Offset(0f, bottomY),
+                end = Offset(width, bottomY),
+                strokeWidth = 1f
+            )
+
+            fun getPoint(index: Int, value: Double, min: Double, max: Double): Offset {
+                val norm = ((value - min) / (max - min).coerceAtLeast(1e-6)).toFloat().coerceIn(0f, 1f)
+                val x = index * stepX
+                val y = bottomY - (norm * bottomY)
+                return Offset(x, y)
             }
 
-            val wPoints = data.mapIndexed { i, wk ->
-                val y = size.height - norm((wk.weight ?: 0.0), wMin, wMax) * size.height
-                Offset(i * xSpacing, y)
-            }
-            val sPoints = data.mapIndexed { i, wk ->
-                val y = size.height - norm((wk.sets ?: 0).toDouble(), sMin, sMax) * size.height
-                Offset(i * xSpacing, y)
-            }
-            val rPoints = data.mapIndexed { i, wk ->
-                val y = size.height - norm((wk.reps ?: 0).toDouble(), rMin, rMax) * size.height
-                Offset(i * xSpacing, y)
-            }
-
-            val stroke = Stroke(width = 6f, cap = StrokeCap.Round, join = StrokeJoin.Round, pathEffect = PathEffect.cornerPathEffect(14f))
-
-            val wPath = Path().apply { moveTo(wPoints.first().x, wPoints.first().y); wPoints.drop(1).forEach { lineTo(it.x, it.y) } }
-            val sPath = Path().apply { moveTo(sPoints.first().x, sPoints.first().y); sPoints.drop(1).forEach { lineTo(it.x, it.y) } }
-            val rPath = Path().apply { moveTo(rPoints.first().x, rPoints.first().y); rPoints.drop(1).forEach { lineTo(it.x, it.y) } }
-
-            drawPath(path = wPath, brush = weightBrush, style = stroke)
-            drawPath(path = sPath, brush = setsBrush, style = stroke)
-            drawPath(path = rPath, brush = repsBrush, style = stroke)
-
-            val sel = selectedIndex
-            if (sel != null) {
-                val px = sel * xSpacing
-                drawLine(Color.White.copy(alpha = 0.15f), start = Offset(px, 0f), end = Offset(px, size.height), strokeWidth = 2f)
-                fun hitDot(p: Offset, brush: Brush) {
-                    drawCircle(color = Color.White.copy(alpha = 0.85f), radius = 9f, center = p)
-                    drawCircle(brush = brush, radius = 6f, center = p)
+            fun drawChartLine(
+                values: List<Double>,
+                min: Double,
+                max: Double,
+                color: Color,
+                fillBrush: Brush
+            ) {
+                val points = values.mapIndexed { i, v -> getPoint(i, v, min, max) }
+                val strokePath = Path().apply {
+                    moveTo(points.first().x, points.first().y)
+                    points.drop(1).forEach { lineTo(it.x, it.y) }
                 }
-                hitDot(wPoints[sel], weightBrush)
-                hitDot(sPoints[sel], setsBrush)
-                hitDot(rPoints[sel], repsBrush)
 
-                val wk = data[sel]
-                val dateLine = dateFormat.format(Date(wk.date))
-                val t1 = "${(wk.weight ?: 0.0)} kg"
-                val t2 = "${(wk.sets ?: 0)} sets"
-                val t3 = "${(wk.reps ?: 0)} reps"
+                val fillPath = Path().apply {
+                    addPath(strokePath)
+                    lineTo(points.last().x, bottomY)
+                    lineTo(points.first().x, bottomY)
+                    close()
+                }
 
-                val padX = 12.dp.toPx()
-                val lineH = 22.dp.toPx()
-
-                val widest = listOf(dateLine, t1, t2, t3).maxOf { tooltipTextPaint.measureText(it) }
-                val contentW = widest + padX * 2
-                val contentH = lineH * 4 + 12.dp.toPx()
-
-                val baseY = min(min(wPoints[sel].y, sPoints[sel].y), rPoints[sel].y) - 12.dp.toPx() - contentH
-                val top = baseY.coerceAtLeast(8.dp.toPx())
-                val left = (px - contentW / 2).coerceIn(0f, size.width - contentW)
-                val rect = RoundRect(left, top, left + contentW, top + contentH, CornerRadius(10.dp.toPx()))
-
-                drawRoundRect(
-                    color = Color(0xFF0F0F12),
-                    topLeft = Offset(rect.left, rect.top),
-                    size = Size(rect.width, rect.height),
-                    cornerRadius = rect.topLeftCornerRadius,
-                    alpha = 0.95f
+                drawPath(
+                    path = fillPath,
+                    brush = fillBrush,
+                    alpha = 0.2f
                 )
 
-                val cx = rect.center.x
-                val nc = drawContext.canvas.nativeCanvas
-
-
-                val originalSize = tooltipTextPaint.textSize
-                tooltipTextPaint.textSize = with(density) { 15.sp.toPx() }
-                nc.drawText(dateLine, cx, rect.top + lineH, tooltipTextPaint)
-                tooltipTextPaint.textSize = originalSize
-
-                nc.drawText(t1, cx, rect.top + lineH * 2, tooltipTextPaint)
-                nc.drawText(t2, cx, rect.top + lineH * 3, tooltipTextPaint)
-                nc.drawText(t3, cx, rect.top + lineH * 4, tooltipTextPaint)
+                drawPath(
+                    path = strokePath,
+                    color = color,
+                    style = Stroke(
+                        width = 3.dp.toPx(),
+                        cap = StrokeCap.Round,
+                        join = StrokeJoin.Round,
+                        pathEffect = PathEffect.cornerPathEffect(20f)
+                    )
+                )
             }
 
-            val maxLabels = (size.width / with(density) { 70.dp.toPx() }).toInt().coerceAtMost(data.size)
-            val step = (data.size - 1) / (maxLabels - 1).coerceAtLeast(1)
-            val idxs = (0 until maxLabels).map { (it * step).coerceAtMost(data.lastIndex) }.distinct()
-            idxs.forEach { i ->
-                val x = i * xSpacing
-                drawContext.canvas.nativeCanvas.drawText(dateFormat.format(Date(data[i].date)), x, size.height + 56f, axisTextPaint)
+            drawChartLine(wVals, wMin, wMax, wColor, wBrush)
+            drawChartLine(sVals, sMin, sMax, sColor, sBrush)
+            drawChartLine(rVals, rMin, rMax, rColor, rBrush)
+
+            val labelCount = (width / 60.dp.toPx()).toInt().coerceIn(2, data.size)
+            val labelStep = (data.size - 1) / (labelCount - 1).coerceAtLeast(1)
+
+            for (i in 0 until labelCount) {
+                val index = (i * labelStep).coerceAtMost(data.lastIndex)
+                val x = index * stepX
+                val dateStr = dateFormat.format(Date(data[index].date))
+                drawContext.canvas.nativeCanvas.drawText(
+                    dateStr,
+                    x,
+                    height,
+                    textPaint
+                )
+            }
+
+            selectedIndex?.let { index ->
+                // FIX 2: Ensure the stale index doesn't crash the app if data shrank
+                if (index < 0 || index >= data.size) return@let
+
+                val x = index * stepX
+                drawLine(
+                    color = Color.White.copy(alpha = 0.5f),
+                    start = Offset(x, 0f),
+                    end = Offset(x, bottomY),
+                    strokeWidth = 1.5f,
+                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 10f), 0f)
+                )
+
+                val wPos = getPoint(index, wVals[index], wMin, wMax)
+                val sPos = getPoint(index, sVals[index], sMin, sMax)
+                val rPos = getPoint(index, rVals[index], rMin, rMax)
+
+                drawCircle(Color.White, radius = 6.dp.toPx(), center = wPos)
+                drawCircle(wColor, radius = 4.dp.toPx(), center = wPos)
+
+                drawCircle(Color.White, radius = 6.dp.toPx(), center = sPos)
+                drawCircle(sColor, radius = 4.dp.toPx(), center = sPos)
+
+                drawCircle(Color.White, radius = 6.dp.toPx(), center = rPos)
+                drawCircle(rColor, radius = 4.dp.toPx(), center = rPos)
+
+                val dateText = dateFormat.format(Date(data[index].date))
+                val wText = "Weight: ${wVals[index].toInt()} kg"
+                val sText = "Sets: ${sVals[index].toInt()}"
+                val rText = "Reps: ${rVals[index].toInt()}"
+
+                val padding = 12.dp.toPx()
+                val lineHeight = 18.dp.toPx()
+                val boxWidth = 130.dp.toPx()
+                val boxHeight = (lineHeight * 4) + (padding * 2) + 4.dp.toPx()
+
+                var boxX = x + 10.dp.toPx()
+                if (boxX + boxWidth > width) {
+                    boxX = x - boxWidth - 10.dp.toPx()
+                }
+                val boxY = 10.dp.toPx()
+
+                val rect = RoundRect(
+                    left = boxX,
+                    top = boxY,
+                    right = boxX + boxWidth,
+                    bottom = boxY + boxHeight,
+                    cornerRadius = CornerRadius(8.dp.toPx())
+                )
+
+                drawPath(
+                    path = Path().apply { addRoundRect(rect) },
+                    color = Color(0xFF1E1E1E),
+                    alpha = 0.95f
+                )
+                drawPath(
+                    path = Path().apply { addRoundRect(rect) },
+                    color = Color.Gray.copy(alpha = 0.3f),
+                    style = Stroke(width = 1.dp.toPx())
+                )
+
+                val textX = boxX + padding
+                var currentY = boxY + padding + lineHeight/2
+
+                drawContext.canvas.nativeCanvas.drawText(dateText, textX, currentY, tooltipTitlePaint)
+
+                currentY += lineHeight + 4.dp.toPx()
+                tooltipValuePaint.color = android.graphics.Color.parseColor("#EF5350")
+                drawContext.canvas.nativeCanvas.drawText(wText, textX, currentY, tooltipValuePaint)
+
+                currentY += lineHeight
+                tooltipValuePaint.color = android.graphics.Color.parseColor("#66BB6A")
+                drawContext.canvas.nativeCanvas.drawText(sText, textX, currentY, tooltipValuePaint)
+
+                currentY += lineHeight
+                tooltipValuePaint.color = android.graphics.Color.parseColor("#FFCA28")
+                drawContext.canvas.nativeCanvas.drawText(rText, textX, currentY, tooltipValuePaint)
             }
         }
     }
 }
 
 @Composable
-private fun LegendDot(text: String, brush: Brush) {
+private fun ChartLegendItem(text: String, color: Color) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        Canvas(modifier = Modifier.size(12.dp)) {
-            drawCircle(brush = brush, radius = size.minDimension / 2)
-        }
-        Text(text = text, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.8f))
+        Box(
+            modifier = Modifier
+                .size(8.dp)
+                .background(color, CircleShape)
+        )
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontWeight = FontWeight.Medium
+        )
     }
 }

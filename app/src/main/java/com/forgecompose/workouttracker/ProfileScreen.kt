@@ -1,10 +1,9 @@
 package com.forgecompose.workouttracker
 
+import android.content.Context
+import android.content.SharedPreferences
 import android.os.Build
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -14,18 +13,19 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -37,29 +37,61 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
 import com.forgecompose.workouttracker.blurAnim.intensity
 import com.forgecompose.workouttracker.blurAnim.length
+import com.google.firebase.crashlytics.ktx.crashlytics
+import com.google.firebase.ktx.Firebase
 import java.text.SimpleDateFormat
 import java.util.*
-import kotlin.math.PI
-import kotlin.math.sin
-import kotlin.random.Random
 import kotlinx.coroutines.delay
+import java.time.Duration
+
 
 data class PersonalRecord(val exerciseName: String, val maxWeight: Double)
+
+class SurveyPromptManager(context: Context) {
+    private val prefs: SharedPreferences = context.getSharedPreferences("survey_prefs", Context.MODE_PRIVATE)
+    private val KEY_LAST_TAKEN = "last_survey_timestamp"
+    private val COOLDOWN_MS = Duration.ofDays(1).toMillis()
+
+    fun shouldShowPrompt(): Boolean {
+        val lastTaken = prefs.getLong(KEY_LAST_TAKEN, 0L)
+        val now = System.currentTimeMillis()
+        return (now - lastTaken) > COOLDOWN_MS || lastTaken == 0L
+    }
+
+    fun markSurveyTaken() {
+        prefs.edit().putLong(KEY_LAST_TAKEN, System.currentTimeMillis()).apply()
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun UserProfileScreen(
     navController: NavController,
-    viewModel: WorkoutListViewModel
+    viewModel: WorkoutListViewModel,
+    badgeViewModel: BadgeViewModel
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val prefsManager = remember { UserPreferencesManager(context) }
+    val surveyManager = remember { SurveyPromptManager(context) }
+
+    // Theme Hooks
+    val appearanceOptions by AppearanceOptionsManagerAppTheme
+        .flow(context)
+        .collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
+    val theme = appearanceOptions.selectedTheme.colors
+
     val userAge = remember { prefsManager.getAge() }
     val userHeight = remember { prefsManager.getHeight() }
     val userWeight = remember { prefsManager.getWeight() }
     val userName = remember { prefsManager.getName() }
     val stages = rememberColdStartStages()
+    val badges by badgeViewModel.badges.collectAsState()
+
+    var showSurveyPrompt by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        showSurveyPrompt = surveyManager.shouldShowPrompt()
+    }
 
     val (personalRecords, recentWorkouts) = remember(uiState) {
         if (uiState is WorkoutListUiState.Success) {
@@ -78,6 +110,7 @@ fun UserProfileScreen(
         }
     }
 
+    // Intro logic...
     val hour = remember { java.time.LocalTime.now().hour }
     val introColors = remember(hour) {
         when (hour) {
@@ -87,15 +120,16 @@ fun UserProfileScreen(
             else -> listOf(Color(0xFF02040A), Color(0xFF0A1324), Color(0xFF15243D), Color(0xFF1E3352))
         }
     }
-    val introBrush = remember(introColors) {
-        Brush.linearGradient(colors = introColors)
-    }
+    val introBrush = remember(introColors) { Brush.linearGradient(colors = introColors) }
     var showIntro by remember { mutableStateOf(true) }
     val introProgress by animateFloatAsState(targetValue = if (showIntro) 0f else 1f, animationSpec = tween(650, easing = LinearEasing), label = "introFade")
-    LaunchedEffect(Unit) { showIntro = false }
 
-    val performanceOptions by PerformanceOptionsManager.flow(context)
-        .collectAsState(initial = PerformanceOptions.Defaults)
+    LaunchedEffect(Unit) {
+        showIntro = false
+        Firebase.crashlytics.setCustomKey("current_screen", "Profile Screen")
+    }
+
+    val performanceOptions by PerformanceOptionsManager.flow(context).collectAsState(initial = PerformanceOptions.Defaults)
     val movingEffectsEnabled = performanceOptions.movingGradientAndParticles
     val shouldAnimate = stages.afterFirstFrame
     var animationClock by remember { mutableStateOf(0f) }
@@ -115,39 +149,17 @@ fun UserProfileScreen(
         }
     }
 
-    val fullPi = 2f * PI.toFloat()
-    val waveOffset = (animationClock * fullPi / 22f) % fullPi
-    val pulseAlpha = 0.25f + 0.10f * sin(animationClock * fullPi / 8f)
-    val glowIntensity = 0.4f + 0.2f * sin(animationClock * fullPi / 6f)
-    val gradientProgress = (animationClock / 15f) % 2f
-    val gradientOffset = if (gradientProgress > 1f) 2f - gradientProgress else gradientProgress
-
-    val clampedGlow by remember { derivedStateOf { glowIntensity.coerceIn(0f, 1f) } }
-    val clampedPulse by remember { derivedStateOf { pulseAlpha.coerceIn(0f, 1f) } }
-    val clampedGrad by remember { derivedStateOf { gradientOffset.coerceIn(0f, 1f) } }
-
-    val wavePath = remember { Path() }
-    val particleSeed = remember { Random(42) }
-    val particles = remember {
-        List(12) { i ->
-            val baseX = i / 12f
-            val yOff = 0.15f + particleSeed.nextFloat() * 0.25f
-            val r = 1.8f + particleSeed.nextFloat() * 2.0f
-            Triple(baseX, yOff, r)
-        }
-    }
-
-    val nameStyle = MaterialTheme.typography.headlineMedium.copy(
-        shadow = Shadow(color = Color.White.copy(alpha = 0.3f), blurRadius = 8f)
-    )
-
-    val dateFormatter = remember { SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()) }
     val blurAnim by animateDpAsState(
         if (showIntro) intensity.value else 0.dp,
         animationSpec = tween(length.value.toInt()),
         label = "blur"
     )
     val blurToApply = remember(blurAnim) { if (blurAnim < 0.6.dp) 0.dp else blurAnim.coerceAtMost(60.dp) }
+
+    val nameStyle = MaterialTheme.typography.headlineMedium.copy(
+        shadow = Shadow(color = Color.White.copy(alpha = 0.3f), blurRadius = 8f)
+    )
+    val dateFormatter = remember { SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()) }
 
     Box(
         modifier = Modifier
@@ -205,7 +217,12 @@ fun UserProfileScreen(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
-                        GlowingAvatar(icon = Icons.Default.Person)
+                        // Pass theme colors to Avatar
+                        GlowingAvatar(
+                            icon = Icons.Default.Person,
+                            primaryColor = theme.primary,
+                            secondaryColor = theme.secondary
+                        )
                         Text(
                             userName,
                             style = nameStyle,
@@ -214,10 +231,41 @@ fun UserProfileScreen(
                         )
                     }
                 }
+
+                if (showSurveyPrompt && stages.after600ms) {
+                    item {
+                        SurveyPromptCard(
+                            onClick = {
+                                surveyManager.markSurveyTaken()
+                                showSurveyPrompt = false
+                                navController.navigate("Survey")
+                            }
+                        )
+                    }
+                }
+
+                item {
+                    ProfileSectionCard(
+                        title = "Badges",
+                        themeColors = theme, // Pass theme
+                        action = {
+                            CardActionButton("View All") { navController.navigate("badges") }
+                        }
+                    ) {
+                        BadgeSection(
+                            badges = badges,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp)
+                        )
+                    }
+                }
+
                 if (stages.after600ms && personalRecords.isNotEmpty()) {
                     item {
                         ProfileSectionCard(
                             title = "Personal Records",
+                            themeColors = theme, // Pass theme
                             action = {
                                 CardActionButton("More") { navController.navigate("RepMax") }
                             }
@@ -227,39 +275,50 @@ fun UserProfileScreen(
                                     label = pr.exerciseName,
                                     value = "${String.format("%.1f", pr.maxWeight)} kg",
                                     icon = Icons.Default.Stars,
-                                    iconTint = Color(0xFFfce18a)
+                                    iconTint = Color(0xFFfce18a), // Gold for Stars logic usually stays
+                                    textColor = Color.White
                                 )
                             }
                         }
                     }
                 }
+
                 if (stages.after200ms && recentWorkouts.isNotEmpty()) {
                     item {
                         ProfileSectionCard(
                             title = "Recent Activity",
+                            themeColors = theme, // Pass theme
                             action = {
                                 CardActionButton("View History") { navController.navigate("WorkoutHistory") }
                             }
                         ) {
                             recentWorkouts.forEach { workout ->
                                 val date = remember(workout.date) { dateFormatter.format(Date(workout.date)) }
-                                ProfileStatRow(workout.name, date, Icons.Default.History)
+                                // Dynamic tint for History icon
+                                ProfileStatRow(
+                                    label = workout.name,
+                                    value = date,
+                                    icon = Icons.Default.History,
+                                    iconTint = theme.primary
+                                )
                             }
                         }
                     }
                 }
+
                 if (stages.after200ms) {
                     item {
                         ProfileSectionCard(
                             title = "Body Stats",
+                            themeColors = theme, // Pass theme
                             action = {
                                 CardActionButton("Edit Profile") { navController.navigate("EditUserStats") }
                             }
                         ) {
-                            ProfileStatRow("Age", userAge, Icons.Default.Person)
-                            ProfileStatRow("Height", "$userHeight cm", Icons.Default.Height)
-                            ProfileStatRow("Weight", "$userWeight kg", Icons.Default.MonitorWeight)
-                            ProfileStatRow("Experience", prefsManager.getExperience(), Icons.Default.DataExploration)
+                            ProfileStatRow("Age", userAge, Icons.Default.Person, iconTint = theme.primary)
+                            ProfileStatRow("Height", "$userHeight cm", Icons.Default.Height, iconTint = theme.primary)
+                            ProfileStatRow("Weight", "$userWeight kg", Icons.Default.MonitorWeight, iconTint = theme.primary)
+                            ProfileStatRow("Experience", prefsManager.getExperience(), Icons.Default.DataExploration, iconTint = theme.primary)
                         }
                     }
                 }
@@ -278,21 +337,131 @@ fun UserProfileScreen(
     }
 }
 
+// ... [SurveyPromptCard remains the same - Gold is usually a distinct CTA color] ...
 @Composable
-private fun GlowingAvatar(icon: ImageVector) {
+fun SurveyPromptCard(onClick: () -> Unit) {
+    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
+    val glowAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.3f,
+        targetValue = 0.8f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1500, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "glow"
+    )
+    val scale by infiniteTransition.animateFloat(
+        initialValue = 1f,
+        targetValue = 1.02f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1500, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "scale"
+    )
+
+    val haptics = LocalHapticFeedback.current
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .scale(scale)
+            .clickable {
+                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                onClick()
+            }
+            .clip(RoundedCornerShape(24.dp))
+            .drawWithCache {
+                val brush = Brush.linearGradient(
+                    colors = listOf(
+                        Color(0xFFD4AF37).copy(alpha = 0.15f),
+                        Color(0xFFC5A028).copy(alpha = 0.05f)
+                    )
+                )
+                val borderBrush = Brush.linearGradient(
+                    colors = listOf(
+                        Color(0xFFFFD700).copy(alpha = glowAlpha),
+                        Color(0xFFFFA500).copy(alpha = glowAlpha * 0.7f)
+                    )
+                )
+
+                onDrawBehind {
+                    drawRoundRect(brush, cornerRadius = CornerRadius(24.dp.toPx()))
+                    drawRoundRect(
+                        brush = borderBrush,
+                        style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx()),
+                        cornerRadius = CornerRadius(24.dp.toPx())
+                    )
+                }
+            }
+            .padding(16.dp)
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFFFFD700).copy(alpha = 0.2f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.AutoAwesome,
+                        contentDescription = null,
+                        tint = Color(0xFFFFD700),
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(16.dp))
+                Column {
+                    Text(
+                        "Update Preferences",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                    Text(
+                        "Refresh your recovery goals",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.White.copy(alpha = 0.7f)
+                    )
+                }
+            }
+            Icon(
+                Icons.Default.ArrowForward,
+                contentDescription = null,
+                tint = Color(0xFFFFD700)
+            )
+        }
+    }
+}
+
+
+@Composable
+private fun GlowingAvatar(
+    icon: ImageVector,
+    primaryColor: Color,
+    secondaryColor: Color
+) {
     Box(
         modifier = Modifier
             .size(120.dp)
             .clip(CircleShape)
             .drawWithCache {
+                // Use Secondary for deep background, mix with black
                 val bgBrush = Brush.radialGradient(
-                    colors = listOf(Color(0xFF3A0E0E), Color(0xFF120707)),
+                    colors = listOf(secondaryColor.copy(alpha = 0.6f), Color(0xFF050505)),
                     radius = size.minDimension / 2f * 1.5f
                 )
+                // Border uses Primary
                 val borderBrush = Brush.linearGradient(
                     colors = listOf(
-                        Color(0xFFFF5555).copy(alpha = 0.5f),
-                        Color(0xFF8B0000).copy(alpha = 0.3f)
+                        primaryColor.copy(alpha = 0.5f),
+                        secondaryColor.copy(alpha = 0.3f)
                     )
                 )
                 onDrawBehind {
@@ -305,12 +474,12 @@ private fun GlowingAvatar(icon: ImageVector) {
         Icon(
             imageVector = icon,
             contentDescription = "User Avatar",
-            tint = Color(0xFFFF3B30),
+            tint = primaryColor, // Use Primary for the Icon
             modifier = Modifier
                 .size(60.dp)
                 .drawWithCache {
                     val glowBrush = Brush.radialGradient(
-                        colors = listOf(Color(0xFFFF3B30).copy(alpha = 0.4f), Color.Transparent),
+                        colors = listOf(primaryColor.copy(alpha = 0.4f), Color.Transparent),
                         radius = size.minDimension
                     )
                     onDrawBehind {
@@ -324,6 +493,7 @@ private fun GlowingAvatar(icon: ImageVector) {
 @Composable
 private fun ProfileSectionCard(
     title: String,
+    themeColors: ColorSchemeAppTheme,
     action: @Composable (() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit
 ) {
@@ -334,26 +504,31 @@ private fun ProfileSectionCard(
             .clip(RoundedCornerShape(cornerRadius))
             .drawWithCache {
                 val cornerRpx = cornerRadius.toPx()
+                // Dynamic Background based on theme
                 val bgBrush = Brush.radialGradient(
-                    colors = listOf(Color(0xFF180909).copy(alpha = 0.9f), Color(0xFF100404).copy(alpha = 0.95f)),
+                    colors = listOf(
+                        themeColors.secondary.copy(alpha = 0.6f),
+                        themeColors.background.copy(alpha = 0.8f)
+                    ),
                     center = Offset(size.width / 2f, size.height * 0.1f),
                     radius = size.width * 1.5f
                 )
+                // Dynamic Border based on theme
                 val borderBrush = Brush.linearGradient(
                     colors = listOf(
-                        Color(0xFFFF5555).copy(alpha = 0.2f),
-                        Color(0xFF8B0000).copy(alpha = 0.1f)
+                        themeColors.primary.copy(alpha = 0.3f),
+                        themeColors.secondary.copy(alpha = 0.1f)
                     )
                 )
                 onDrawBehind {
                     drawRoundRect(
                         brush = bgBrush,
-                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(cornerRpx)
+                        cornerRadius = CornerRadius(cornerRpx)
                     )
                     drawRoundRect(
                         brush = borderBrush,
                         style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.dp.toPx()),
-                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(cornerRpx)
+                        cornerRadius = CornerRadius(cornerRpx)
                     )
                 }
             }
@@ -373,9 +548,10 @@ private fun ProfileSectionCard(
             action?.invoke()
         }
 
+        // Dynamic Divider
         HorizontalDivider(
             modifier = Modifier.padding(vertical = 12.dp),
-            color = Color(0xFFFF3535).copy(alpha = 0.3f)
+            color = themeColors.primary.copy(alpha = 0.3f)
         )
 
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -405,7 +581,8 @@ private fun ProfileStatRow(
     label: String,
     value: String,
     icon: ImageVector? = null,
-    iconTint: Color = Color(0xFFFF3B30)
+    iconTint: Color = Color(0xFFFF3B30), // Default value if not provided
+    textColor: Color = Color.White
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -428,7 +605,7 @@ private fun ProfileStatRow(
             Text(
                 text = label,
                 style = MaterialTheme.typography.bodyLarge,
-                color = Color.White.copy(alpha = 0.9f),
+                color = textColor.copy(alpha = 0.9f),
                 maxLines = 1,
                 overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
             )
@@ -438,7 +615,7 @@ private fun ProfileStatRow(
             text = value,
             style = MaterialTheme.typography.bodyLarge,
             fontWeight = FontWeight.SemiBold,
-            color = Color.White.copy(alpha = 0.7f),
+            color = textColor.copy(alpha = 0.7f),
             maxLines = 1
         )
     }

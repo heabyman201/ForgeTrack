@@ -67,6 +67,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
 import com.forgecompose.workouttracker.blurAnim.length
+import com.google.firebase.crashlytics.ktx.crashlytics
+import com.google.firebase.ktx.Firebase
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.time.LocalTime
@@ -185,7 +187,8 @@ fun WorkoutDetailScreen(
         )
     }
 
-    LaunchedEffect(Unit) { showIntro = false }
+    LaunchedEffect(Unit) { showIntro = false
+        Firebase.crashlytics.setCustomKey("current_screen", "Workout Details screen")}
 
 
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -274,6 +277,7 @@ fun WorkoutDetailScreen(
         animationSpec = tween(durationMillis = blurLength, easing = LinearEasing),
         label = "blurIntro"
     )
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -659,53 +663,7 @@ fun WorkoutDetailScreen(
                                         }
                                     }
                                 }
-                                if (cachedAllWorkouts.isNotEmpty()) {
-                                    item {
-                                        AnimatedVisibility(visible = stages.after700ms, enter = fadeIn()) {
-                                            GlassCard {
-                                                Column(Modifier.padding(cardPad)) {
-                                                    SectionTitle("Progression")
-                                                    key(selectedWorkout!!.name, chartSeriesSig) {
-                                                        ExerciseWeightProgressionGraph(
-                                                            exerciseName = selectedWorkout!!.name,
-                                                            workouts = cachedAllWorkouts
-                                                        )
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                    item {
-                                        AnimatedVisibility(visible = stages.after400ms, enter = fadeIn()) {
-                                            GlassCard {
-                                                Column(Modifier.padding(cardPad)) {
-                                                    SectionTitle("Sets Progression")
-                                                    key(selectedWorkout!!.name, chartSeriesSig) {
-                                                        ExerciseSetProgressionGraph(
-                                                            exerciseName = selectedWorkout!!.name,
-                                                            workouts = cachedAllWorkouts
-                                                        )
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                    item {
-                                        AnimatedVisibility(visible = stages.after800ms, enter = fadeIn()) {
-                                            GlassCard {
-                                                Column(Modifier.padding(cardPad)) {
-                                                    SectionTitle("Reps Progression")
-                                                    key(selectedWorkout!!.name, chartSeriesSig) {
-                                                        ExerciseRepProgressionGraph(
-                                                            exerciseName = selectedWorkout!!.name,
-                                                            workouts = cachedAllWorkouts
-                                                        )
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
+
                                 if (sameNameWorkouts.size > 1) {
                                     item {
                                         AnimatedVisibility(visible = stages.after400ms, enter = fadeIn()) {

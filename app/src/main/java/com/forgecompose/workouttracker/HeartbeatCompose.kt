@@ -33,6 +33,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
@@ -45,21 +46,23 @@ fun HeartbeatEcgCenterStrip(
     height: Dp = 64.dp,
     lineThickness: Dp = 2.dp,
     crimson: Color = Color(0xFFDC143C),
-    crimsonLight: Color = MaterialTheme.colorScheme.secondary,
-    crimsonDark: Color = MaterialTheme.colorScheme.error,
     label: Boolean = true
 ) {
     val density = LocalDensity.current
     val linePx = with(density) { lineThickness.toPx() }
-    val b = (bpm ?: 72).coerceIn(36, 200)
-    val cyclesPerSecond = (b / 60f).coerceIn(0.6f, 3.0f)
-    val ampFactor = (b / 72f).coerceIn(0.8f, 1.25f)
+
+    // FIX: Handle 0 as "detecting" (default to 72 for animation) instead of clamping 0 to 36
+    val animationBpm = if (bpm == null || bpm == 0) 72 else bpm.coerceIn(36, 200)
+
+    val cyclesPerSecond = (animationBpm / 60f).coerceIn(0.6f, 3.0f)
+    val ampFactor = (animationBpm / 72f).coerceIn(0.8f, 1.25f)
+
     val infinite = rememberInfiniteTransition(label = "ecg_center_phase")
     val phase by infinite.animateFloat(
         initialValue = 0f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
-            tween(durationMillis = (1000f / cyclesPerSecond).toInt().coerceAtLeast(120), easing = LinearEasing)
+            tween(durationMillis = (1000f / cyclesPerSecond).toInt(), easing = LinearEasing)
         ),
         label = "phase"
     )
@@ -70,21 +73,25 @@ fun HeartbeatEcgCenterStrip(
             .height(height)
             .drawBehind {
                 val y = size.height * 0.5f
+                // Base line
                 drawLine(
-                    color = crimson,
+                    color = crimson.copy(alpha = 0.3f), // Dimmer base line looks cleaner
                     start = Offset(0f, y),
                     end = Offset(size.width, y),
                     strokeWidth = linePx
                 )
+
+                // "Scanner" line
                 val p = phase % 1f
                 val x = size.width * p
                 val tickH = size.height * 0.3f * ampFactor
                 val fade = 0.45f * (0.5f + 0.5f * kotlin.math.cos((p * 2 * Math.PI).toFloat()))
+
                 drawLine(
-                    color = crimson.copy(alpha = fade),
+                    color = crimson.copy(alpha = fade + 0.3f), // Add base alpha
                     start = Offset(x, y - tickH),
                     end = Offset(x, y + tickH),
-                    strokeWidth = linePx
+                    strokeWidth = linePx * 1.5f // Slightly thicker scanner
                 )
             }
             .padding(horizontal = 12.dp)
@@ -93,13 +100,16 @@ fun HeartbeatEcgCenterStrip(
             modifier = Modifier.align(Alignment.Center),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            CenterPulseHeart(bpm = bpm, color = crimson)
+            CenterPulseHeart(bpm = animationBpm, color = crimson)
             Spacer(Modifier.width(10.dp))
             if (label) {
+                // FIX: Use monospaced digits so text doesn't jitter when numbers change (e.g. 111 vs 100)
                 Text(
-                    text = bpm?.let { "$it bpm" } ?: "— bpm",
+                    text = if (bpm == null || bpm == 0) "--" else "$bpm bpm",
                     color = MaterialTheme.colorScheme.onSurface,
-                    style = MaterialTheme.typography.titleLarge,
+                    style = MaterialTheme.typography.titleLarge.copy(
+                        fontFeatureSettings = "tnum" // Tabular (monospaced) numbers
+                    ),
                     fontWeight = FontWeight.Medium
                 )
             }
@@ -108,9 +118,8 @@ fun HeartbeatEcgCenterStrip(
 }
 
 @Composable
-private fun CenterPulseHeart(bpm: Int?, color: Color) {
-    val b = (bpm ?: 72).coerceIn(36, 200)
-    val beatMs = (60_000f / b).toInt().coerceAtLeast(220)
+private fun CenterPulseHeart(bpm: Int, color: Color) {
+    val beatMs = (60_000f / bpm).toInt().coerceAtLeast(220)
     val trans = rememberInfiniteTransition(label = "heart_phase")
     val phase by trans.animateFloat(
         initialValue = 0f,
@@ -121,33 +130,40 @@ private fun CenterPulseHeart(bpm: Int?, color: Color) {
         ),
         label = "phase"
     )
-    val s = 1f + 0.10f * kotlin.math.sin(phase)
-    val glow = 0.12f + 0.08f * (0.5f * (1f + kotlin.math.cos(phase)))
-    val size = (32 * s).dp
 
+    val s = 1f + 0.12f * kotlin.math.sin(phase)
+    val glowAlpha = 0.2f * (0.5f * (1f + kotlin.math.cos(phase)))
+
+    // FIX: Using a fixed size Box and scaling via graphicsLayer to prevent layout thrashing
     Box(
-        modifier = Modifier
-            .size(size)
-            .background(
-                Brush.radialGradient(
-                    listOf(
-                        color.copy(alpha = glow),
-                        Color.Transparent
-                    )
-                )
-            ),
+        modifier = Modifier.size(42.dp), // Fixed container size
         contentAlignment = Alignment.Center
     ) {
+        // Glow Effect
         Box(
             modifier = Modifier
-                .size(size * 0.88f)
+                .matchParentSize()
+                .graphicsLayer {
+                    scaleX = s * 1.2f
+                    scaleY = s * 1.2f
+                    alpha = glowAlpha
+                }
+                .clip(RoundedCornerShape(50))
+                .background(color)
+        )
+
+        // Heart Icon
+        Box(
+            modifier = Modifier
+                .size(32.dp) // Base size of the heart
+                .graphicsLayer {
+                    scaleX = s
+                    scaleY = s
+                }
                 .clip(RoundedCornerShape(50))
                 .background(
                     Brush.linearGradient(
-                        listOf(
-                            color.copy(alpha = 0.95f),
-                            color.copy(alpha = 0.70f)
-                        )
+                        listOf(color.copy(alpha = 0.9f), color.copy(alpha = 0.7f))
                     )
                 ),
             contentAlignment = Alignment.Center
@@ -156,7 +172,7 @@ private fun CenterPulseHeart(bpm: Int?, color: Color) {
                 imageVector = androidx.compose.material.icons.Icons.Rounded.Favorite,
                 contentDescription = null,
                 tint = Color.White,
-                modifier = Modifier.size(size * 0.68f)
+                modifier = Modifier.size(20.dp)
             )
         }
     }

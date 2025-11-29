@@ -36,6 +36,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
 import com.forgecompose.workouttracker.blurAnim.intensity
 import com.forgecompose.workouttracker.blurAnim.length
+import com.google.firebase.crashlytics.ktx.crashlytics
+import com.google.firebase.ktx.Firebase
 import java.time.Instant
 
 import java.time.LocalTime
@@ -46,6 +48,7 @@ import kotlin.math.max
 import kotlin.math.sin
 import kotlin.random.Random
 
+@RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProfileMuscleStatusRoute(
@@ -53,8 +56,15 @@ fun ProfileMuscleStatusRoute(
     viewModel2: MainScreenViewModel,
     viewModel: WorkoutListViewModel
 ) {
-    val cold = rememberColdStartStages()
     val context = LocalContext.current
+
+    // --- Theme Hook ---
+    val appearanceOptions by AppearanceOptionsManagerAppTheme
+        .flow(context)
+        .collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
+    val theme = appearanceOptions.selectedTheme.colors
+
+    val cold = rememberColdStartStages()
     val density = LocalDensity.current
     val performanceOptions by PerformanceOptionsManager.flow(context).collectAsState(initial = PerformanceOptions.Defaults)
     val movingEffectsEnabled = performanceOptions.movingGradientAndParticles
@@ -79,9 +89,7 @@ fun ProfileMuscleStatusRoute(
     val glowIntensity = 0.4f + 0.2f * sin(animationClock * fullPi / 6f)
     val gradientProgress = (animationClock / 15f) % 2f
     val gradientOffset = if (gradientProgress > 1f) 2f - gradientProgress else gradientProgress
-    val clampedGlow by remember { derivedStateOf { glowIntensity.coerceIn(0f, 1f) } }
-    val clampedPulse by remember { derivedStateOf { pulseAlpha.coerceIn(0f, 1f) } }
-    val clampedGrad by remember { derivedStateOf { gradientOffset.coerceIn(0f, 1f) } }
+
     val particleSeed = remember { Random(42) }
     val particles = remember {
         List(12) { i ->
@@ -91,14 +99,15 @@ fun ProfileMuscleStatusRoute(
             Triple(baseX, yOff, r)
         }
     }
-    val hour = remember { LocalTime.now().hour }
-    val introColors = remember(hour) {
-        when (hour) {
-            in 5..10 -> listOf(Color(0xFF2B1A00), Color(0xFF3C2405), Color(0xFF5A360A), Color(0xFF7A4A12))
-            in 11..16 -> listOf(Color(0xFF332300), Color(0xFF4A3408), Color(0xFF6B4B0F), Color(0xFF8C6217))
-            in 17..20 -> listOf(Color(0xFF1A0614), Color(0xFF2A0A20), Color(0xFF3D0F2D), Color(0xFF52153A))
-            else -> listOf(Color(0xFF02040A), Color(0xFF0A1324), Color(0xFF15243D), Color(0xFF1E3352))
-        }
+
+    // --- Dynamic Intro Colors based on Theme ---
+    val introColors = remember(theme) {
+        listOf(
+            theme.secondary.copy(alpha = 0.8f),
+            theme.tertiary,
+            theme.background,
+            theme.background
+        )
     }
     val introBrush = remember(introColors) {
         Brush.linearGradient(
@@ -107,6 +116,7 @@ fun ProfileMuscleStatusRoute(
             end = Offset(Float.POSITIVE_INFINITY, 0f)
         )
     }
+
     var showIntro by remember { mutableStateOf(true) }
     val introProgress by animateFloatAsState(
         targetValue = if (showIntro) 0f else 1f,
@@ -114,6 +124,7 @@ fun ProfileMuscleStatusRoute(
         label = "introFade"
     )
     LaunchedEffect(Unit) {
+        Firebase.crashlytics.setCustomKey("current_screen", "MuscleStatus")
         showIntro = false
         taskbarOverride.shouldOverrideVisiblity.value = false
     }
@@ -145,7 +156,8 @@ fun ProfileMuscleStatusRoute(
 //                clampedPulse = clampedPulse,
 //                clampedGlow = clampedGlow,
 //                clampedGrad = clampedGrad,
-//                density = density
+//                density = density,
+//                themeColors = theme
 //            )
 //            .drawWithCache {
 //                val introBrush = introBrush
@@ -182,11 +194,11 @@ fun ProfileMuscleStatusRoute(
             modifier = Modifier.fillMaxSize()
         ) { padding ->
             AnimatedBackdrop(
-                    modifier = Modifier,
-                    introBrush = introBrush,
-                    introAlpha = 1f - introProgress,
-                    enableWaves = movingEffectsEnabled,
-                    enableAnimation =  movingEffectsEnabled
+                modifier = Modifier,
+                introBrush = introBrush,
+                introAlpha = 1f - introProgress,
+                enableWaves = movingEffectsEnabled,
+                enableAnimation =  movingEffectsEnabled
 
             )
             Box(modifier = Modifier.fillMaxSize()) {
@@ -254,7 +266,7 @@ fun ProfileMuscleStatusRoute(
                                                     advicePayload = "",
                                                     nowEpochMillis = System.currentTimeMillis(),
                                                     modifier = Modifier.fillMaxWidth(),
-                                                    weeklySummaryAvailable = hasRoomForButton,
+
                                                     onOpenWeeklySummary = {
                                                         navController.navigate("WeeklySummary")
                                                         haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.KeyboardTap)
@@ -288,7 +300,8 @@ fun Modifier.redGridBackground(
     clampedPulse: Float,
     clampedGlow: Float,
     clampedGrad: Float,
-    density: androidx.compose.ui.unit.Density
+    density: androidx.compose.ui.unit.Density,
+    themeColors: ColorSchemeAppTheme
 ): Modifier = this.then(
     Modifier.drawWithCache {
         val minSpacingPx = with(density) { 36.dp.toPx() }
@@ -301,17 +314,17 @@ fun Modifier.redGridBackground(
 
         val baseLinear = Brush.linearGradient(
             colors = listOf(
-                Color(0xFF1A0505),
-                Color(0xFF2A0A0A),
-                Color(0xFF3A0F0F),
-                Color(0xFF1A0505)
+                themeColors.background,
+                themeColors.tertiary,
+                themeColors.secondary.copy(alpha = 0.2f),
+                themeColors.background
             ),
             start = Offset(0f, size.height * (0.15f + 0.15f * clampedGrad)),
             end = Offset(size.width, size.height * (0.85f - 0.15f * clampedGrad))
         )
         val radialCore = Brush.radialGradient(
             colors = listOf(
-                Color(0xFF9B111E).copy(alpha = 0.35f + 0.25f * clampedGlow),
+                themeColors.primary.copy(alpha = 0.35f + 0.25f * clampedGlow),
                 Color.Transparent
             ),
             center = Offset(
@@ -322,7 +335,7 @@ fun Modifier.redGridBackground(
         )
         val radialHalo = Brush.radialGradient(
             colors = listOf(
-                Color(0xFFFF4D4D).copy(alpha = 0.10f + 0.12f * clampedPulse),
+                themeColors.primary.copy(alpha = 0.10f + 0.12f * clampedPulse),
                 Color.Transparent
             ),
             center = Offset(
@@ -333,16 +346,16 @@ fun Modifier.redGridBackground(
         )
         val sweepGlow = Brush.sweepGradient(
             0f to Color.Transparent,
-            0.25f to Color(0xFFFFA8A8).copy(alpha = 0.06f + 0.08f * clampedPulse),
+            0.25f to themeColors.secondary.copy(alpha = 0.06f + 0.08f * clampedPulse),
             0.5f to Color.Transparent,
-            0.75f to Color(0xFFFF7A7A).copy(alpha = 0.04f + 0.06f * clampedGlow),
+            0.75f to themeColors.primary.copy(alpha = 0.04f + 0.06f * clampedGlow),
             1f to Color.Transparent,
             center = Offset(size.width * 0.5f, size.height * 0.5f)
         )
         val vignette = Brush.radialGradient(
             colors = listOf(
-                Color(0xFF1A0808).copy(alpha = 0.95f),
-                Color(0xFF100606)
+                themeColors.tertiary.copy(alpha = 0.95f),
+                themeColors.background
             ),
             center = Offset(
                 size.width * (0.30f + 0.40f * clampedGrad),
@@ -351,8 +364,8 @@ fun Modifier.redGridBackground(
             radius = max(size.width, size.height) * (0.9f + 0.15f * clampedGrad)
         )
 
-        val gridMinor = Color(0xFF5C2A2A)
-        val gridMajor = Color(0xFF7A3333)
+        val gridMinor = themeColors.secondary.copy(alpha = 0.3f)
+        val gridMajor = themeColors.secondary.copy(alpha = 0.5f)
         val minorAlpha = (0.10f + 0.08f * clampedPulse).coerceIn(0.06f, 0.20f)
         val majorAlpha = (0.16f + 0.16f * clampedGlow).coerceIn(0.12f, 0.32f)
         val pathMinor = Path()
@@ -382,7 +395,7 @@ fun Modifier.redGridBackground(
         val sheen = Brush.linearGradient(
             colors = listOf(
                 Color.Transparent,
-                Color.White.copy(alpha = 0.02f),
+                themeColors.primary.copy(alpha = 0.02f),
                 Color.Transparent
             ),
             start = Offset.Zero,
@@ -404,4 +417,3 @@ fun Modifier.redGridBackground(
         }
     }
 )
-

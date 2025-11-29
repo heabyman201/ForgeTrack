@@ -24,7 +24,7 @@ interface WorkoutRepo {
     suspend fun removeLoggedExercise(workoutExercise: WorkoutExercise)
     suspend fun getLastOrderInWorkout(workoutId: Long): Int?
 
-
+    suspend fun getWorkoutCount(): Int = getWorkoutCount()
     // --- ExerciseSet Methods ---
     fun getSetsForWorkoutExercise(workoutExerciseId: Long): Flow<List<ExerciseSet>>
     suspend fun getSetById(setId: Long): Flow<ExerciseSet?> // Changed to Flow if needed for observation
@@ -32,6 +32,7 @@ interface WorkoutRepo {
     suspend fun updateSet(exerciseSet: ExerciseSet)
     suspend fun removeSet(exerciseSet: ExerciseSet)
     suspend fun getLastSetNumber(workoutExerciseId: Long): Int?
+
 }
 class WorkoutRepositoryImpl(
     private val workoutDao: WorkoutDao,
@@ -54,6 +55,7 @@ class WorkoutRepositoryImpl(
     override suspend fun deleteAllWorkouts() {
         workoutDao.deleteAll()
     }
+
     override fun getWorkoutsByStatus(status: WorkoutStatus): Flow<List<Workout>> {
         return workoutDao.getWorkoutsByStatus(status)
     }

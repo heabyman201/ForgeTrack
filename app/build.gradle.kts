@@ -18,6 +18,7 @@ plugins {
     id ("org.jetbrains.kotlin.plugin.serialization") version "1.9.10"
     id("com.google.gms.google-services")
     id("com.google.firebase.firebase-perf")
+    id("com.google.firebase.crashlytics")
 }
 
 android {
@@ -30,7 +31,7 @@ android {
         minSdk = 31
         targetSdk = 36
         versionCode = 4
-        versionName = "1.01"
+        versionName = "1.03"
         buildConfigField("String", "API_KEY", "\"$apiKey\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -77,7 +78,6 @@ dependencies {
     implementation(libs.androidx.lifecycle.process)
     implementation(libs.androidx.foundation)
 
-
     "baselineProfile"(project(":app:baselineprofile2"))
     implementation("com.github.Kyant0:AndroidLiquidGlass:1.0.0-alpha15")
 
@@ -89,6 +89,10 @@ dependencies {
     implementation("com.google.firebase:firebase-auth-ktx")
     implementation("com.google.firebase:firebase-firestore-ktx")
     implementation("com.google.firebase:firebase-perf")
+
+    // Firebase services
+    implementation("com.google.firebase:firebase-crashlytics-ktx")
+
     // Material 3
     implementation("androidx.compose.material:material-icons-extended:1.7.8")
     implementation(libs.material3)

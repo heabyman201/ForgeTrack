@@ -166,3 +166,33 @@ val workoutPresets = listOf(
 //    WorkoutPreset("Jump Rope", "Cardio"),
 //    WorkoutPreset("Swimming", "Cardio")
 )
+@Serializable
+data class WorkoutRoutine(
+    val name: String,
+    val presetNames: List<String>
+)
+val workoutRoutines = listOf(
+    WorkoutRoutine(
+        name = "Push Day",
+        presetNames = listOf(
+
+        )
+    ),
+    WorkoutRoutine(
+        name = "Pull Day",
+        presetNames = listOf(
+
+        )
+    ),
+    WorkoutRoutine(
+        name = "Leg Day",
+        presetNames = listOf(
+
+        )
+    )
+)
+fun WorkoutRoutine.toPresets(allPresets: List<WorkoutPreset>): List<WorkoutPreset> =
+    presetNames.mapNotNull { name ->
+        allPresets.firstOrNull { it.name == name }
+    }
+

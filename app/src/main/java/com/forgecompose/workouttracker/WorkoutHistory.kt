@@ -81,6 +81,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
 import com.forgecompose.workouttracker.blurAnim.intensity
 import com.forgecompose.workouttracker.blurAnim.length
+import com.google.firebase.crashlytics.ktx.crashlytics
+import com.google.firebase.ktx.Firebase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -96,34 +98,43 @@ fun WorkoutHistory(
     viewModel: WorkoutListViewModel,
     navController: NavController
 ) {
+    val context = LocalContext.current
+
+    // --- Theme Hook ---
+    val appearanceOptions by AppearanceOptionsManagerAppTheme
+        .flow(context)
+        .collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
+    val theme = appearanceOptions.selectedTheme.colors
+
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     var showDeleteConfirmation by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     var searchQuery by remember { mutableStateOf("") }
     var sortAscending by remember { mutableStateOf(false) }
 
-    val hour = remember { LocalTime.now().hour }
-    val introColors = remember(hour) {
-        when (hour) {
-            in 5..10 -> listOf(Color(0xFF2B1A00), Color(0xFF3C2405), Color(0xFF5A360A), Color(0xFF7A4A12))
-            in 11..16 -> listOf(Color(0xFF332300), Color(0xFF4A3408), Color(0xFF6B4B0F), Color(0xFF8C6217))
-            in 17..20 -> listOf(Color(0xFF1A0614), Color(0xFF2A0A20), Color(0xFF3D0F2D), Color(0xFF52153A))
-            else -> listOf(Color(0xFF02040A), Color(0xFF0A1324), Color(0xFF15243D), Color(0xFF1E3352))
-        }
+    // --- Dynamic Intro Colors based on Theme ---
+    val introColors = remember(theme) {
+        listOf(
+            theme.secondary.copy(alpha = 0.8f),
+            theme.tertiary,
+            theme.background,
+            theme.background
+        )
     }
     val introBrush = remember(introColors) { Brush.linearGradient(colors = introColors) }
+
     var showIntro by remember { mutableStateOf(true) }
     val introProgress by animateFloatAsState(targetValue = if (showIntro) 0f else 1f, animationSpec = tween(650, easing = LinearEasing), label = "introFade")
     LaunchedEffect(Unit) { showIntro = false }
     val blurAnim by animateDpAsState(if (showIntro) intensity.value else 0.dp, animationSpec = tween(length.value.toInt()), label = "blur")
 
-    val context = LocalContext.current
     val performanceOptions by PerformanceOptionsManager.flow(context).collectAsState(initial = PerformanceOptions.Defaults)
     val movingEffectsEnabled = performanceOptions.movingGradientAndParticles
     val stages = rememberColdStartStages()
     val enableAnim = remember(movingEffectsEnabled, stages.afterFirstFrame) { movingEffectsEnabled && stages.afterFirstFrame }
 
-    LaunchedEffect(Unit) { taskbarOverride.shouldOverrideVisiblity.value = false }
+    LaunchedEffect(Unit) { taskbarOverride.shouldOverrideVisiblity.value = false;
+        Firebase.crashlytics.setCustomKey("current_screen", "Workout History Screen")}
 
     Scaffold(
         topBar = {
@@ -142,24 +153,25 @@ fun WorkoutHistory(
                     DropdownMenu(
                         expanded = showMenu,
                         onDismissRequest = { showMenu = false },
-                        modifier = Modifier.background(Color(0xFF2E0F0F).copy(alpha = 0.95f))
+                        // Dynamic Menu Background
+                        modifier = Modifier.background(theme.tertiary.copy(alpha = 0.95f))
                     ) {
                         DropdownMenuItem(
-                            text = { Text("Sort Oldest to Newest") },
+                            text = { Text("Sort Oldest to Newest", color = Color.White) },
                             onClick = {
                                 sortAscending = true
                                 showMenu = false
                             }
                         )
                         DropdownMenuItem(
-                            text = { Text("Sort Newest to Oldest") },
+                            text = { Text("Sort Newest to Oldest", color = Color.White) },
                             onClick = {
                                 sortAscending = false
                                 showMenu = false
                             }
                         )
                         DropdownMenuItem(
-                            text = { Text("Delete All", color = MaterialTheme.colorScheme.error) },
+                            text = { Text("Delete All", color = theme.primary) },
                             onClick = {
                                 showMenu = false
                                 showDeleteConfirmation = true
@@ -190,7 +202,7 @@ fun WorkoutHistory(
                 enableWaves = stages.after600ms && enableAnim,
                 enableAnimation = enableAnim,
 
-            )
+                )
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -206,13 +218,13 @@ fun WorkoutHistory(
                     leadingIcon = { Icon(imageVector = Icons.Default.Search, contentDescription = "Search", tint = Color.White.copy(alpha = 0.7f)) },
                     shape = RoundedCornerShape(24.dp),
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = Color.White.copy(alpha = 0.5f),
+                        focusedBorderColor = theme.primary.copy(alpha = 0.5f),
                         unfocusedBorderColor = Color.White.copy(alpha = 0.2f),
-                        focusedContainerColor = Color(0xFF4A0000).copy(alpha = 0.25f),
-                        unfocusedContainerColor = Color(0xFF3D0000).copy(alpha = 0.2f),
+                        focusedContainerColor = theme.secondary.copy(alpha = 0.25f),
+                        unfocusedContainerColor = theme.tertiary.copy(alpha = 0.2f),
                         focusedTextColor = Color.White,
                         unfocusedTextColor = Color.White.copy(alpha = 0.9f),
-                        cursorColor = Color.White
+                        cursorColor = theme.primary
                     ),
                     singleLine = true,
                     keyboardOptions = KeyboardOptions.Default.copy(imeAction = ImeAction.Search),
@@ -220,7 +232,7 @@ fun WorkoutHistory(
 
                 when (val state = uiState) {
                     is WorkoutListUiState.Loading -> {
-                        CircularProgressIndicator(modifier = Modifier.align(Alignment.CenterHorizontally), color = Color(0xFFFF3B30))
+                        CircularProgressIndicator(modifier = Modifier.align(Alignment.CenterHorizontally), color = theme.primary)
                     }
                     is WorkoutListUiState.Error -> {
                         Text(
@@ -240,6 +252,7 @@ fun WorkoutHistory(
                         } else {
                             WorkoutHistoryList(
                                 workouts = filteredAndSortedWorkouts,
+                                theme = theme, // Pass theme down
                                 onWorkoutClicked = { workout ->
                                     navController.currentBackStackEntry?.savedStateHandle?.set("selectedWorkoutId", workout.id)
                                     navController.navigate("${Routes.DetailedWorkout}/${workout.id}")
@@ -282,6 +295,7 @@ fun WorkoutHistory(
 @Composable
 private fun WorkoutHistoryList(
     workouts: List<Workout>,
+    theme: ColorSchemeAppTheme,
     onWorkoutClicked: (Workout) -> Unit,
     onDeleteClicked: (Workout) -> Unit
 ) {
@@ -294,6 +308,7 @@ private fun WorkoutHistoryList(
         items(items = workouts, key = { it.id }) { workout ->
             WorkoutHistoryItem(
                 workout = workout,
+                theme = theme,
                 onClick = {
                     haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                     onWorkoutClicked(workout)
@@ -310,6 +325,7 @@ private fun WorkoutHistoryList(
 @Composable
 private fun WorkoutHistoryItem(
     workout: Workout,
+    theme: ColorSchemeAppTheme,
     onClick: () -> Unit,
     onDelete: () -> Unit
 ) {
@@ -332,15 +348,16 @@ private fun WorkoutHistoryItem(
             .clip(RoundedCornerShape(cornerRadius))
             .drawWithCache {
                 val cornerRpx = cornerRadius.toPx()
+                // Dynamic Item Background
                 val bgBrush = Brush.radialGradient(
-                    colors = listOf(Color(0xFF130606).copy(alpha = 0.75f), Color(0xFF100404).copy(alpha = 0.75f)),
+                    colors = listOf(theme.tertiary.copy(alpha = 0.75f), theme.background.copy(alpha = 0.75f)),
                     center = Offset(size.width / 2f, size.height * 0.1f),
                     radius = size.width
                 )
                 val borderBrush = Brush.linearGradient(
                     colors = listOf(
-                        Color(0xFFFF5555).copy(alpha = 0.2f),
-                        Color(0xFF8B0000).copy(alpha = 0.1f)
+                        theme.primary.copy(alpha = 0.2f),
+                        theme.secondary.copy(alpha = 0.1f)
                     )
                 )
                 onDrawBehind {
@@ -401,7 +418,7 @@ private fun WorkoutHistoryItem(
                                 onDelete()
                             },
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = Color(0xFFFF3535),
+                                containerColor = theme.primary,
                                 contentColor = Color.White
                             )
                         ) { Text("Delete") }
@@ -412,7 +429,7 @@ private fun WorkoutHistoryItem(
                 Icon(
                     imageVector = Icons.Default.Delete,
                     contentDescription = "Delete workout",
-                    tint = Color(0xFFFF3535).copy(alpha = 0.9f)
+                    tint = theme.primary.copy(alpha = 0.9f)
                 )
             }
         }
