@@ -178,11 +178,11 @@ fun ProfileMuscleStatusRoute(
                             fontWeight = FontWeight.Bold
                         )
                     },
-                    navigationIcon = {
-                        IconButton(onClick = { navController.navigateUp() }) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Go back")
-                        }
-                    },
+//                    navigationIcon = {
+//                        IconButton(onClick = { navController.navigateUp() }) {
+//                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Go back")
+//                        }
+//                    },
                     colors = TopAppBarDefaults.topAppBarColors(
                         containerColor = Color.Transparent,
                         titleContentColor = Color.White,

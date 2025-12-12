@@ -78,9 +78,11 @@ dependencies {
     implementation(libs.androidx.lifecycle.process)
     implementation(libs.androidx.foundation)
 
+    implementation("com.google.android.gms:play-services-auth:21.4.0")
     "baselineProfile"(project(":app:baselineprofile2"))
     implementation("com.github.Kyant0:AndroidLiquidGlass:1.0.0-alpha15")
-
+    implementation("com.google.mlkit:genai-prompt:1.0.0-alpha1")
+    implementation("com.google.android.gms:play-services-tflite-java:16.4.0")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")

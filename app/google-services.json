@@ -13,7 +13,12 @@
           "package_name": "com.example.app_wear"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "397225525667-nf72ileh84180214t9df60507bj5cga1.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyAyoYmVhcKUd41adif_cy9yipJ2vxPplgo"
@@ -21,7 +26,12 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "397225525667-nf72ileh84180214t9df60507bj5cga1.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     },
@@ -32,7 +42,20 @@
           "package_name": "com.forgecompose.workouttracker"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "397225525667-tttsodab6m2ha7v82a2qquql8jvpu2i9.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.forgecompose.workouttracker",
+            "certificate_hash": "8b090c59d3800f7488d24528d6ee6c7d25962c54"
+          }
+        },
+        {
+          "client_id": "397225525667-nf72ileh84180214t9df60507bj5cga1.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyAyoYmVhcKUd41adif_cy9yipJ2vxPplgo"
@@ -40,7 +63,12 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "397225525667-nf72ileh84180214t9df60507bj5cga1.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }

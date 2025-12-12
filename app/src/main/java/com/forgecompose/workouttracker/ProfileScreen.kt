@@ -182,11 +182,11 @@ fun UserProfileScreen(
             topBar = {
                 TopAppBar(
                     title = { Text("Profile", fontWeight = FontWeight.Bold) },
-                    navigationIcon = {
-                        IconButton(onClick = { navController.navigateUp() }) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Go back")
-                        }
-                    },
+//                    navigationIcon = {
+//                        IconButton(onClick = { navController.navigateUp() }) {
+//                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Go back")
+//                        }
+//                    },
                     actions = {
                         IconButton(onClick = { navController.navigate("Settings") }) {
                             Icon(Icons.Default.Settings, contentDescription = "Settings")
@@ -361,6 +361,9 @@ fun SurveyPromptCard(onClick: () -> Unit) {
     )
 
     val haptics = LocalHapticFeedback.current
+    val context = LocalContext.current
+    val appearanceOptions by AppearanceOptionsManagerAppTheme.flow(context).collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
+    val theme = appearanceOptions.selectedTheme.colors
 
     Box(
         modifier = Modifier
@@ -374,14 +377,14 @@ fun SurveyPromptCard(onClick: () -> Unit) {
             .drawWithCache {
                 val brush = Brush.linearGradient(
                     colors = listOf(
-                        Color(0xFFD4AF37).copy(alpha = 0.15f),
-                        Color(0xFFC5A028).copy(alpha = 0.05f)
+                      appearanceOptions.colors.primary.copy(alpha = 0.15f),
+                        appearanceOptions.colors.primary.copy(alpha = 0.05f)
                     )
                 )
                 val borderBrush = Brush.linearGradient(
                     colors = listOf(
-                        Color(0xFFFFD700).copy(alpha = glowAlpha),
-                        Color(0xFFFFA500).copy(alpha = glowAlpha * 0.7f)
+                        appearanceOptions.colors.primary.copy(alpha = glowAlpha),
+                        appearanceOptions.colors.primary.copy(alpha = glowAlpha * 0.7f)
                     )
                 )
 
@@ -406,13 +409,13 @@ fun SurveyPromptCard(onClick: () -> Unit) {
                     modifier = Modifier
                         .size(40.dp)
                         .clip(CircleShape)
-                        .background(Color(0xFFFFD700).copy(alpha = 0.2f)),
+                        .background(appearanceOptions.colors.background.copy(alpha = 0.2f)),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = Icons.Outlined.AutoAwesome,
                         contentDescription = null,
-                        tint = Color(0xFFFFD700),
+                        tint =     appearanceOptions.colors.primary,
                         modifier = Modifier.size(24.dp)
                     )
                 }
@@ -434,7 +437,7 @@ fun SurveyPromptCard(onClick: () -> Unit) {
             Icon(
                 Icons.Default.ArrowForward,
                 contentDescription = null,
-                tint = Color(0xFFFFD700)
+                tint = appearanceOptions.colors.primary
             )
         }
     }

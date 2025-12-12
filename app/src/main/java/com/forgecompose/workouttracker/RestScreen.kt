@@ -160,7 +160,7 @@ fun RestAdviceSection(
 
     LaunchedEffect(Unit) {
         while (true) {
-            delay(11000)
+            delay(10000)
             index = (index + 1) % tips.size
         }
     }
@@ -229,7 +229,10 @@ fun RestAdviceSection(
                         ),
                         color = Color.White.copy(alpha = 0.97f),
                         maxLines = 3,
-                        overflow = TextOverflow.Ellipsis
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.animateContentSize(
+                            animationSpec = tween(300)
+                        )
                     )
                 }
             }

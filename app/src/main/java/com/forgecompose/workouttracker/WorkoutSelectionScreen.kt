@@ -29,7 +29,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -79,6 +81,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
@@ -633,12 +636,13 @@ fun WorkoutSelector(
                                         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                                     },
                                     label = {
-                                        Text(category, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal)
+                                        Text(category, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                            color = if (isSelected) Color.White else Color.White.copy(alpha = 0.7f))
                                     },
-                                    leadingIcon = if (isSelected) { { Icon(Icons.Filled.Done, contentDescription = "Selected", tint = Color.Black) } } else null,
+                                    leadingIcon = if (isSelected) { { Icon(Icons.Filled.Done, contentDescription = "Selected", tint = Color.White) } } else null,
                                     shape = RoundedCornerShape(16.dp),
                                     colors = FilterChipDefaults.filterChipColors(
-                                        selectedContainerColor = Color.White.copy(alpha = 0.95f),
+                                        selectedContainerColor = appearanceOptions.colors.primary,
                                         containerColor = theme.tertiary.copy(alpha = 0.4f),
                                         selectedLabelColor = Color.Black,
                                         labelColor = Color.White
@@ -647,7 +651,7 @@ fun WorkoutSelector(
                                         enabled = true,
                                         selected = isSelected,
                                         borderColor = Color.White.copy(alpha = 0.2f),
-                                        selectedBorderColor = Color.White.copy(alpha = 0.7f),
+                                        selectedBorderColor = appearanceOptions.colors.secondary.copy(alpha = 0.76f),
                                         borderWidth = if (isSelected) 2.dp else 1.dp
                                     )
                                 )
@@ -656,9 +660,14 @@ fun WorkoutSelector(
                     }
 
                     Spacer(modifier = Modifier.height(8.dp))
+                    val liststate = rememberLazyListState()
+LaunchedEffect(filteredWorkouts) {
+liststate.animateScrollToItem(0)
 
+}
                     if (stages.after200ms) {
                         LazyColumn(
+                            state = liststate,
                             modifier = Modifier.fillMaxSize(),
                             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 90.dp),
                             verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -672,7 +681,7 @@ fun WorkoutSelector(
                                         .fillMaxWidth()
                                         .graphicsLayer { scaleX = scale; scaleY = scale }
                                         .hazeEffect(state = haze, style = HazeMaterials.ultraThick())
-                                        .border(width = 1.dp, color = theme.primary.copy(alpha = 0.1f), shape = RoundedCornerShape(16.dp))
+                                        .border(width = 1.dp, color = theme.primary.copy(alpha = 0.1f), shape = RoundedCornerShape(32.dp))
                                         .combinedClickable(
                                             interactionSource = interactionSource,
                                             indication = null,
@@ -690,7 +699,7 @@ fun WorkoutSelector(
                                                 }
                                             }
                                         ),
-                                    shape = RoundedCornerShape(16.dp),
+                                    shape = RoundedCornerShape(32.dp),
                                     colors = CardDefaults.cardColors(
                                         containerColor = if (ConnectedWorkout.currentMode.value == ConnectedWorkout.WorkoutMode.INACTIVE)
                                             theme.secondary.copy(alpha = 0.3f) else Color.DarkGray

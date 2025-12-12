@@ -154,50 +154,36 @@ import kotlin.math.max
 import kotlin.math.roundToInt
 import kotlin.system.exitProcess
 
-//private fun lastAndPrevSameName(workouts: List<Workout>): Pair<Workout?, Workout?> {
-//    val last = workouts.maxByOrNull { it.date } ?: return null to null
-//    val prevSame = workouts
-//        .asSequence()
-//        .filter { it.name == last.name && it.date < last.date }
-//        .maxByOrNull { it.date }
-//    return last to prevSame
-//}
-//
-//
-//
-//
-//
-//fun maxWeightForName(workouts: List<Workout>, exerciseName: String): Double {
-//    return workouts.asSequence()
-//        .filter { it.name == exerciseName }
-//        .map { it.weight ?: 0.0 }
-//        .maxOrNull() ?: 0.0
-//}
-
-
-
 var startDestination = "home"
+
 class MainActivity : ComponentActivity() {
 
     private lateinit var onboardingManager: OnboardingManager
     private lateinit var userPreferencesManager: UserPreferencesManager
 
-    // Grab your repo once
+
+    private val mergedRepository by lazy {
+
+        val localRepo = (application as MyApplication).workoutRepository
+
+
+        MergedWorkoutRepository(localRepo)
+    }
     private val workoutRepository by lazy {
         (application as MyApplication).workoutRepository
     }
 
-    // Existing main screen VM
+
     private val mainScreenViewModel: MainScreenViewModel by viewModels {
-        MainScreenViewModelFactory(workoutRepository)
+        MainScreenViewModelFactory(mergedRepository)
     }
 
-    // Workout list VM (moved out of onCreate)
+
     private val workoutListViewModel: WorkoutListViewModel by viewModels {
-        WorkoutListViewModelFactory(workoutRepository)
+        WorkoutListViewModelFactory(mergedRepository)
     }
 
-    // Badge VM (using a simple in-memory storage for now)
+
     private val badgeViewModel: BadgeViewModel by viewModels {
         BadgeViewModelFactory(
             badgeStorage = InMemoryBadgeStorage()
@@ -247,6 +233,11 @@ class MainActivity : ComponentActivity() {
             WorkoutTrackerTheme {
                 val context = LocalContext.current
 
+                // Handle widget intents
+                val initialRoute = remember { 
+                    intent?.getStringExtra("navigation_route") 
+                }
+
                 val notifPermissionLauncher = rememberLauncherForActivityResult(
                     contract = ActivityResultContracts.RequestPermission()
                 ) { /* no-op for now */ }
@@ -285,7 +276,8 @@ class MainActivity : ComponentActivity() {
                 MainScreen(
                     viewModel = workoutListViewModel,
                     viewModel2 = mainScreenViewModel,
-                    badgeViewModel = badgeViewModel
+                    badgeViewModel = badgeViewModel,
+                    initialRoute = initialRoute
                 )
             }
         }
@@ -300,7 +292,7 @@ class MainActivity : ComponentActivity() {
 }
 @RequiresApi(Build.VERSION_CODES.TIRAMISU)
 @Composable
-fun MainScreen(viewModel: WorkoutListViewModel, viewModel2: MainScreenViewModel,badgeViewModel: BadgeViewModel) {
+fun MainScreen(viewModel: WorkoutListViewModel, viewModel2: MainScreenViewModel,badgeViewModel: BadgeViewModel, initialRoute: String? = null) {
     val navController = rememberNavController()
     val context = LocalContext.current
     val onboardingManager = remember { OnboardingManager(context) }
@@ -335,6 +327,13 @@ fun MainScreen(viewModel: WorkoutListViewModel, viewModel2: MainScreenViewModel,
     val totalWorkouts = remember(uiState) {
         allWorkouts.size
     }
+
+    LaunchedEffect(initialRoute) {
+        if (initialRoute == "workout_selection") {
+            navController.navigate("WorkoutSelector")
+        }
+    }
+
     LaunchedEffect(totalWorkouts) {
 
         badgeViewModel.syncTotalWorkouts(totalWorkouts)

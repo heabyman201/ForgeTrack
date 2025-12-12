@@ -15,12 +15,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.asComposeRenderEffect
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
+import kotlin.math.abs
 import kotlin.math.max
 
 @Composable
@@ -37,7 +39,7 @@ fun AnimatedBackdrop(
 
     fun tri(t: Float): Float {
         val x = (t % 2f + 2f) % 2f
-        return 1f - kotlin.math.abs(x - 1f)
+        return 1f - abs(x - 1f)
     }
 
     val context = LocalContext.current
@@ -67,18 +69,21 @@ fun AnimatedBackdrop(
 
     Canvas(
         modifier = modifier
-            .fillMaxSize()
-            .graphicsLayer {
+            .fillMaxSize().graphicsLayer {
+
+                compositingStrategy = CompositingStrategy.Offscreen
+                clip = true
+
                 renderEffect =
                     if (blurRadiusPx > 0f) {
-                        createBlurEffect(
-                            blurRadiusPx,
-                            blurRadiusPx,
-                            Shader.TileMode.DECAL
-                        ).asComposeRenderEffect()
-                    } else {
-                        null
-                    }
+                        RenderEffect
+                            .createBlurEffect(
+                                blurRadiusPx,
+                                blurRadiusPx,
+                                Shader.TileMode.DECAL
+                            )
+                            .asComposeRenderEffect()
+                    } else null
             }
     ) {
         val w = size.width

@@ -2,6 +2,7 @@ package com.forgecompose.workouttracker
 
 import android.graphics.RenderEffect
 import android.graphics.Shader
+import android.os.Build
 import android.util.Log
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.LinearEasing
@@ -28,6 +29,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Analytics
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.FitnessCenter
+import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material3.Divider
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -54,6 +56,7 @@ import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.asComposeRenderEffect
 import androidx.compose.ui.graphics.graphicsLayer
@@ -326,9 +329,27 @@ fun WorkoutDetailScreen(
     ) { padding ->
 
         Box(modifier = Modifier.fillMaxSize()
-            .graphicsLayer{
-                renderEffect = RenderEffect.createBlurEffect(blurIntro.value,blurIntro.value,Shader.TileMode.DECAL)
-                    .asComposeRenderEffect()
+            .graphicsLayer {
+
+                compositingStrategy = CompositingStrategy.Offscreen
+                clip = true
+
+                val radiusPx = with(density) { blurIntro.value.dp.toPx() }
+
+
+                renderEffect =
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+                        radiusPx.isFinite() &&
+                        radiusPx > 0.5f
+                    ) {
+                        RenderEffect.createBlurEffect(
+                            radiusPx,
+                            radiusPx,
+                            Shader.TileMode.CLAMP
+                        ).asComposeRenderEffect()
+                    } else {
+                        null
+                    }
             }
 
         ) {
@@ -623,6 +644,35 @@ fun WorkoutDetailScreen(
                                         }
                                     }
                                 }
+                                if (selectedWorkout!!.notes != null) {
+                                    item {
+                                        AnimatedVisibility(
+                                            visible = stages.after800ms,
+                                            enter = fadeIn()
+                                        ) {
+                                            GlassCard {
+                                                Row(
+                                                    Modifier.padding(cardPad),
+                                                    horizontalArrangement = Arrangement.Center
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Filled.Lightbulb,
+                                                        contentDescription = "Notes",
+                                                        tint = Color.Yellow,
+                                                        modifier = Modifier
+                                                    )
+                                                    Text(
+                                                        text = "Notes : ${selectedWorkout!!.notes}",
+                                                        modifier = Modifier,
+                                                        color = Color.White,
+                                                        style = MaterialTheme.typography.bodyLarge,
+                                                        fontWeight = FontWeight.Bold
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
                                 item {
                                     AnimatedVisibility(visible = stages.afterFirstFrame, enter = fadeIn()) {
                                         GlassCard {
@@ -683,6 +733,7 @@ fun WorkoutDetailScreen(
                                         }
                                     }
                                 }
+
                                 item {
                                     val haptics = LocalHapticFeedback.current
                                     Box(
@@ -711,15 +762,7 @@ fun WorkoutDetailScreen(
                     }
                 }
             }
-            if (stages.after100ms) {
-                FloatingTaskbar(
-                    modifier = Modifier.align(Alignment.BottomCenter),
-                    navController = navController,
-                    cornerRadius = 34.dp,
-                    iconAlpha = 1f,
-                    uiState = uiState
-                )
-            }
+
         }
     }
 }

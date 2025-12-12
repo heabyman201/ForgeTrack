@@ -20,9 +20,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -32,6 +34,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Watch
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -299,9 +302,14 @@ private fun WorkoutHistoryList(
     onWorkoutClicked: (Workout) -> Unit,
     onDeleteClicked: (Workout) -> Unit
 ) {
+    val liststate = rememberLazyListState()
     val haptics = LocalHapticFeedback.current
+    LaunchedEffect(workouts) {
+        liststate.animateScrollToItem(0)
+    }
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
+        state = liststate,
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 100.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
@@ -387,12 +395,23 @@ private fun WorkoutHistoryItem(
             ) { confirming ->
                 if (!confirming) {
                     Column {
-                        Text(
-                            text = workout.name,
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = workout.name,
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                            if (workout.notes?.contains("Watch Workout",ignoreCase = true) ?: false ) {
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Icon(
+                                    imageVector = Icons.Default.Watch,
+                                    contentDescription = "Watch Workout",
+                                    tint = theme.primary.copy(alpha = 0.9f),
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
                             text = "Duration: $durationText",

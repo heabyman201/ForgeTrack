@@ -37,6 +37,8 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.EaseOutCubic
+import androidx.compose.animation.core.EaseOutQuad
 import androidx.compose.animation.core.FastOutLinearInEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
@@ -252,6 +254,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import java.time.Instant
 import java.time.LocalTime
+import kotlin.collections.maxOfOrNull
 import kotlin.getValue
 import kotlin.math.abs
 import kotlin.math.max
@@ -1652,11 +1655,37 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
     val totalWorkoutCount = remember(uiState) {
         allWorkouts.size
     }
-
+    val particles = remember {
+        List(6) { i ->
+            val s = (i * 37.123f) % 1000f
+            ParticleData(
+                s = s,
+                speed = 0.25f + (s % 0.35f),
+                baseXRatio = (s % 1f),
+                wobbleSpeed = 0.8f + (s % 0.7f),
+                wobbleOffset = s,
+                baseRadius = 6f + (s % 1f) * 18f,
+                wobbleMagnitudeBase = 16f,
+                wobbleMagnitudeExtra = 28f
+            )
+        }
+    }
     LaunchedEffect(totalWorkoutCount) {
 
         vm.syncTotalWorkouts(totalWorkoutCount)
     }
+    val primaryColor = theme.primary
+    val secondaryColor = theme.secondary
+    val gradientStops = remember(theme) {
+        arrayOf(
+            0.0f to Color.Transparent,
+            0.25f to theme.secondary.copy(alpha = 0.4f),
+            0.55f to theme.primary.copy(alpha = 0.6f),
+            0.85f to theme.primary.copy(alpha = 0.8f),
+            1.0f to Color.Transparent
+        )
+    }
+
     WorkoutTrackerTheme {
         Scaffold(
             topBar = {
@@ -1704,42 +1733,72 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                         val h = size.height
                         val startY = h * (1f - 0.65f * riseEffectProgress)
                         val endY = h
+
                         drawRect(
                             brush = Brush.verticalGradient(
-                                0f to Color.Transparent,
-                                0.25f to theme.secondary.copy(alpha = 0.4f),
-                                0.55f to theme.primary.copy(alpha = 0.6f),
-                                0.85f to theme.primary.copy(alpha = 0.8f),
-                                1f to Color.Transparent,
+                                *gradientStops,
                                 startY = startY,
                                 endY = endY
-                            ),
-                            size = size
+                            )
                         )
                     }
                     if (movingGradientAndParticlesEnabled) {
+
                         Canvas(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .graphicsLayer { alpha = (0.12f + 0.32f * hype) * riseEffectProgress }
+                                .graphicsLayer {
+
+                                    alpha = (0.12f + 0.32f * hype) * riseEffectProgress
+                                }
                         ) {
-                            val n = 6
                             val w = size.width
                             val h = size.height
-                            for (i in 0 until n) {
-                                val s = (i * 37.123f) % 1000f
-                                val speed = 0.25f + (s % 0.35f)
-                                val phase = (animationClock * speed + (s * 0.013f)) % 1f
+
+
+                            particles.forEach { p ->
+
+                                val phase = (animationClock * p.speed + (p.s * 0.013f)) % 1f
                                 val y = h * (1f - phase)
-                                val baseX = (s % 1f) * w
-                                val wobble = sin((animationClock * (0.8f + (s % 0.7f))) * 6.28318f + s) * (16f + 28f * (1f - phase))
-                                val x = (baseX + wobble).coerceIn(-40f, w + 40f)
-                                val r = 6f + (s % 1f) * 18f * (0.4f + 0.6f * (1f - phase))
+
+
+                                val wobble = kotlin.math.sin((animationClock * p.wobbleSpeed) * 6.28318f + p.wobbleOffset) * (p.wobbleMagnitudeBase + p.wobbleMagnitudeExtra * (1f - phase))
+
+                                val x = (p.baseXRatio * w + wobble).coerceIn(-40f, w + 40f)
+                                val r = p.baseRadius * (0.4f + 0.6f * (1f - phase))
+
                                 val a = (0.30f + 0.70f * (1f - phase)) * riseEffectProgress
-                                drawCircle(theme.primary.copy(alpha = a.coerceIn(0f, 1f)), r, Offset(x, y))
-                                drawCircle(theme.secondary.copy(alpha = (a * 0.6f).coerceIn(0f, 1f)), r * 1.8f, Offset(x, y + r * 0.2f))
+                                val constrainedAlpha = a.coerceIn(0f, 1f)
+
+
+
+
+                                drawCircle(
+                                    color = primaryColor,
+                                    radius = r,
+                                    center = Offset(x, y),
+                                    alpha = constrainedAlpha
+                                )
+
+
+                                drawCircle(
+                                    color = secondaryColor,
+                                    radius = r * 1.8f,
+                                    center = Offset(x, y + r * 0.2f),
+                                    alpha = (constrainedAlpha * 0.6f)
+                                )
                             }
                         }
+//                     DiscoAtmosphere(
+//
+//                         riseEffectProgress = riseEffectProgress,
+//                         themeColors = listOf(
+//                             theme.primary,
+//                             theme.secondary,
+//                             theme.tertiary
+//                         )
+//
+//                     )
                     }
                 }
                 if (introProgress < 1f) {
@@ -1756,6 +1815,20 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                         .padding(horizontal = 24.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
+                    val prFlags = remember(workouts, workout.value, CurrentWeight.value, CurrentReps.intValue, CurrentSets.intValue) {
+                        val pr = checkPrForExercise(
+                            workouts, workout.value,
+                            CurrentWeight.value.toFloat(),
+                            CurrentReps.intValue,
+                            CurrentSets.intValue
+                        )
+                        PrFlags(
+                            strengthPr = pr.isStrengthPr,
+                            volumePr = pr.isVolumePr,
+                            repsPr = false,
+                            setsPr = false
+                        )
+                    }
                     if (showCompletionAnimation) {
                         GoalCompletionAnimation(
                             onAnimationFinished = {
@@ -1817,8 +1890,10 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                                 GoalReps.intValue = 0
                                 GoalTime.value = 0
                                 GoalDistance.value = 0.0
-                            }
+                            },
+                            prFlags = prFlags
                         )
+
                     }
 
                     Spacer(modifier = Modifier.weight(0.5f))
@@ -3492,11 +3567,28 @@ private data class Particle(
 )
 
 private enum class ParticleType { CIRCLE, SQUARE, SHARD }
+private enum class ParticlePalette { CRIMSON, GOLDEN }
+
+data class PrFlags(
+    val strengthPr: Boolean = false,
+    val volumePr: Boolean = false,
+    val repsPr: Boolean = false,
+    val setsPr: Boolean = false
+) {
+    val any get() = strengthPr || volumePr || repsPr || setsPr
+}
 
 @Composable
 fun GoalCompletionAnimation(
-    onAnimationFinished: () -> Unit
+    onAnimationFinished: () -> Unit,
+    prFlags: PrFlags,
 ) {
+    val context = LocalContext.current
+    val appearanceOptions by AppearanceOptionsManagerAppTheme
+        .flow(context)
+        .collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
+    val theme = appearanceOptions.selectedTheme.colors
+
     val density = LocalDensity.current.density
     val haptics = LocalHapticFeedback.current
 
@@ -3511,10 +3603,21 @@ fun GoalCompletionAnimation(
     val sets = remember { ConnectedWorkout.CurrentSets.intValue.coerceAtLeast(1) }
     val reps = remember { ConnectedWorkout.CurrentReps.intValue.coerceAtLeast(1) }
 
+    val prShockwave = remember { Animatable(0f) }
+    val prFlash = remember { Animatable(0f) }
+    val prPulse = remember { Animatable(1f) }
+    val prTextAlpha = remember { Animatable(0f) }
+    val prTextScale = remember { Animatable(0.9f) }
+
     var particles by remember { mutableStateOf(emptyList<Particle>()) }
 
     LaunchedEffect(Unit) {
-        particles = generateCrimsonParticles()
+        particles = if (prFlags.any) {
+            generateParticles(ParticlePalette.GOLDEN, count = 1100)
+        } else {
+            generateParticles(ParticlePalette.CRIMSON, count = 600)
+        }
+
         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
 
         coroutineScope {
@@ -3529,26 +3632,53 @@ fun GoalCompletionAnimation(
                 lightBurst.animateTo(1f, tween(100, easing = FastOutSlowInEasing))
                 lightBurst.animateTo(0f, tween(500))
             }
+
+            if (prFlags.any) {
+                launch {
+                    delay(60)
+                    prFlash.snapTo(1f)
+                    prFlash.animateTo(0f, tween(220, easing = FastOutSlowInEasing))
+                }
+                launch {
+                    delay(80)
+                    prShockwave.snapTo(0f)
+                    prShockwave.animateTo(1f, tween(650, easing = FastOutSlowInEasing))
+                }
+                launch {
+                    delay(90)
+                    repeat(2) {
+                        prPulse.animateTo(1.12f, tween(120, easing = FastOutSlowInEasing))
+                        prPulse.animateTo(1f, tween(180, easing = FastOutSlowInEasing))
+                    }
+                }
+                launch {
+                    delay(180)
+                    prTextAlpha.animateTo(1f, tween(220, easing = FastOutSlowInEasing))
+                }
+                launch {
+                    delay(180)
+                    prTextScale.snapTo(0.9f)
+                    prTextScale.animateTo(1f, spring(dampingRatio = 0.35f, stiffness = 450f))
+                }
+                launch {
+                    delay(120)
+                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                    delay(120)
+                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                }
+            }
+
             launch {
                 delay(100)
-                iconScale.animateTo(
-                    1f,
-                    spring(dampingRatio = 0.3f, stiffness = 200f)
-                )
+                iconScale.animateTo(1f, spring(dampingRatio = 0.3f, stiffness = 200f))
             }
             launch {
                 delay(100)
-                iconRotation.animateTo(
-                    0f,
-                    spring(dampingRatio = 0.4f, stiffness = 150f)
-                )
+                iconRotation.animateTo(0f, spring(dampingRatio = 0.4f, stiffness = 150f))
             }
             launch {
                 delay(150)
-                ornamentProgress.animateTo(
-                    1f,
-                    spring(dampingRatio = 0.5f, stiffness = 100f)
-                )
+                ornamentProgress.animateTo(1f, spring(dampingRatio = 0.5f, stiffness = 100f))
             }
             launch {
                 delay(200)
@@ -3556,10 +3686,7 @@ fun GoalCompletionAnimation(
             }
             launch {
                 delay(200)
-                textScale.animateTo(
-                    1f,
-                    spring(dampingRatio = 0.4f, stiffness = 300f)
-                )
+                textScale.animateTo(1f, spring(dampingRatio = 0.4f, stiffness = 300f))
             }
             launch {
                 delay(100)
@@ -3571,6 +3698,28 @@ fun GoalCompletionAnimation(
         }
     }
 
+    val mainText = "WORKOUT\nCOMPLETE"
+    val styledText = remember(mainText, theme.primary, theme.secondary) {
+        val gradient = Brush.verticalGradient(
+            colors = listOf(theme.primary, theme.secondary, theme.primary)
+        )
+        buildAnnotatedString {
+            withStyle(SpanStyle(brush = gradient)) { append(mainText) }
+        }
+    }
+
+    val prLabel = remember(prFlags) {
+        when {
+            prFlags.strengthPr && prFlags.volumePr -> "DOUBLE PR"
+            prFlags.strengthPr -> "NEW STRENGTH PR"
+            prFlags.volumePr -> "NEW VOLUME PR"
+            prFlags.repsPr && prFlags.setsPr -> "RECORDS SHATTERED"
+            prFlags.repsPr -> "REP RECORD"
+            prFlags.setsPr -> "SET RECORD"
+            else -> "NEW PR"
+        }
+    }
+
     Box(
         modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.Center
@@ -3578,20 +3727,38 @@ fun GoalCompletionAnimation(
         Canvas(modifier = Modifier.fillMaxSize()) {
             val time = animationTime.value * 2.5f
 
-            if (lightBurst.value > 0) {
+            if (lightBurst.value > 0f) {
                 drawCircle(
-                    color = Color(0xFFDC143C).copy(alpha = lightBurst.value * 0.5f),
+                    color = theme.primary.copy(alpha = lightBurst.value * 0.5f),
                     radius = size.maxDimension * lightBurst.value,
                     center = center
                 )
             }
 
-            if (time > 0) {
+            if (prFlags.any && prFlash.value > 0f) {
+                drawRect(
+                    color = theme.secondary.copy(alpha = 0.18f * prFlash.value),
+                    size = size
+                )
+            }
+
+            if (prFlags.any && prShockwave.value > 0f) {
+                val t = prShockwave.value
+                val r = size.maxDimension * (0.15f + 0.95f * t)
+                val a = (1f - t).coerceIn(0f, 1f)
+                drawCircle(
+                    color = theme.primary.copy(alpha = 0.55f * a),
+                    radius = r,
+                    center = center,
+                    style = Stroke(width = (10.dp.toPx() * (1f - t)).coerceAtLeast(1f))
+                )
+            }
+
+            if (time > 0f) {
                 particles.forEach { particle ->
                     val gravity = 2000f * density
                     val x = center.x + (particle.velocity.x * density * time)
                     val y = center.y + (particle.velocity.y * density * time) + (0.5f * gravity * time * time)
-
                     val particleAlpha = (1f - (time / 2.0f)).coerceIn(0f, 1f)
 
                     if (particleAlpha > 0f) {
@@ -3631,8 +3798,9 @@ fun GoalCompletionAnimation(
                 modifier = Modifier
                     .size(200.dp)
                     .graphicsLayer {
-                        scaleX = iconScale.value
-                        scaleY = iconScale.value
+                        val pulse = prPulse.value
+                        scaleX = iconScale.value * pulse
+                        scaleY = iconScale.value * pulse
                         rotationZ = iconRotation.value
                     }
             ) {
@@ -3641,7 +3809,7 @@ fun GoalCompletionAnimation(
                 val centerX = w / 2
                 val centerY = h / 2
 
-                if (ornamentProgress.value > 0) {
+                if (ornamentProgress.value > 0f) {
                     val ornamentCount = 8 + (sets * 2).coerceAtMost(24)
                     val maxRadius = (w * 0.4f) + (reps * 2f * density).coerceAtMost(w * 0.3f)
                     val baseRadius = w * 0.25f
@@ -3666,15 +3834,16 @@ fun GoalCompletionAnimation(
                                 close()
                             }
 
-                            drawPath(
-                                path = spikePath,
-                                brush = Brush.linearGradient(
-                                    colors = listOf(Color(0xFFDC143C), Color(0xFF8B0000))
-                                )
-                            )
+                            val spikeBrush = if (prFlags.any) {
+                                Brush.linearGradient(listOf(Color(0xFFFFF8E1), Color(0xFFFFD700), Color(0xFFFFB300)))
+                            } else {
+                                Brush.linearGradient(listOf(Color(0xFFDC143C), Color(0xFF8B0000)))
+                            }
+
+                            drawPath(path = spikePath, brush = spikeBrush)
 
                             drawCircle(
-                                color = Color(0xFFFF1744),
+                                color = if (prFlags.any) Color(0xFFFFD700) else Color(0xFFFF1744),
                                 radius = 3.dp.toPx() * ornamentProgress.value,
                                 center = Offset(endX, endY),
                                 alpha = ornamentProgress.value
@@ -3699,28 +3868,20 @@ fun GoalCompletionAnimation(
                     close()
                 }
 
-                drawPath(
-                    path = crownPath,
-                    brush = Brush.linearGradient(
-                        colors = listOf(Color(0xFFD50000), Color(0xFFDC143C), Color(0xFFB71C1C))
-                    )
-                )
+                val crownBrush = if (prFlags.any) {
+                    Brush.linearGradient(listOf(Color(0xFFFFF8E1), Color(0xFFFFD700), Color(0xFFFFB300)))
+                } else {
+                    Brush.linearGradient(listOf(Color(0xFFD50000), Color(0xFFDC143C), Color(0xFFB71C1C)))
+                }
+
+                drawPath(path = crownPath, brush = crownBrush)
 
                 drawPath(
                     path = crownPath,
                     style = Stroke(width = 4.dp.toPx(), join = StrokeJoin.Round),
-                    color = Color(0xFFFF8A80)
+                    color = if (prFlags.any) Color(0xFFFFF8E1) else Color(0xFFFF8A80)
                 )
             }
-        }
-
-        val mainText = "WORKOUT\nCOMPLETE"
-        val gradient = Brush.verticalGradient(
-            listOf(Color(0xFFFF5252), Color(0xFFDC143C), Color(0xFFB71C1C))
-        )
-
-        val styledText = remember(mainText, gradient) {
-            buildAnnotatedString { withStyle(SpanStyle(brush = gradient)) { append(mainText) } }
         }
 
         Text(
@@ -3728,8 +3889,9 @@ fun GoalCompletionAnimation(
             modifier = Modifier
                 .offset(y = 60.dp)
                 .graphicsLayer {
-                    scaleX = textScale.value
-                    scaleY = textScale.value
+                    val pulse = prPulse.value
+                    scaleX = textScale.value * pulse
+                    scaleY = textScale.value * pulse
                     alpha = textAlpha.value
                 },
             textAlign = TextAlign.Center,
@@ -3744,20 +3906,58 @@ fun GoalCompletionAnimation(
                 )
             )
         )
+
+        if (prFlags.any) {
+            Text(
+                text = prLabel,
+                modifier = Modifier
+                    .offset(y = 140.dp)
+                    .graphicsLayer {
+                        alpha = prTextAlpha.value
+                        scaleX = prTextScale.value * prPulse.value
+                        scaleY = prTextScale.value * prPulse.value
+                    },
+                textAlign = TextAlign.Center,
+                style = TextStyle(
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Black,
+                    letterSpacing = 2.sp,
+                    shadow = Shadow(
+                        color = Color.Black.copy(alpha = 0.35f),
+                        offset = Offset(0f, 2f),
+                        blurRadius = 8f
+                    )
+                ),
+                color = Color(0xFFFFD700)
+            )
+        }
     }
 }
 
-private fun generateCrimsonParticles(): List<Particle> {
+private fun generateParticles(
+    palette: ParticlePalette,
+    count: Int = 600
+): List<Particle> {
     val rng = Random(System.currentTimeMillis())
-    val count = 600
-    val colors = listOf(
-        Color(0xFFDC143C),
-        Color(0xFFD50000),
-        Color(0xFFFF1744),
-        Color(0xFFB71C1C),
-        Color(0xFFFF8A80),
-        Color.White
-    )
+
+    val colors = when (palette) {
+        ParticlePalette.CRIMSON -> listOf(
+            Color(0xFFDC143C),
+            Color(0xFFD50000),
+            Color(0xFFFF1744),
+            Color(0xFFB71C1C),
+            Color(0xFFFF8A80),
+            Color.White
+        )
+        ParticlePalette.GOLDEN -> listOf(
+            Color(0xFFFFD700),
+            Color(0xFFFFC107),
+            Color(0xFFFFE082),
+            Color(0xFFFFF8E1),
+            Color(0xFFFFB300),
+            Color.White
+        )
+    }
 
     return List(count) {
         val angle = rng.nextDouble(0.0, 2 * PI)
@@ -3775,6 +3975,8 @@ private fun generateCrimsonParticles(): List<Particle> {
         )
     }
 }
+
+
 
 object ConnectedWorkout{
     enum class WorkoutMode { INACTIVE, ACTIVE, RESTING }
@@ -3835,7 +4037,220 @@ fun calculateSidePlates(totalWeight: Double): List<PlateConfig> {
     }
     return plates
 }
+@Composable
+fun StormyAtmosphere(
+    modifier: Modifier = Modifier,
+    stormIntensity: Float = 1f,
+    rainColor: Color = Color(0xFFAAAAAA),
+    lightningColor: Color = Color(0xFFDDEEFF)
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "rain_loop")
+    val time by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(2000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "time"
+    )
 
+    val lightningAlpha = remember { Animatable(0f) }
+
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(Random.nextLong(3000, 12000))
+
+            val flashType = Random.nextInt(3)
+
+            if (flashType == 0) {
+                lightningAlpha.animateTo(0.6f, tween(50, easing = LinearEasing))
+                lightningAlpha.animateTo(0f, tween(300, easing = EaseOutQuad))
+            } else if (flashType == 1) {
+                lightningAlpha.animateTo(0.3f, tween(50))
+                lightningAlpha.animateTo(0.1f, tween(50))
+                lightningAlpha.animateTo(0.8f, tween(50))
+                lightningAlpha.animateTo(0f, tween(800, easing = EaseOutCubic))
+            } else {
+                lightningAlpha.animateTo(0.2f, tween(100))
+                lightningAlpha.animateTo(0f, tween(500))
+            }
+        }
+    }
+
+    Canvas(
+        modifier = modifier
+            .fillMaxSize()
+            .graphicsLayer { alpha = 1f }
+    ) {
+        val w = size.width
+        val h = size.height
+
+        val baseRainCount = 60
+        val count = (baseRainCount * stormIntensity).toInt().coerceAtLeast(10)
+
+        val flash = lightningAlpha.value
+
+        drawRect(
+            color = lightningColor.copy(alpha = flash * 0.15f),
+            size = size
+        )
+
+        for (i in 0 until count) {
+            val seed = (i * 1367.123f)
+
+            val layer = (seed % 3).toInt()
+            val speedBase = 0.5f + (seed % 0.5f)
+            val layerSpeedMult = when(layer) {
+                0 -> 0.6f
+                1 -> 0.85f
+                else -> 1.1f
+            }
+
+            val fallSpeed = h * (speedBase * layerSpeedMult)
+            val cycleOffset = seed % 1f
+
+            val progress = (time + cycleOffset) % 1f
+            val y = progress * (h + 100f) - 50f
+
+            val wind = sin(time * 6.28f + seed) * 10f
+            val xBase = (seed * 97.531f) % w
+            val x = xBase + (y * 0.1f) + wind
+
+            val dropLength = 15f * layerSpeedMult * (1f + flash * 0.5f)
+
+            val baseAlpha = when(layer) {
+                0 -> 0.15f
+                1 -> 0.35f
+                else -> 0.6f
+            }
+
+            val finalAlpha = (baseAlpha + flash * 0.4f).coerceIn(0f, 1f)
+
+            val strokeWidth = when(layer) {
+                0 -> 1f
+                1 -> 2f
+                else -> 2.5f
+            }
+
+            drawLine(
+                color = rainColor.copy(alpha = finalAlpha),
+                start = Offset(x, y),
+                end = Offset(x - (wind * 0.1f), y + dropLength),
+                strokeWidth = strokeWidth,
+                cap = StrokeCap.Round
+            )
+
+            if (layer == 2 && y > h - 50f && y < h) {
+                val splashRadius = (y % 4f) + 1f
+                drawCircle(
+                    color = rainColor.copy(alpha = finalAlpha * 0.5f),
+                    radius = splashRadius,
+                    center = Offset(x, y + dropLength)
+                )
+            }
+        }
+
+        if (flash > 0.05f) {
+            val glowSize = size.maxDimension * (0.8f + flash * 0.4f)
+            drawCircle(
+                color = lightningColor.copy(alpha = flash * 0.1f),
+                radius = glowSize,
+                center = Offset(w * 0.5f, h * 0.3f)
+            )
+        }
+    }
+}
+@Composable
+fun DiscoAtmosphere(
+    modifier: Modifier = Modifier,
+    riseEffectProgress: Float = 0f, // Controls visibility and intensity
+    partyingIntensity: Float = 1f, // Similar to 'hype', controls speed/wobble
+    themeColors: List<Color> = listOf(
+        Color(0xFF6200EE), // Primary-ish
+        Color(0xFF03DAC6), // Secondary-ish
+        Color(0xFFBB86FC), // Tertiary-ish
+        Color(0xFF3700B3)  // Deep variant
+    )
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "disco_loop")
+
+    // Very slow, infinite time loop for organic movement
+    val time by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(20000, easing = LinearEasing), // 20 seconds per cycle for slow drift
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "time"
+    )
+
+    Canvas(
+        modifier = modifier
+            .fillMaxSize()
+            .graphicsLayer {
+                // Global alpha fade based on rise progress, similar to the original snippet
+                alpha = (0.1f + 0.9f * riseEffectProgress).coerceIn(0f, 1f) * riseEffectProgress
+            }
+    ) {
+        val w = size.width
+        val h = size.height
+        val minDim = size.minDimension
+
+        // Ensure we have colors to work with
+        val safeColors = if (themeColors.isEmpty()) listOf(Color.Magenta, Color.Cyan) else themeColors
+        val orbCount = 5
+
+        for (i in 0 until orbCount) {
+            val seed = i * 452.123f
+            val color = safeColors[i % safeColors.size]
+
+            // Calculate organic movement using sine/cosine interactions
+            val speed = 0.5f + (seed % 0.5f) * partyingIntensity
+            val phase = (time * speed + (seed * 0.1f)) % 1f
+
+            // Movement logic: Lissajous-like organic paths
+            // We use 'partyingIntensity' to slightly amplify the movement range if desired
+            val xWobble = sin(time * 6.28318f * speed + seed)
+            val yWobble = cos(time * 6.28318f * (speed * 0.8f) + seed + 1f)
+
+            val baseX = w * (0.2f + 0.6f * ((seed * 13f) % 1f)) // Random-ish start X within center area
+            val baseY = h * (0.2f + 0.6f * ((seed * 7f) % 1f))  // Random-ish start Y within center area
+
+            // The orbs float around their base position
+            val x = baseX + xWobble * (w * 0.25f)
+            val y = baseY + yWobble * (h * 0.25f)
+
+            // Radius breathes slightly
+            val baseRadius = minDim * (0.2f + 0.15f * (seed % 1f))
+            val r = baseRadius * (0.9f + 0.2f * sin(time * 10f + seed))
+
+            // Alpha calculation based on the requested logic
+            // "only appear based on the riseEffectProgress"
+            // We blend the individual orb alpha with the global riseEffectProgress
+            val pulse = 0.5f + 0.5f * sin(time * 3f + seed)
+            val orbAlpha = (0.3f + 0.5f * pulse) * riseEffectProgress
+
+            // Gradient for that "disco" feel - lighter in center, fading out
+            val gradientBrush = Brush.radialGradient(
+                colors = listOf(
+                    color.copy(alpha = orbAlpha.coerceIn(0f, 1f)),
+                    color.copy(alpha = (orbAlpha * 0.4f).coerceIn(0f, 1f)),
+                    color.copy(alpha = 0f)
+                ),
+                center = Offset(x, y),
+                radius = r
+            )
+
+            drawCircle(
+                brush = gradientBrush,
+                radius = r,
+                center = Offset(x, y)
+            )
+        }
+    }
+}
 object showSyncDialog {
     var showSyncDialog = mutableStateOf(false)
 }
@@ -3848,3 +4263,80 @@ val CrimsonLight = Color(0xFFFF5370)
 val CrimsonDull = Color(0xFF442226)
 
 private val CrimsonBorderLocked = Color(0x33FF5370)
+private data class ParticleData(
+    val s: Float,
+    val speed: Float,
+    val baseXRatio: Float,
+    val wobbleSpeed: Float,
+    val wobbleOffset: Float,
+    val baseRadius: Float,
+    val wobbleMagnitudeBase: Float,
+    val wobbleMagnitudeExtra: Float
+)
+data class PrResult(
+    val isStrengthPr: Boolean,
+    val isVolumePr: Boolean,
+    val prevBestE1rm: Float?,
+    val prevBestVolume: Float?
+)
+
+private fun epley1RM(weight: Float, reps: Int): Float {
+    if (weight <= 0f || reps <= 0) return 0f
+    return weight * (1f + reps / 30f)
+}
+
+private fun checkPrForExercise(
+    allWorkouts: List<Workout>,
+    exerciseName: String,
+    newWeight: Float,
+    newReps: Int,
+    newSets: Int
+): PrResult {
+    // Guard against garbage input
+    if (newWeight <= 0f || newReps <= 0 || newSets <= 0) {
+        return PrResult(
+            isStrengthPr = false,
+            isVolumePr = false,
+            prevBestE1rm = null,
+            prevBestVolume = null
+        )
+    }
+
+    val newE1rm = epley1RM(newWeight, newReps)
+    val newVolume = newWeight * newReps * newSets
+
+    val previous = allWorkouts
+        .asSequence()
+        .filter { it.name == exerciseName }
+        .mapNotNull { w ->
+            val weight = w.weight?.toFloat()
+            val reps = w.reps
+            val sets = w.sets
+
+            // Skip invalid or incomplete entries
+            if (weight == null || weight <= 0f || reps!! <= 0 || sets!! <= 0) {
+                null
+            } else {
+                Triple(weight, reps, sets)
+            }
+        }
+        .toList()
+
+    val bestPrevE1rm = previous.maxOfOrNull { (weight, reps, _) ->
+        epley1RM(weight, reps)
+    }
+
+    val bestPrevVolume = previous.maxOfOrNull { (weight, reps, sets) ->
+        weight * reps * sets
+    }
+
+    val isStrengthPr = bestPrevE1rm == null || newE1rm > bestPrevE1rm
+    val isVolumePr = bestPrevVolume == null || newVolume > bestPrevVolume
+
+    return PrResult(
+        isStrengthPr = isStrengthPr,
+        isVolumePr = isVolumePr,
+        prevBestE1rm = bestPrevE1rm,
+        prevBestVolume = bestPrevVolume
+    )
+}

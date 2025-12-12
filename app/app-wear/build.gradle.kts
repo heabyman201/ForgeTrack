@@ -2,6 +2,11 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
+    id("com.google.devtools.ksp")
+
+    id("com.google.firebase.firebase-perf")
+    id("com.google.firebase.crashlytics")
+    alias(libs.plugins.google.gms.google.services)
 }
 
 android {
@@ -37,7 +42,7 @@ android {
         compose = true
     }
 }
-
+val roomVersion = "2.7.1"
 dependencies {
 
     implementation(libs.play.services.wearable)
@@ -45,6 +50,14 @@ dependencies {
     implementation(libs.androidx.ui)
     implementation(libs.androidx.compose.ui.ui.graphics)
     implementation(libs.androidx.ui.tooling.preview)
+    implementation("androidx.room:room-runtime:$roomVersion")
+
+    // Room KTX (Required for Coroutines, Flow, and suspend functions)
+    implementation("androidx.room:room-ktx:$roomVersion")
+
+
+    // Room Compiler (Generates the code)
+    ksp("androidx.room:room-compiler:$roomVersion")
     implementation(libs.androidx.compose.material)
     implementation(libs.androidx.compose.foundation)
     implementation(libs.androidx.wear.tooling.preview)
@@ -66,5 +79,14 @@ dependencies {
     implementation("com.google.android.gms:play-services-wearable:19.0.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.10.2")
     // Coroutines
+    implementation("androidx.compose.material:material-icons-extended:1.7.8")
+    implementation(platform("com.google.firebase:firebase-bom:33.7.0")) // pick latest
+    implementation("com.google.firebase:firebase-analytics-ktx")
+    implementation("com.google.firebase:firebase-auth-ktx")
+    implementation("com.google.firebase:firebase-firestore-ktx")
+    implementation("com.google.firebase:firebase-perf")
+    implementation("androidx.wear.compose:compose-material:1.3.0")
+    implementation("androidx.wear.compose:compose-foundation:1.3.0")
+    implementation("androidx.wear.compose:compose-navigation:1.3.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
 }
