@@ -4,6 +4,7 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloat
@@ -81,16 +82,16 @@ fun AdviceSectionUser(
     val aiEnabled = dynamicModel.personaConfig.value.enabled
     val cold = rememberColdStartStages()
 
-
     val appearanceOptions by AppearanceOptionsManagerAppTheme
         .flow(context)
         .collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
 
-
-    val accent = if (aiEnabled) {
-        appearanceOptions.selectedTheme.colors.primary
-    } else {
-        appearanceOptions.selectedTheme.colors.primary.copy(alpha = 0.7f)
+    val accent = remember(aiEnabled, appearanceOptions.selectedTheme.colors.primary) {
+        if (aiEnabled) {
+            appearanceOptions.selectedTheme.colors.primary
+        } else {
+            appearanceOptions.selectedTheme.colors.primary.copy(alpha = 0.7f)
+        }
     }
 
     val tips = remember {
@@ -138,7 +139,22 @@ fun AdviceSectionUser(
             "Training consistently raises bone density in the legs and spine.",
             "Mouth-breathing during sets raises perceived exertion faster than nasal breathing.",
             "Testosterone spikes from big lifts are short-lived—consistency builds muscle.",
-            "Explosive training makes nerves fire faster, improving bar speed."
+            "Explosive training makes nerves fire faster, improving bar speed.",
+            "Inter-set stretching can increase fascial expansion for hypertrophy.",
+            "High-velocity eccentrics strengthen tendon-to-bone attachment points.",
+            "Magnesium glycinate improves neuromuscular relaxation and sleep quality.",
+            "A 10% reduction in sleep reduces natural testosterone levels by 15%.",
+            "Post-activation potentiation uses heavy sets to 'prime' explosive ones.",
+            "Citrulline Malate increases arginine levels more effectively than arginine itself.",
+            "Hyperplasia is rare; most growth is hypertrophy (cell size increase).",
+            "The mind-muscle connection increases EMG activity in target tissues.",
+            "Resting less than 60 seconds increases metabolic stress but limits load.",
+            "Omega-3 fatty acids reduce systemic inflammation, aiding joint recovery.",
+            "Active recovery at 30% intensity flushes lactic acid faster than rest.",
+            "Isometric holds at the sticking point can break strength plateaus.",
+            "Casein protein before bed provides a 7-hour amino acid release.",
+            "The SAID principle means your body adapts specifically to the stressor.",
+            "Deep squats recruit more glute fibers than shallow 'power' squats."
         )
     }
 
@@ -146,31 +162,27 @@ fun AdviceSectionUser(
 
     var isLoading by remember { mutableStateOf(true) }
     LaunchedEffect(Unit) {
-        isLoading = true
-        delay(12500)
+        delay(9500)
         isLoading = false
     }
 
-    val glow: Float = if (aiEnabled && isLoading) {
-        val t = rememberInfiniteTransition(label = "adviceGlow")
-        t.animateFloat(
-            initialValue = 0.35f,
-            targetValue = 0.9f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(2000, easing = FastOutSlowInEasing),
-                repeatMode = RepeatMode.Reverse
-            ),
-            label = "glow"
-        ).value
-    } else 0.35f
+    val glowAnimation = rememberInfiniteTransition(label = "borderGlow")
+    val borderAlpha by glowAnimation.animateFloat(
+        initialValue = 0.2f,
+        targetValue = 0.5f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(2500, easing = LinearOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "alpha"
+    )
 
-    val cardShape = remember { RoundedCornerShape(16.dp) }
-    val borderGlow = glow
+    val cardShape = RoundedCornerShape(16.dp)
 
     Surface(
         modifier = modifier.fillMaxWidth(),
         shape = cardShape,
-        color = Color(0xFF120707).copy(alpha = 0.52f)
+        color = appearanceOptions.selectedTheme.colors.background.copy(alpha = 0.85f)
     ) {
         Box(
             modifier = Modifier
@@ -182,26 +194,17 @@ fun AdviceSectionUser(
                     )
                 )
                 .drawWithCache {
-                    val borderBrush = Brush.linearGradient(
-                        listOf(
-                            Color(0xFFFF5555).copy(alpha = 0.4f * borderGlow),
-                            Color(0xFF8B0000).copy(alpha = 0.25f * borderGlow)
-                        )
-                    )
-                    val bgBrush = Brush.radialGradient(
-                        listOf(
-                            appearanceOptions.colors.background.copy(alpha = 1.0f * borderGlow),
-                            appearanceOptions.colors.tertiary.copy(alpha = 0.65f * borderGlow),
-                            )
-                    )
                     onDrawBehind {
-                        drawRoundRect(
-                            brush = bgBrush,
-                            cornerRadius = CornerRadius(16.dp.toPx(), 16.dp.toPx())
+                        val currentGlow = if (aiEnabled && isLoading) borderAlpha else 0.25f
+                        val borderBrush = Brush.linearGradient(
+                            colors = listOf(
+                                accent.copy(alpha = currentGlow),
+                                accent.copy(alpha = currentGlow * 0.5f)
+                            )
                         )
                         drawRoundRect(
                             brush = borderBrush,
-                            style = Stroke(width = 1.dp.toPx()),
+                            style = Stroke(width = 1.5.dp.toPx()),
                             cornerRadius = CornerRadius(16.dp.toPx(), 16.dp.toPx())
                         )
                     }
@@ -226,7 +229,7 @@ fun AdviceSectionUser(
                                 Icon(
                                     imageVector = Icons.Rounded.AutoAwesome,
                                     contentDescription = null,
-                                    tint = accent, // Uses Theme Color
+                                    tint = accent,
                                     modifier = Modifier.size(42.dp)
                                 )
                                 Spacer(modifier = Modifier.size(10.dp))
@@ -255,7 +258,7 @@ fun AdviceSectionUser(
                                 Icon(
                                     imageVector = if (aiEnabled) Icons.Rounded.Flag else Icons.Default.Flag,
                                     contentDescription = null,
-                                    tint = accent, // Uses Theme Color
+                                    tint = accent,
                                     modifier = Modifier.size(42.dp)
                                 )
                                 Spacer(modifier = Modifier.size(10.dp))
@@ -283,7 +286,7 @@ fun AdviceSectionUser(
                                         Column {
                                             Spacer(modifier = Modifier.height(10.dp))
                                             Divider(
-                                                color = accent.copy(alpha = 0.3f), // Uses Theme Color
+                                                color = accent.copy(alpha = 0.25f),
                                                 thickness = 1.dp
                                             )
                                             Spacer(modifier = Modifier.height(10.dp))
@@ -293,7 +296,7 @@ fun AdviceSectionUser(
                                                         Icon(
                                                             imageVector = Icons.Filled.ChevronRight,
                                                             contentDescription = null,
-                                                            tint = accent.copy(alpha = 0.7f), // Uses Theme Color
+                                                            tint = accent.copy(alpha = 0.7f),
                                                             modifier = Modifier.size(20.dp)
                                                         )
                                                         Spacer(modifier = Modifier.width(6.dp))
@@ -314,7 +317,6 @@ fun AdviceSectionUser(
                             }
                         }
                     }
-
                 }
             }
         }

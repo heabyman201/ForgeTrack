@@ -702,7 +702,7 @@ liststate.animateScrollToItem(0)
                                     shape = RoundedCornerShape(32.dp),
                                     colors = CardDefaults.cardColors(
                                         containerColor = if (ConnectedWorkout.currentMode.value == ConnectedWorkout.WorkoutMode.INACTIVE)
-                                            theme.secondary.copy(alpha = 0.3f) else Color.DarkGray
+                                            theme.background.copy(alpha = 0.3f) else Color.DarkGray
                                     )
                                 ) {
                                     Row(

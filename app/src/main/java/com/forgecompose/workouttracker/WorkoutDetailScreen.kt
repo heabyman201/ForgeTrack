@@ -644,7 +644,7 @@ fun WorkoutDetailScreen(
                                         }
                                     }
                                 }
-                                if (selectedWorkout!!.notes != null) {
+                                if (selectedWorkout!!.notes != null && selectedWorkout!!.notes!!.isNotBlank()) {
                                     item {
                                         AnimatedVisibility(
                                             visible = stages.after800ms,

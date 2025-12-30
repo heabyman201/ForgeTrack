@@ -24,10 +24,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.TrendingDown
+import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DatePicker
@@ -353,7 +356,7 @@ fun ExerciseAnalyticsScreen(
 
 @Composable
 private fun AnalysisInsightsCard(data: List<Workout>) {
-    if (data.size < 4) {
+    if (data.size < 3) {
         GlassCard {
             Column(
                 Modifier
@@ -367,7 +370,7 @@ private fun AnalysisInsightsCard(data: List<Workout>) {
                 )
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "Select a date range with at least 4 workouts for performance insights.",
+                    "Complete at least 3 workouts to unlock performance trends.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
                 )
@@ -376,128 +379,120 @@ private fun AnalysisInsightsCard(data: List<Workout>) {
         return
     }
 
-    val midpoint = data.size / 2
-    val first = data.take(midpoint)
-    val second = data.drop(midpoint)
+    val sorted = data.sortedBy { it.date }
+    val validLifts = sorted.filter { (it.weight ?: 0.0) > 0 && (it.reps ?: 0) > 0 }
 
-    fun avgD(get: (Workout) -> Double?): Double {
-        val vals = first.mapNotNull(get)
-        val vals2 = second.mapNotNull(get)
-        val a = vals.average().takeIf { !it.isNaN() } ?: 0.0
-        val b = vals2.average().takeIf { !it.isNaN() } ?: 0.0
-        return if (a > 0.0) ((b - a) / a) * 100.0 else 0.0
+    if (validLifts.isEmpty()) return
+
+    val e1rms = validLifts.map {
+        val w = it.weight!!
+        val r = it.reps!!
+        w * (1 + r / 30.0)
+    }
+    val volumes = validLifts.map { (it.weight!! * it.reps!! * (it.sets ?: 1)).toDouble() }
+
+    val sampleSize = (validLifts.size * 0.3).coerceAtLeast(1.0).toInt()
+    val startE1RM = e1rms.take(sampleSize).average()
+    val endE1RM = e1rms.takeLast(sampleSize).average()
+    val strengthChange = if (startE1RM > 0) ((endE1RM - startE1RM) / startE1RM) * 100 else 0.0
+
+    val startVol = volumes.take(sampleSize).average()
+    val endVol = volumes.takeLast(sampleSize).average()
+    val volumeChange = if (startVol > 0) ((endVol - startVol) / startVol) * 100 else 0.0
+
+    val dates = sorted.map { it.date }
+    val diffs = dates.zipWithNext { a, b -> (b - a) / (1000.0 * 60 * 60 * 24) }
+    val avgGap = if (diffs.isNotEmpty()) diffs.average() else 0.0
+
+    val (headline, subtext, sentimentColor) = when {
+        strengthChange > 5.0 -> Triple("Peaking", "Estimated 1RM is trending up by ${strengthChange.roundToInt()}%.", Color(0xFF1DB954))
+        strengthChange < -5.0 -> Triple("Cooling Down", "Estimated 1RM is down ${abs(strengthChange.roundToInt())}%. Deload active?", Color(0xFFFFB74D))
+        volumeChange > 10.0 -> Triple("Building Volume", "Strength is stable, but work capacity is up ${volumeChange.roundToInt()}%.", Color(0xFF1DB954))
+        else -> Triple("Maintenance", "Performance is stable. Consistency is key here.", Color(0xFF29B6F6))
     }
 
-    fun avgI(get: (Workout) -> Int?): Double = avgD { get(it)?.toDouble() }
+    val summary = buildString {
+        if (strengthChange > 2) append("You're moving more weight than when you started. ")
+        else if (strengthChange < -2) append("Intensity has dropped slightly. ")
 
-    val dWeight = avgD { it.weight }
-    val dReps = avgI { it.reps }
-    val dSets = avgI { it.sets }
-    val dVolume = run {
-        val v1 = first.map { ((it.weight ?: 0.0) * (it.reps ?: 0) * (it.sets ?: 0)).toDouble() }
-            .average().takeIf { !it.isNaN() } ?: 0.0
-        val v2 = second.map { ((it.weight ?: 0.0) * (it.reps ?: 0) * (it.sets ?: 0)).toDouble() }
-            .average().takeIf { !it.isNaN() } ?: 0.0
-        if (v1 > 0.0) ((v2 - v1) / v1) * 100.0 else 0.0
-    }
-    val dFrequency = run {
-        val firstDays = (first.lastOrNull()?.date ?: 0L) - (first.firstOrNull()?.date ?: 0L)
-        val secondDays = (second.lastOrNull()?.date ?: 0L) - (second.firstOrNull()?.date ?: 0L)
-        val f1 = if (firstDays > 0) first.size / (firstDays / 86_400_000.0) else 0.0
-        val f2 = if (secondDays > 0) second.size / (secondDays / 86_400_000.0) else 0.0
-        if (f1 > 0.0) ((f2 - f1) / f1) * 100.0 else 0.0
-    }
+        if (volumeChange > 5) append("Work capacity is increasing. ")
+        else if (volumeChange < -5) append("Volume load is decreasing. ")
 
-    data class Metric(val label: String, val delta: Double, val priority: Int)
-    val metrics = listOf(
-        Metric("Volume", dVolume, 0),
-        Metric("Weight", dWeight, 1),
-        Metric("Reps", dReps, 2),
-        Metric("Sets", dSets, 3),
-        Metric("Frequency", dFrequency, 4)
-    )
-
-    fun fmt(p: Double): String {
-        val v = abs(p)
-        val r = if (v >= 10.0) v.roundToInt().toString() else String.format(Locale.US, "%.1f", v)
-        return "$r%"
-    }
-
-    fun arrow(p: Double): String = when {
-        p > 0.5 -> "↑"
-        p < -0.5 -> "↓"
-        else -> "↔"
-    }
-
-    val headline = run {
-        val lead = metrics.maxWithOrNull(compareBy<Metric> { abs(it.delta) }.thenBy { -it.priority })
-        if (lead == null || abs(lead.delta) < 0.5) "Performance stable across this period."
-        else "${lead.label} ${arrow(lead.delta)} ${fmt(lead.delta)}"
-    }
-
-    val onBg = MaterialTheme.colorScheme.onSurface
-    val pos = Color(0xFF1DB954)
-    val neg = Color(0xFFFF4D4D)
-    val neu = onBg.copy(alpha = 0.6f)
-
-    @Composable
-    fun MetricRow(m: Metric) {
-        val base = when {
-            m.delta > 0.5 -> pos
-            m.delta < -0.5 -> neg
-            else -> neu
+        if (avgGap > 0) {
+            if (avgGap < 3) append("High frequency consistency!")
+            else if (avgGap > 7) append("Try to train more frequently.")
+            else append("Consistent training rhythm.")
         }
-        val fg by animateColorAsState(base, label = "fg")
-
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Text(m.label, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = arrow(m.delta),
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = fg,
-                    modifier = Modifier.padding(end = 8.dp)
-                )
-                Text(
-                    text = fmt(m.delta),
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = fg,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-        }
-    }
+    }.trim().ifEmpty { "Keep logging to reveal more patterns." }
 
     GlassCard {
         Column(
             Modifier
+                .padding(20.dp)
                 .fillMaxWidth()
-                .padding(16.dp)
         ) {
-            Text(
-                "Insights",
-                style = MaterialTheme.typography.titleLarge,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.92f)
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = if (strengthChange >= 0) Icons.AutoMirrored.Filled.TrendingUp else Icons.AutoMirrored.Filled.TrendingDown,
+                    contentDescription = null,
+                    tint = sentimentColor,
+                    modifier = Modifier.size(24.dp)
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = headline,
+                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                    color = Color.White
+                )
+            }
+
             Spacer(Modifier.height(8.dp))
+
             Text(
-                headline,
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
+                text = subtext,
+                style = MaterialTheme.typography.bodyLarge,
+                color = Color.White.copy(alpha = 0.9f)
             )
-            Spacer(Modifier.height(16.dp))
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                metrics.forEach { metric ->
-                    MetricRow(m = metric)
-                }
+
+            Spacer(Modifier.height(20.dp))
+
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                StatCompact("Est. 1RM", "${endE1RM.roundToInt()}kg", if (strengthChange > 0) "+" else "")
+                StatCompact("Avg Volume", "${(endVol / 1000).toString().take(3)}t", "")
+                StatCompact("Frequency", "${String.format(Locale.US, "%.1f", avgGap)}d", "")
+            }
+
+            Spacer(Modifier.height(20.dp))
+
+            Box(
+                Modifier
+                    .background(Color.White.copy(alpha = 0.08f), RoundedCornerShape(12.dp))
+                    .padding(12.dp)
+                    .fillMaxWidth()
+            ) {
+                Text(
+                    text = "Coach: $summary",
+                    style = MaterialTheme.typography.bodyMedium.copy(fontStyle = androidx.compose.ui.text.font.FontStyle.Italic),
+                    color = Color.White.copy(alpha = 0.7f)
+                )
             }
         }
+    }
+}
+
+@Composable
+fun StatCompact(label: String, value: String, prefix: String) {
+    Column {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelMedium,
+            color = Color.White.copy(alpha = 0.6f)
+        )
+        Text(
+            prefix + value,
+            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+            color = Color.White
+        )
     }
 }
 

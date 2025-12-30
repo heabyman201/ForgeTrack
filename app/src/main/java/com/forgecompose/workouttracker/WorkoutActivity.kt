@@ -1,15 +1,9 @@
 package com.forgecompose.workouttracker
 
-import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
-import androidx.compose.ui.graphics.nativeCanvas
 import android.annotation.SuppressLint
-import java.time.Duration
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
-import android.graphics.RadialGradient
-import android.graphics.RectF
-import android.graphics.Shader
 import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
@@ -22,7 +16,6 @@ import android.os.Looper
 import android.os.PowerManager
 import android.os.SystemClock
 import android.util.Log
-import android.view.HapticFeedbackConstants
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
@@ -33,35 +26,30 @@ import androidx.activity.viewModels
 import androidx.annotation.RequiresApi
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.EaseOutCubic
+import androidx.compose.animation.core.EaseOutExpo
 import androidx.compose.animation.core.EaseOutQuad
-import androidx.compose.animation.core.FastOutLinearInEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.expandVertically
+import androidx.compose.animation.expandIn
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
@@ -70,22 +58,16 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
-import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -94,23 +76,16 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material.icons.filled.Clear
-import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Remove
-import androidx.compose.material.icons.filled.RemoveCircle
 import androidx.compose.material.icons.filled.RemoveCircleOutline
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material3.Button
@@ -119,7 +94,6 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -149,25 +123,56 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.geometry.toRect
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.Paint
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.TileMode
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.health.connect.client.records.ExerciseSessionRecord
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -176,98 +181,36 @@ import com.forgecompose.workouttracker.ConnectedWorkout.CurrentReps
 import com.forgecompose.workouttracker.ConnectedWorkout.CurrentSets
 import com.forgecompose.workouttracker.ConnectedWorkout.CurrentTime
 import com.forgecompose.workouttracker.ConnectedWorkout.CurrentWeight
+import com.forgecompose.workouttracker.ConnectedWorkout.GoalDistance
 import com.forgecompose.workouttracker.ConnectedWorkout.GoalReps
 import com.forgecompose.workouttracker.ConnectedWorkout.GoalSets
 import com.forgecompose.workouttracker.ConnectedWorkout.GoalTime
 import com.forgecompose.workouttracker.ConnectedWorkout.GoalType
 import com.forgecompose.workouttracker.ConnectedWorkout.WorkoutMode
-import com.forgecompose.workouttracker.ConnectedWorkout.workout
-import com.forgecompose.workouttracker.ui.theme.WorkoutTrackerTheme
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.awaitCancellation
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
-import kotlin.getValue
-import kotlin.math.PI
-import kotlin.math.cos
-import kotlin.math.pow
-import kotlin.math.sin
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.draw.blur
-import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.draw.drawWithCache
-import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.draw.scale
-import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.geometry.toRect
-import androidx.compose.ui.graphics.BlendMode
-import androidx.compose.ui.graphics.CompositingStrategy
-import androidx.compose.ui.graphics.Paint
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.ShaderBrush
-import androidx.compose.ui.graphics.StrokeJoin
-import androidx.compose.ui.graphics.TileMode
-import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
-import androidx.compose.ui.graphics.drawscope.inset
-import androidx.compose.ui.graphics.drawscope.rotate
-import androidx.compose.ui.graphics.lerp
-import androidx.compose.ui.graphics.nativeCanvas
-import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.ModifierLocalBeyondBoundsLayout
-import androidx.compose.ui.layout.lerp
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.text.withStyle
-import androidx.compose.ui.unit.Dp
-import androidx.health.connect.client.records.ExerciseSessionRecord
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewmodel.compose.viewModel
-import com.forgecompose.workouttracker.ConnectedWorkout.GoalDistance
 import com.forgecompose.workouttracker.ConnectedWorkout.currentDistance
 import com.forgecompose.workouttracker.ConnectedWorkout.interHour
 import com.forgecompose.workouttracker.ConnectedWorkout.interMinute
 import com.forgecompose.workouttracker.ConnectedWorkout.interSecond
-import com.forgecompose.workouttracker.ConnectedWorkout.restTimeRemaining
-import com.forgecompose.workouttracker.blurAnim.intensity
-import com.forgecompose.workouttracker.blurAnim.length
-import com.kyant.backdrop.backdrops.layerBackdrop
-import com.kyant.backdrop.backdrops.rememberLayerBackdrop
-import com.kyant.backdrop.drawBackdrop
-import com.kyant.backdrop.effects.blur
-import com.kyant.backdrop.effects.refraction
-import com.kyant.backdrop.effects.vibrancy
-import com.kyant.backdrop.highlight.Highlight
-import com.kyant.backdrop.highlight.HighlightStyle
+import com.forgecompose.workouttracker.ConnectedWorkout.workout
+import com.forgecompose.workouttracker.ui.theme.WorkoutTrackerTheme
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
-import kotlinx.coroutines.withContext
-import java.time.Instant
-import java.time.LocalTime
-import kotlin.collections.maxOfOrNull
-import kotlin.getValue
+import kotlinx.coroutines.launch
+import kotlin.math.PI
 import kotlin.math.abs
+import kotlin.math.cos
 import kotlin.math.max
 import kotlin.math.min
-import kotlin.math.round
+import kotlin.math.pow
 import kotlin.math.roundToInt
-import kotlin.math.sqrt
+import kotlin.math.sin
 import kotlin.random.Random
-import kotlin.system.exitProcess
 import kotlin.time.Clock
-import kotlin.time.toDuration
 import kotlin.time.ExperimentalTime
-import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.toJavaInstant
 
 @Composable
@@ -583,52 +526,55 @@ private fun CountdownOverlay(countdownValue: Int, theme: ColorSchemeAppTheme) {
     val haptics = LocalHapticFeedback.current
 
     LaunchedEffect(countdownValue) {
-        if (countdownValue in 1..2) {
+        if (countdownValue in 1..3) {
             haptics.performHapticFeedback(HapticFeedbackType.LongPress)
             smallRipple.snapTo(0f)
-            smallRipple.animateTo(1f, tween(400, easing = LinearOutSlowInEasing))
+            smallRipple.animateTo(
+                targetValue = 1f,
+                animationSpec = tween(600, easing = EaseOutExpo)
+            )
         }
-    }
-
-    LaunchedEffect(countdownValue) {
         if (countdownValue == 0) {
             haptics.performHapticFeedback(HapticFeedbackType.LongPress)
             bigRipple.snapTo(0f)
-            bigRipple.animateTo(1f, tween(500, easing = FastOutSlowInEasing))
+            bigRipple.animateTo(
+                targetValue = 1f,
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                    stiffness = Spring.StiffnessLow
+                )
+            )
         }
     }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.8f)),
+            .background(Color.Black.copy(alpha = 0.88f)),
         contentAlignment = Alignment.Center
     ) {
-        Canvas(modifier = Modifier.size(300.dp)) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
             if (bigRipple.value > 0f) {
                 val progress = bigRipple.value
-                val radius = size.maxDimension * 1.5f * progress
-                val alpha = 1f - progress
                 drawCircle(
-                    color = Color.White.copy(alpha = alpha * 0.5f),
-                    radius = radius,
-                    style = Stroke(width = 40.dp.toPx() * (1f - progress))
+                    color = Color.White.copy(alpha = (1f - progress) * 0.45f),
+                    radius = size.maxDimension * progress,
+                    style = Stroke(width = 50.dp.toPx() * (1f - progress))
                 )
             }
 
             if (smallRipple.value > 0f) {
                 val progress = smallRipple.value
-                val radius = size.minDimension * 0.7f * progress
-                val alpha = 1f - progress
                 val rippleColor = when (countdownValue) {
+                    3 -> theme.tertiary
                     2 -> theme.secondary
                     1 -> theme.primary
                     else -> Color.Transparent
                 }
                 drawCircle(
-                    color = rippleColor.copy(alpha = alpha * 0.6f),
-                    radius = radius,
-                    style = Stroke(width = 20.dp.toPx() * (1f - progress))
+                    color = rippleColor.copy(alpha = (1f - progress) * 0.6f),
+                    radius = (size.minDimension * 0.35f) + (progress * 250.dp.toPx()),
+                    style = Stroke(width = 15.dp.toPx() * (1f - progress))
                 )
             }
         }
@@ -637,209 +583,134 @@ private fun CountdownOverlay(countdownValue: Int, theme: ColorSchemeAppTheme) {
             targetState = countdownValue,
             label = "CountdownAnimation",
             transitionSpec = {
-                (fadeIn(animationSpec = tween(150, easing = LinearEasing)) +
-                        scaleIn(animationSpec = spring(dampingRatio = 0.6f, stiffness = 250f), initialScale = 1.3f))
-                    .togetherWith(
-                        fadeOut(animationSpec = tween(150, easing = LinearEasing)) +
-                                scaleOut(animationSpec = tween(150), targetScale = 0.7f)
-                    )
+                val springSpec = spring<Float>(
+                    dampingRatio = 0.55f,
+                    stiffness = Spring.StiffnessLow
+                )
+                val springSizeSpec = spring<IntSize>(
+                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                    stiffness = Spring.StiffnessLow
+                )
+
+                (fadeIn(tween(250)) + scaleIn(springSpec, initialScale = 0.4f) + expandIn(springSizeSpec, Alignment.Center))
+                    .togetherWith(fadeOut(tween(200)) + scaleOut(tween(200), targetScale = 1.8f))
             }
         ) { targetCountdown ->
             if (targetCountdown > 0) {
-                val pulse by rememberInfiniteTransition(label = "glowPulse").animateFloat(
-                    initialValue = 0.85f,
-                    targetValue = 1.15f,
+                val infiniteTransition = rememberInfiniteTransition(label = "core")
+                val pulse by infiniteTransition.animateFloat(
+                    initialValue = 0.94f,
+                    targetValue = 1.06f,
                     animationSpec = infiniteRepeatable(
-                        animation = tween(2700, easing = FastOutSlowInEasing),
+                        animation = tween(1000, easing = FastOutSlowInEasing),
                         repeatMode = RepeatMode.Reverse
                     ),
-                    label = "glowPulseAnim"
+                    label = "pulse"
                 )
 
-                Box(contentAlignment = Alignment.Center) {
-                    Canvas(modifier = Modifier.size(250.dp)) {
-                        val shapeSize = size * 0.9f
-                        val shapeTopLeft = Offset(
-                            (size.width - shapeSize.width) / 2f,
-                            (size.height - shapeSize.height) / 2f
-                        )
+                val rotation by infiniteTransition.animateFloat(
+                    initialValue = -3f,
+                    targetValue = 3f,
+                    animationSpec = infiniteRepeatable(
+                        animation = tween(2000, easing = LinearEasing),
+                        repeatMode = RepeatMode.Reverse
+                    ),
+                    label = "rotation"
+                )
 
-                        // helpers
-                        fun drawNeonRoundRect(
-                            topLeft: Offset,
-                            size: androidx.compose.ui.geometry.Size,
-                            baseColor: Color,
-                            glowColor: Color,
-                            radiusDp: Float = 16f,
-                            glowRadiusDp: Float = 28f
-                        ) {
-                            val r = radiusDp.dp.toPx()
-                            val glow = (glowRadiusDp * pulse).dp.toPx()
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier.graphicsLayer {
+                        rotationZ = rotation
+                    }
+                ) {
+                    Canvas(modifier = Modifier.size(280.dp)) {
+                        val shapeSize = size * 0.82f * pulse
+                        val shapeTopLeft = Offset((size.width - shapeSize.width) / 2f, (size.height - shapeSize.height) / 2f)
 
-                            // big blurred glow underneath (true blur via framework paint)
-                            drawIntoCanvas { c ->
-                                val paint = Paint()
-                                val fp = paint.asFrameworkPaint()
-                                fp.isAntiAlias = true
-                                fp.color = glowColor.copy(alpha = 0.55f).toArgb()
-                                fp.setShadowLayer(glow, 0f, 0f, glowColor.copy(alpha = 0.95f).toArgb())
-                                val rect = RectF(
-                                    topLeft.x, topLeft.y,
-                                    topLeft.x + size.width, topLeft.y + size.height
-                                )
-                                c.nativeCanvas.drawRoundRect(rect, r, r, fp)
-                            }
-
-                            // solid fill
-                            drawRoundRect(
-                                color = baseColor,
-                                topLeft = topLeft,
-                                size = size,
-                                cornerRadius = CornerRadius(r, r)
-                            )
-
-                            // additive highlight stroke for “neon tube” feel
-                            drawRoundRect(
-                                brush = Brush.linearGradient(
-                                    listOf(
-                                        Color.White.copy(alpha = 0.20f),
-                                        Color.Transparent,
-                                        Color.White.copy(alpha = 0.20f)
-                                    ),
-                                    start = topLeft,
-                                    end = topLeft + Offset(size.width, size.height)
-                                ),
-                                topLeft = topLeft,
-                                size = size,
-                                cornerRadius = CornerRadius(r, r),
-                                style = Stroke(width = 2.dp.toPx()),
-                                blendMode = BlendMode.Plus
-                            )
-                        }
-
-                        fun drawNeonCircle(
-                            center: Offset,
-                            radius: Float,
-                            baseColor: Color,
-                            glowColor: Color,
-                            glowRadiusDp: Float = 28f
-                        ) {
-                            val glow = (glowRadiusDp * pulse).dp.toPx()
-
-                            drawIntoCanvas { c ->
-                                val paint = Paint()
-                                val fp = paint.asFrameworkPaint()
-                                fp.isAntiAlias = true
-                                fp.color = glowColor.copy(alpha = 0.55f).toArgb()
-                                fp.setShadowLayer(glow, 0f, 0f, glowColor.copy(alpha = 0.95f).toArgb())
-                                c.nativeCanvas.drawCircle(center.x, center.y, radius, fp)
-                            }
-
-                            drawCircle(color = baseColor, radius = radius, center = center)
-
-                            // additive rim
-                            drawCircle(
-                                color = Color.White.copy(alpha = 0.18f),
-                                radius = radius - 1.dp.toPx(),
-                                center = center,
-                                style = Stroke(width = 2.dp.toPx()),
-                                blendMode = BlendMode.Plus
-                            )
-                        }
-
-                        fun drawNeonTriangle(
-                            p1: Offset, p2: Offset, p3: Offset,
-                            baseColor: Color,
-                            glowColor: Color,
-                            glowRadiusDp: Float = 28f
-                        ) {
-                            val glow = (glowRadiusDp * pulse).dp.toPx()
-
-                            // build both Compose and framework paths
-                            val composePath = Path().apply {
-                                moveTo(p1.x, p1.y); lineTo(p2.x, p2.y); lineTo(p3.x, p3.y); close()
-                            }
-                            val fwPath = android.graphics.Path().apply {
-                                moveTo(p1.x, p1.y); lineTo(p2.x, p2.y); lineTo(p3.x, p3.y); close()
-                            }
-
-                            drawIntoCanvas { c ->
-                                val paint = Paint()
-                                val fp = paint.asFrameworkPaint()
-                                fp.isAntiAlias = true
-                                fp.style = android.graphics.Paint.Style.FILL
-                                fp.color = glowColor.copy(alpha = 0.55f).toArgb()
-                                fp.setShadowLayer(glow, 0f, 0f, glowColor.copy(alpha = 0.95f).toArgb())
-                                c.nativeCanvas.drawPath(fwPath, fp)
-                            }
-
-                            drawPath(path = composePath, color = baseColor)
-
-                            // additive edge highlight
-                            drawPath(
-                                path = composePath,
-                                color = Color.White.copy(alpha = 0.18f),
-                                style = Stroke(width = 2.dp.toPx(), join = StrokeJoin.Round),
-                                blendMode = BlendMode.Plus
-                            )
-                        }
-
-                        // pick colors per shape
                         when (targetCountdown) {
                             3 -> {
-                                // 3: Use Secondary/Tertiary
-                                drawNeonRoundRect(
+                                drawIntoCanvas { c ->
+                                    val p = Paint().asFrameworkPaint().apply {
+                                        isAntiAlias = true
+                                        setShadowLayer(35.dp.toPx() * pulse, 0f, 0f, theme.secondary.toArgb())
+                                    }
+                                    c.nativeCanvas.drawRoundRect(
+                                        shapeTopLeft.x, shapeTopLeft.y,
+                                        shapeTopLeft.x + shapeSize.width, shapeTopLeft.y + shapeSize.height,
+                                        32.dp.toPx(), 32.dp.toPx(), p
+                                    )
+                                }
+                                drawRoundRect(
+                                    color = theme.secondary,
                                     topLeft = shapeTopLeft,
                                     size = shapeSize,
-                                    baseColor = theme.secondary,
-                                    glowColor = theme.tertiary,
-                                    radiusDp = 16f,
-                                    glowRadiusDp = 36f
+                                    cornerRadius = CornerRadius(32.dp.toPx())
                                 )
                             }
                             2 -> {
-                                // 2: Use Secondary + Primary Mix
-                                drawNeonCircle(
-                                    center = center,
-                                    radius = shapeSize.minDimension / 2f,
-                                    baseColor = theme.secondary.copy(alpha = 0.8f),
-                                    glowColor = theme.primary.copy(alpha = 0.5f),
-                                    glowRadiusDp = 34f
-                                )
+                                drawIntoCanvas { c ->
+                                    val p = Paint().asFrameworkPaint().apply {
+                                        isAntiAlias = true
+                                        setShadowLayer(40.dp.toPx() * pulse, 0f, 0f, theme.primary.toArgb())
+                                    }
+                                    c.nativeCanvas.drawCircle(center.x, center.y, shapeSize.minDimension / 2f, p)
+                                }
+                                drawCircle(color = theme.secondary, radius = shapeSize.minDimension / 2f, center = center)
                             }
                             1 -> {
-                                // 1: Use Primary
-                                val p1 = Offset(center.x, shapeTopLeft.y)
-                                val p2 = Offset(shapeTopLeft.x + shapeSize.width, shapeTopLeft.y + shapeSize.height)
-                                val p3 = Offset(shapeTopLeft.x, shapeTopLeft.y + shapeSize.height)
-                                drawNeonTriangle(
-                                    p1, p2, p3,
-                                    baseColor = theme.primary,
-                                    glowColor = theme.tertiary,
-                                    glowRadiusDp = 32f
+                                val path = android.graphics.Path().apply {
+                                    moveTo(center.x, shapeTopLeft.y)
+                                    lineTo(shapeTopLeft.x + shapeSize.width, shapeTopLeft.y + shapeSize.height)
+                                    lineTo(shapeTopLeft.x, shapeTopLeft.y + shapeSize.height)
+                                    close()
+                                }
+                                drawIntoCanvas { c ->
+                                    val p = Paint().asFrameworkPaint().apply {
+                                        isAntiAlias = true
+                                        setShadowLayer(45.dp.toPx() * pulse, 0f, 0f, theme.primary.toArgb())
+                                    }
+                                    c.nativeCanvas.drawPath(path, p)
+                                }
+                                drawPath(
+                                    path = Path().apply {
+                                        moveTo(center.x, shapeTopLeft.y)
+                                        lineTo(shapeTopLeft.x + shapeSize.width, shapeTopLeft.y + shapeSize.height)
+                                        lineTo(shapeTopLeft.x, shapeTopLeft.y + shapeSize.height)
+                                        close()
+                                    },
+                                    color = theme.primary
                                 )
                             }
                         }
+
+                        drawRect(
+                            brush = Brush.verticalGradient(
+                                listOf(Color.White.copy(alpha = 0.12f), Color.Transparent, Color.Black.copy(alpha = 0.15f))
+                            ),
+                            topLeft = shapeTopLeft,
+                            size = shapeSize,
+                            blendMode = BlendMode.Overlay
+                        )
                     }
 
                     Text(
                         text = targetCountdown.toString(),
-                        fontSize = 150.sp,
+                        fontSize = 165.sp,
                         fontWeight = FontWeight.Black,
                         color = Color.White,
-                        style = TextStyle(
-                            shadow = Shadow(
-                                color = Color.Black.copy(alpha = 0.6f),
-                                offset = Offset(5f, 5f),
-                                blurRadius = 10f
-                            )
-                        )
+                        modifier = Modifier.graphicsLayer {
+                            scaleX = pulse
+                            scaleY = pulse
+                        }
                     )
                 }
             }
         }
     }
 }
+
+
 
 
 @Composable
@@ -1984,21 +1855,21 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                                     if (CurrentWeight.value > 0) "current weight is ${CurrentWeight.value}Kg"
                                     else if (CurrentTime.value < 0) "current distance walked or ran is ${currentDistance.value}km"
                                     else "current time elapsed is ${CurrentTime.value}"
-                                generateAdvice(
-                                    """
-The user is performing ${workout.value}.
-They have completed ${CurrentReps.intValue}/${GoalReps.intValue} reps and ${CurrentSets.intValue}/${GoalSets.intValue} sets.
-Respond with energetic, focused encouragement only — no questions, no analysis.
-Examples:
-• “Keep that rhythm — power through the last few reps!”
-• “Perfect pace — lock in, finish strong!”
-• “Explosive form — stay tight, last push!”
-The output doesn't have to be like the examples but stay in a similar layout.
-Output ≤1 line, purely motivational.
-""".trimIndent(),
-                                    "",
-                                    uVal
-                                )
+//                                generateAdvice(
+//                                    """
+//The user is performing ${workout.value}.
+//They have completed ${CurrentReps.intValue}/${GoalReps.intValue} reps and ${CurrentSets.intValue}/${GoalSets.intValue} sets.
+//Respond with energetic, focused encouragement only — no questions, no analysis.
+//Examples:
+//• “Keep that rhythm — power through the last few reps!”
+//• “Perfect pace — lock in, finish strong!”
+//• “Explosive form — stay tight, last push!”
+//The output doesn't have to be like the examples but stay in a similar layout.
+//Output ≤1 line, purely motivational.
+//""".trimIndent(),
+//                                    "",
+//                                    uVal
+//                                )
                                 delay(60000)
                             }
                         }
@@ -2282,23 +2153,34 @@ fun SetProgressDetails(
 }
 
 @Composable
-fun DetailedSetsProgressBar(currentSet: Int, goalSets: Int, modifier: Modifier = Modifier, theme: ColorSchemeAppTheme) {
+fun DetailedSetsProgressBar(
+    currentSet: Int,
+    goalSets: Int,
+    modifier: Modifier = Modifier,
+    theme: ColorSchemeAppTheme
+) {
     if (goalSets <= 0) return
-    val target = when {
-        goalSets <= 1 -> if (currentSet >= 1) 1f else 0f
-        else -> ((currentSet - 1).toFloat() / (goalSets - 1).toFloat()).coerceIn(0f, 1f)
+
+    // Calculate target and progress outside the draw loop
+    val target = remember(currentSet, goalSets) {
+        when {
+            goalSets <= 1 -> if (currentSet >= 1) 1f else 0f
+            else -> ((currentSet - 1).toFloat() / (goalSets - 1).toFloat()).coerceIn(0f, 1f)
+        }
     }
-    val progress by animateFloatAsState(
+
+    val progressState = animateFloatAsState(
         targetValue = target,
         label = "SetProgressBarProgress",
         animationSpec = tween(600, easing = FastOutSlowInEasing)
     )
 
-    var animationClock by remember { mutableStateOf(0f) }
+    // Use FloatState to avoid auto-boxing overhead
+    var animationClock by remember { mutableFloatStateOf(0f) }
 
     LaunchedEffect(Unit) {
         var lastFrameTime = 0L
-        while (isActive) {
+        while (true) {
             val currentTime = withFrameNanos { it }
             if (lastFrameTime != 0L) {
                 val deltaTime = (currentTime - lastFrameTime) / 1_000_000_000f
@@ -2309,137 +2191,148 @@ fun DetailedSetsProgressBar(currentSet: Int, goalSets: Int, modifier: Modifier =
         }
     }
 
-    val shimmer = (animationClock / 1.8f) % 1.4f - 0.2f
-    val pulse = 1.05f + 0.15f * sin(animationClock * 2 * PI.toFloat())
-
     val accent = theme.secondary
     val accentBright = theme.primary.copy(alpha = 0.95f)
 
-    if (goalSets <= 8) {
-        Canvas(
-            modifier = modifier
-                .fillMaxWidth()
-                .height(44.dp)
-        ) {
-            val y = size.height / 2f
-            val base = 6.dp.toPx()
-            val prog = 9.dp.toPx()
-            val dot = 8.dp.toPx()
-            val startPad = dot
-            val endPad = dot
-            val w = size.width - startPad - endPad
 
-            drawLine(
-                color = Color.White.copy(0.1f),
-                start = Offset(startPad, y),
-                end = Offset(startPad + w, y),
-                strokeWidth = base,
-                cap = StrokeCap.Round
-            )
-            if (progress > 0f) {
-                val endX = startPad + w * progress
-                drawLine(
-                    brush = Brush.horizontalGradient(listOf(accent, accentBright)),
-                    start = Offset(startPad, y),
-                    end = Offset(endX, y),
-                    strokeWidth = prog,
-                    cap = StrokeCap.Round
-                )
-            }
-            val shProg = shimmer
-            val shWidth = w * 0.4f
-            val shStart = (w + shWidth) * shProg - shWidth + startPad
-            drawLine(
-                brush = Brush.linearGradient(
-                    listOf(Color.Transparent, Color.White.copy(0.18f), Color.Transparent),
-                    start = Offset(shStart, y),
-                    end = Offset(shStart + shWidth, y)
-                ),
-                start = Offset(startPad, y),
-                end = Offset(startPad + w, y),
-                strokeWidth = base,
-                cap = StrokeCap.Round
-            )
-            (1..goalSets).forEach { i ->
-                val x = if (goalSets > 1) startPad + (w * ((i - 1).toFloat() / (goalSets - 1))) else size.width / 2f
-                val completed = i < currentSet
-                val current = i == currentSet
-                val dotR = 8.dp.toPx()
-                if (completed) {
-                    drawCircle(color = accent, radius = dotR, center = Offset(x, y))
-                } else if (current) {
-                    val r = dotR * pulse
-                    drawCircle(color = Color.White, radius = r, center = Offset(x, y))
-                    drawCircle(color = accent.copy(0.6f), radius = r * 1.5f, center = Offset(x, y))
-                } else {
-                    drawCircle(color = Color.White.copy(0.4f), radius = dotR, center = Offset(x, y))
+    val isLinear = goalSets <= 8
+
+    Spacer(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(if (isLinear) 44.dp else 220.dp)
+            .drawWithCache {
+                onDrawBehind {
+                    // Logic inside here does NOT trigger recomposition
+                    val progress = progressState.value
+                    val shimmer = (animationClock / 1.8f) % 1.4f - 0.2f
+                    val pulse = 1.05f + 0.15f * sin(animationClock * 2 * PI.toFloat())
+
+                    if (isLinear) {
+                        drawLinearProgress(
+                            goalSets, currentSet, progress,
+                            shimmer, pulse, accent, accentBright
+                        )
+                    } else {
+                        drawCircularProgress(
+                            goalSets, currentSet, progress,
+                            shimmer, pulse, accent
+                        )
+                    }
                 }
             }
+    )
+}
+
+// Extension functions to keep the draw logic clean and isolated
+private fun DrawScope.drawLinearProgress(
+    goalSets: Int, currentSet: Int, progress: Float,
+    shimmer: Float, pulse: Float, accent: Color, accentBright: Color
+) {
+    val y = size.height / 2f
+    val base = 6.dp.toPx()
+    val prog = 9.dp.toPx()
+    val dotR = 8.dp.toPx()
+    val w = size.width - (dotR * 2)
+    val startPad = dotR
+
+    drawLine(
+        color = Color.White.copy(0.1f),
+        start = Offset(startPad, y),
+        end = Offset(startPad + w, y),
+        strokeWidth = base,
+        cap = StrokeCap.Round
+    )
+
+    if (progress > 0f) {
+        drawLine(
+            brush = Brush.horizontalGradient(listOf(accent, accentBright)),
+            start = Offset(startPad, y),
+            end = Offset(startPad + w * progress, y),
+            strokeWidth = prog,
+            cap = StrokeCap.Round
+        )
+    }
+
+    val shWidth = w * 0.4f
+    val shStart = (w + shWidth) * shimmer - shWidth + startPad
+    drawLine(
+        brush = Brush.linearGradient(
+            listOf(Color.Transparent, Color.White.copy(0.18f), Color.Transparent),
+            start = Offset(shStart, y),
+            end = Offset(shStart + shWidth, y)
+        ),
+        start = Offset(startPad, y),
+        end = Offset(startPad + w, y),
+        strokeWidth = base,
+        cap = StrokeCap.Round
+    )
+
+    for (i in 1..goalSets) {
+        val x = if (goalSets > 1) startPad + (w * ((i - 1).toFloat() / (goalSets - 1))) else size.width / 2f
+        val completed = i < currentSet
+        val isCurrent = i == currentSet
+
+        when {
+            completed -> drawCircle(color = accent, radius = dotR, center = Offset(x, y))
+            isCurrent -> {
+                val r = dotR * pulse
+                drawCircle(color = Color.White, radius = r, center = Offset(x, y))
+                drawCircle(color = accent.copy(0.6f), radius = r * 1.5f, center = Offset(x, y))
+            }
+            else -> drawCircle(color = Color.White.copy(0.4f), radius = dotR, center = Offset(x, y))
         }
-    } else {
-        Canvas(
-            modifier = modifier
-                .fillMaxWidth()
-                .height(220.dp)
-        ) {
-            val strokeBase = 8.dp.toPx()
-            val strokeProg = 10.dp.toPx()
-            val dotR = 6.dp.toPx()
-            val pad = 16.dp.toPx()
-            val radius = (min(size.width, size.height) / 2f) - (strokeProg + pad)
-            val center = Offset(size.width / 2f, size.height / 2f)
-            val startAngle = -90f
-            val sweep = 360f
-            drawCircle(
-                color = Color.White.copy(0.1f),
-                radius = radius,
-                center = center,
-                style = Stroke(width = strokeBase, cap = StrokeCap.Round)
-            )
-            if (progress > 0f) {
-                drawArc(
-                    color = accent,
-                    startAngle = startAngle,
-                    sweepAngle = sweep * progress,
-                    useCenter = false,
-                    topLeft = Offset(center.x - radius, center.y - radius),
-                    size = androidx.compose.ui.geometry.Size(radius * 2, radius * 2),
-                    style = Stroke(width = strokeProg, cap = StrokeCap.Round)
-                )
+    }
+}
+
+private fun DrawScope.drawCircularProgress(
+    goalSets: Int, currentSet: Int, progress: Float,
+    shimmer: Float, pulse: Float, accent: Color
+) {
+    val strokeBase = 8.dp.toPx()
+    val strokeProg = 10.dp.toPx()
+    val dotR = 6.dp.toPx()
+    val pad = 16.dp.toPx()
+    val radius = (min(size.width, size.height) / 2f) - (strokeProg + pad)
+    val arcCenter = center
+    val startAngle = -90f
+    val sweep = 360f
+
+    drawCircle(
+        color = Color.White.copy(0.1f),
+        radius = radius,
+        center = arcCenter,
+        style = Stroke(width = strokeBase, cap = StrokeCap.Round)
+    )
+
+    if (progress > 0f) {
+        drawArc(
+            color = accent,
+            startAngle = startAngle,
+            sweepAngle = sweep * progress,
+            useCenter = false,
+            topLeft = Offset(arcCenter.x - radius, arcCenter.y - radius),
+            size = androidx.compose.ui.geometry.Size(radius * 2, radius * 2),
+            style = Stroke(width = strokeProg, cap = StrokeCap.Round)
+        )
+    }
+
+    for (i in 1..goalSets) {
+        val t = if (goalSets > 1) (i - 1).toFloat() / (goalSets - 1).toFloat() else 0.5f
+        val ang = Math.toRadians((startAngle + t * sweep).toDouble())
+        val cx = (arcCenter.x + cos(ang).toFloat() * radius)
+        val cy = (arcCenter.y + sin(ang).toFloat() * radius)
+        val completed = i < currentSet
+        val isCurrent = i == currentSet
+
+        when {
+            completed -> drawCircle(color = accent, radius = dotR, center = Offset(cx, cy))
+            isCurrent -> {
+                val r = dotR * pulse
+                drawCircle(color = Color.White, radius = r, center = Offset(cx, cy))
+                drawCircle(color = accent.copy(0.6f), radius = r * 1.5f, center = Offset(cx, cy))
             }
-            val shAngle = ((shimmer.coerceIn(0f, 1f)) * 360f)
-//            drawArc(
-//                brush = Brush.sweepGradient(
-//                    listOf(
-//                        Color.Transparent,
-//                        Color.White.copy(0.18f),
-//                        Color.Transparent
-//                    )
-//                ),
-//                startAngle = startAngle + shAngle - 20f,
-//                sweepAngle = 40f,
-//                useCenter = false,
-//                topLeft = Offset(center.x - radius, center.y - radius),
-//                size = androidx.compose.ui.geometry.Size(radius * 2, radius * 2),
-//                style = Stroke(width = strokeBase)
-//            )
-            (1..goalSets).forEach { i ->
-                val t = if (goalSets > 1) (i - 1).toFloat() / (goalSets - 1).toFloat() else 0.5f
-                val ang = Math.toRadians((startAngle + t * sweep).toDouble())
-                val cx = (center.x + cos(ang).toFloat() * radius)
-                val cy = (center.y + sin(ang).toFloat() * radius)
-                val completed = i < currentSet
-                val current = i == currentSet
-                if (completed) {
-                    drawCircle(color = accent, radius = dotR, center = Offset(cx, cy))
-                } else if (current) {
-                    val r = dotR * pulse
-                    drawCircle(color = Color.White, radius = r, center = Offset(cx, cy))
-                    drawCircle(color = accent.copy(0.6f), radius = r * 1.5f, center = Offset(cx, cy))
-                } else {
-                    drawCircle(color = Color.White.copy(0.4f), radius = dotR, center = Offset(cx, cy))
-                }
-            }
+            else -> drawCircle(color = Color.White.copy(0.4f), radius = dotR, center = Offset(cx, cy))
         }
     }
 }
@@ -3899,11 +3792,6 @@ fun GoalCompletionAnimation(
             style = TextStyle(
                 fontSize = 52.sp,
                 fontWeight = FontWeight.Black,
-                shadow = Shadow(
-                    color = Color(0xFF8B0000).copy(alpha = 0.8f),
-                    offset = Offset(0f, 4f),
-                    blurRadius = 16f
-                )
             )
         )
 
@@ -3921,12 +3809,7 @@ fun GoalCompletionAnimation(
                 style = TextStyle(
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Black,
-                    letterSpacing = 2.sp,
-                    shadow = Shadow(
-                        color = Color.Black.copy(alpha = 0.35f),
-                        offset = Offset(0f, 2f),
-                        blurRadius = 8f
-                    )
+                    letterSpacing = 1.sp,
                 ),
                 color = Color(0xFFFFD700)
             )

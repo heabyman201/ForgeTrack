@@ -71,8 +71,6 @@ fun AnimatedBackdrop(
         modifier = modifier
             .fillMaxSize().graphicsLayer {
 
-                compositingStrategy = CompositingStrategy.Offscreen
-                clip = true
 
                 renderEffect =
                     if (blurRadiusPx > 0f) {
@@ -91,16 +89,24 @@ fun AnimatedBackdrop(
         val s1 = 0.4f
         val s2 = 0.3f
 
-        val bg = Brush.radialGradient(
-            colors = listOf(
-                currentThemeColors.secondary.copy(alpha = 0.78f - 0.06f * s1),
-                currentThemeColors.tertiary,
-                currentThemeColors.background
-            ),
-            center = Offset(w * (0.30f + 0.14f * s1), h * (0.24f + 0.12f * s2)),
-            radius = max(w, h) * (0.72f + 0.06f * s1)
+        val mainGradient = Brush.radialGradient(
+            0.0f to currentThemeColors.secondary.copy(alpha = 0.40f),
+            0.45f to currentThemeColors.tertiary.copy(alpha = 0.55f),
+            1.0f to Color.Transparent,
+            center = Offset(w * (0.25f + 0.10f * s1), h * (0.20f + 0.10f * s2)),
+            radius = max(w, h) * 1.2f
         )
-        drawRect(bg)
+
+        val accentGradient = Brush.linearGradient(
+            0.0f to currentThemeColors.primary.copy(alpha = 0.04f),
+            1.0f to Color.Transparent,
+            start = Offset(w, 0f),
+            end = Offset(0f, h)
+        )
+
+        drawRect(currentThemeColors.background)
+        drawRect(mainGradient)
+        drawRect(accentGradient)
 
         if (introAlpha > 0f && navEffects) {
             drawRect(introBrush, alpha = introAlpha.coerceIn(0f, 1f))

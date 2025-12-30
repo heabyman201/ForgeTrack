@@ -248,7 +248,7 @@ fun SettingsSectionCard(
                 // Dynamic background using Secondary -> Tertiary/Background
                 val bgBrush = Brush.radialGradient(
                     colors = listOf(
-                        theme.secondary.copy(alpha = 0.6f),
+                        theme.background.copy(alpha = 0.6f),
                         theme.background.copy(alpha = 0.95f)
                     ),
                     center = Offset(size.width / 2f, size.height * 0.1f),

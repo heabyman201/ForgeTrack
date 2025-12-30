@@ -27,6 +27,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -61,13 +62,13 @@ fun GlassCard(
                 val bw = borderWidth.toPx()
                 val fill = Brush.linearGradient(
                     listOf(
-                        theme.tertiary.copy(alpha = 0.65f),
+                        theme.background.copy(alpha = 0.65f),
                         theme.background.copy(alpha = 0.65f)
                     )
                 )
                 val stroke = Brush.linearGradient(
                     listOf(
-                        theme.primary.copy(alpha = 0.2f),
+                        theme.background.copy(alpha = 0.2f),
                         theme.secondary.copy(alpha = 0.1f)
                     )
                 )
@@ -250,14 +251,14 @@ fun GlowingCard(modifier: Modifier = Modifier, content: @Composable () -> Unit) 
     val appearanceOptions by AppearanceOptionsManagerAppTheme.flow(context).collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
     val theme = appearanceOptions.selectedTheme.colors
 
-    val cornerRadius = 22.dp
+    val cornerRadius = remember { 22.dp }
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(cornerRadius))
             .drawWithCache {
                 val r = cornerRadius.toPx()
                 val bg = Brush.radialGradient(
-                    colors = listOf(theme.tertiary, theme.background),
+                    colors = listOf(theme.background, theme.background),
                     center = Offset(size.width / 2f, size.height * 0.1f),
                     radius = size.width * 1.5f
                 )

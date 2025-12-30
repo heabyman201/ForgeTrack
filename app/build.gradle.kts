@@ -30,8 +30,8 @@ android {
         buildFeatures { buildConfig = true }
         minSdk = 31
         targetSdk = 36
-        versionCode = 4
-        versionName = "1.03"
+        versionCode = 5
+        versionName = "1.04"
         buildConfigField("String", "API_KEY", "\"$apiKey\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -79,9 +79,10 @@ dependencies {
     implementation(libs.androidx.foundation)
 
     implementation("com.google.android.gms:play-services-auth:21.4.0")
+
     "baselineProfile"(project(":app:baselineprofile2"))
     implementation("com.github.Kyant0:AndroidLiquidGlass:1.0.0-alpha15")
-    implementation("com.google.mlkit:genai-prompt:1.0.0-alpha1")
+    implementation("com.google.mediapipe:tasks-genai:0.10.29")
     implementation("com.google.android.gms:play-services-tflite-java:16.4.0")
 
     debugImplementation("androidx.compose.ui:ui-tooling")

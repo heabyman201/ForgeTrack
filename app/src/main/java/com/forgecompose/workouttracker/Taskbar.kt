@@ -321,31 +321,44 @@ fun FloatingTaskbar(
                                 val to = routeIndex(currentRoute)
                                 val dir = (to - from).coerceIn(-1, 1)
 
-                                val velocity = 600f * dir
-                                val tiltForce = 0.05f * dir
-                                val kickBack = 12f * dir
+
+                                val velocity = 850f * dir
+                                val tiltForce = 0.08f * dir
+                                val kickBack = 28f * dir
+
 
                                 pos.snapTo(Offset(-kickBack, 0f))
                                 skew.snapTo(tiltForce)
-                                squish.snapTo(0.97f)
+                                squish.snapTo(0.94f)
 
                                 launch {
                                     pos.animateTo(
-                                        Offset.Zero,
-                                        spring(dampingRatio = 0.82f, stiffness = 380f),
+                                        targetValue = Offset.Zero,
+
+                                        animationSpec = spring(
+                                            dampingRatio = 0.75f,
+                                            stiffness = 180f
+                                        ),
                                         initialVelocity = Offset(velocity, 0f)
                                     )
                                 }
                                 launch {
                                     skew.animateTo(
-                                        0f,
-                                        spring(dampingRatio = 0.8f, stiffness = 450f)
+                                        targetValue = 0f,
+
+                                        animationSpec = spring(
+                                            dampingRatio = 0.85f,
+                                            stiffness = 220f
+                                        )
                                     )
                                 }
                                 launch {
                                     squish.animateTo(
-                                        1f,
-                                        spring(dampingRatio = 0.7f, stiffness = 450f)
+                                        targetValue = 1f,
+                                        animationSpec = spring(
+                                            dampingRatio = 0.65f,
+                                            stiffness = 250f
+                                        )
                                     )
                                 }
                             } else {

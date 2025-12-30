@@ -510,7 +510,7 @@ private fun ProfileSectionCard(
                 // Dynamic Background based on theme
                 val bgBrush = Brush.radialGradient(
                     colors = listOf(
-                        themeColors.secondary.copy(alpha = 0.6f),
+                        themeColors.background.copy(alpha = 0.6f),
                         themeColors.background.copy(alpha = 0.8f)
                     ),
                     center = Offset(size.width / 2f, size.height * 0.1f),

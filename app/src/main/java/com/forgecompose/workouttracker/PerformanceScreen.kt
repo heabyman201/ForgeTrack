@@ -502,14 +502,14 @@ private fun SettingsSectionCardHealth(
             .drawWithCache {
                 val cornerRpx = cornerRadius.toPx()
                 val bgBrush = Brush.radialGradient(
-                    colors = listOf(theme.secondary.copy(alpha = 0.6f), theme.tertiary.copy(alpha = 0.95f)),
+                    colors = listOf(theme.background.copy(alpha = 0.6f), theme.background.copy(alpha = 0.95f)),
                     center = Offset(size.width / 2f, size.height * 0.1f),
                     radius = size.width * 1.5f
                 )
                 val borderBrush = Brush.linearGradient(
                     colors = listOf(
-                        theme.primary.copy(alpha = 0.2f),
-                        theme.secondary.copy(alpha = 0.1f)
+                        theme.background.copy(alpha = 0.2f),
+                        theme.background.copy(alpha = 0.1f)
                     )
                 )
                 onDrawBehind {

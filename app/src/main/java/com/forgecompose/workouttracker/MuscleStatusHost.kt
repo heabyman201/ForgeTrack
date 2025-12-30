@@ -27,6 +27,8 @@ import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.hapticfeedback.HapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -58,18 +60,19 @@ fun ProfileMuscleStatusRoute(
 ) {
     val context = LocalContext.current
 
-    // --- Theme Hook ---
     val appearanceOptions by AppearanceOptionsManagerAppTheme
         .flow(context)
         .collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
     val theme = appearanceOptions.selectedTheme.colors
 
     val cold = rememberColdStartStages()
-    val density = LocalDensity.current
     val performanceOptions by PerformanceOptionsManager.flow(context).collectAsState(initial = PerformanceOptions.Defaults)
     val movingEffectsEnabled = performanceOptions.movingGradientAndParticles
     val shouldAnimate = cold.afterFirstFrame
-    var animationClock by remember { mutableStateOf(0f) }
+
+    // Use a primitive state to avoid overhead
+    var animationClock by remember { mutableFloatStateOf(0f) }
+
     LaunchedEffect(shouldAnimate, movingEffectsEnabled) {
         if (shouldAnimate && movingEffectsEnabled) {
             var lastFrameTime = 0L
@@ -84,23 +87,8 @@ fun ProfileMuscleStatusRoute(
             }
         }
     }
-    val fullPi = 2f * PI.toFloat()
-    val pulseAlpha = 0.25f + 0.10f * sin(animationClock * fullPi / 8f)
-    val glowIntensity = 0.4f + 0.2f * sin(animationClock * fullPi / 6f)
-    val gradientProgress = (animationClock / 15f) % 2f
-    val gradientOffset = if (gradientProgress > 1f) 2f - gradientProgress else gradientProgress
 
-    val particleSeed = remember { Random(42) }
-    val particles = remember {
-        List(12) { i ->
-            val baseX = i / 12f
-            val yOff = 0.15f + particleSeed.nextFloat() * 0.25f
-            val r = 1.8f + particleSeed.nextFloat() * 2.0f
-            Triple(baseX, yOff, r)
-        }
-    }
-
-    // --- Dynamic Intro Colors based on Theme ---
+    // Wrap intro colors and brush to prevent re-allocation on every recomposition
     val introColors = remember(theme) {
         listOf(
             theme.secondary.copy(alpha = 0.8f),
@@ -123,50 +111,39 @@ fun ProfileMuscleStatusRoute(
         animationSpec = tween(1000, easing = LinearEasing),
         label = "introFade"
     )
+
     LaunchedEffect(Unit) {
         Firebase.crashlytics.setCustomKey("current_screen", "MuscleStatus")
         showIntro = false
         taskbarOverride.shouldOverrideVisiblity.value = false
     }
+
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    val allWorkouts = (uiState as? WorkoutListUiState.Success)?.workouts.orEmpty()
+
+    // Stabilize the recent workouts list so LazyColumn doesn't jitter
     val recent = remember(uiState) {
-        allWorkouts
-            .sortedByDescending { it.date }
-            .take(40)
-            .map { w ->
+        (uiState as? WorkoutListUiState.Success)?.workouts
+            ?.sortedByDescending { it.date }
+            ?.take(40)
+            ?.map { w ->
                 WorkoutSummary(
                     date = Instant.ofEpochMilli(w.date),
                     name = w.name,
                     exercises = listOf(w.name.lowercase())
                 )
-            }
+            }.orEmpty()
     }
+
     val blurAnim by animateDpAsState(
         if (showIntro) intensity.value else 0.dp,
         animationSpec = tween(length.value.toInt()),
         label = "blur"
     )
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .blur(blurAnim)
-//            .redGridBackground(
-//                animationClock = if (movingEffectsEnabled && shouldAnimate) animationClock else 0f,
-//                clampedPulse = clampedPulse,
-//                clampedGlow = clampedGlow,
-//                clampedGrad = clampedGrad,
-//                density = density,
-//                themeColors = theme
-//            )
-//            .drawWithCache {
-//                val introBrush = introBrush
-//                onDrawBehind {
-//                    if (introProgress < 1f) {
-//                        drawRect(brush = introBrush, alpha = 1f - introProgress)
-//                    }
-//                }
-//            }
     ) {
         Scaffold(
             topBar = {
@@ -178,11 +155,6 @@ fun ProfileMuscleStatusRoute(
                             fontWeight = FontWeight.Bold
                         )
                     },
-//                    navigationIcon = {
-//                        IconButton(onClick = { navController.navigateUp() }) {
-//                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Go back")
-//                        }
-//                    },
                     colors = TopAppBarDefaults.topAppBarColors(
                         containerColor = Color.Transparent,
                         titleContentColor = Color.White,
@@ -193,17 +165,20 @@ fun ProfileMuscleStatusRoute(
             containerColor = Color.Transparent,
             modifier = Modifier.fillMaxSize()
         ) { padding ->
+            // CALCULATE DERIVED VALUES HERE ONLY IF NEEDED BY CHILD
+            // Ideally, pass animationClock to AnimatedBackdrop and let IT handle the sin() math
             AnimatedBackdrop(
                 modifier = Modifier,
                 introBrush = introBrush,
                 introAlpha = 1f - introProgress,
                 enableWaves = movingEffectsEnabled,
-                enableAnimation =  movingEffectsEnabled
-
+                enableAnimation = movingEffectsEnabled
             )
+
             Box(modifier = Modifier.fillMaxSize()) {
                 val haptics = LocalHapticFeedback.current
-                when (uiState) {
+
+                when (val state = uiState) {
                     is WorkoutListUiState.Loading -> LoadingBlock(padding)
                     is WorkoutListUiState.Error -> ErrorBlock(padding)
                     is WorkoutListUiState.Success -> {
@@ -214,73 +189,22 @@ fun ProfileMuscleStatusRoute(
                             verticalArrangement = Arrangement.spacedBy(16.dp),
                             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 100.dp)
                         ) {
-                            item {
-                                AnimatedVisibility(
-                                    visible = cold.after100ms,
-                                    enter = fadeIn(animationSpec = tween(500)) + slideInVertically(animationSpec = tween(500)) { it / 2 }
-                                ) {
-                                    GlowingCard {
-                                        Column(Modifier.padding(20.dp)) {
-                                            SectionTitle("Summary")
-                                            Row(
-                                                Modifier.fillMaxWidth(),
-                                                horizontalArrangement = Arrangement.SpaceAround
-                                            ) {
-                                                val weekStartEnd = remember(allWorkouts) {
-                                                    if (allWorkouts.isEmpty()) null else {
-                                                        val cal = Calendar.getInstance().apply {
-                                                            timeInMillis = System.currentTimeMillis()
-                                                            firstDayOfWeek = Calendar.MONDAY
-                                                            set(Calendar.DAY_OF_WEEK, Calendar.MONDAY)
-                                                            set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0)
-                                                            set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
-                                                        }
-                                                        val start = cal.timeInMillis
-                                                        val end = start + TimeUnit.DAYS.toMillis(6)
-                                                        start to end
-                                                    }
-                                                }
-                                                val thisWeekCount = weekStartEnd?.let { (start, end) ->
-                                                    allWorkouts.count { it.date in start until end }
-                                                } ?: 0
-                                                val streak = if (allWorkouts.isEmpty()) 0 else computeStreak(System.currentTimeMillis(), allWorkouts)
-                                                LabeledStat("This Week", thisWeekCount.toString())
-                                                LabeledStat("Streak", "${streak}d")
-                                                LabeledStat("Total", allWorkouts.size.toString())
-                                            }
-                                        }
-                                    }
-                                }
+                            item(key = "summary") {
+                                SummarySection(allWorkouts = state.workouts, visible = cold.after100ms)
                             }
-                            item {
-                                AnimatedVisibility(
+                            item(key = "muscle_status") {
+                                MuscleStatusSectionWrapper(
+                                    recent = recent,
                                     visible = cold.after200ms,
-                                    enter = fadeIn(animationSpec = tween(500, 100)) + slideInVertically(animationSpec = tween(500, 100)) { it / 2 }
-                                ) {
-                                    GlowingCard {
-                                        Column(Modifier.padding(vertical = 16.dp)) {
-                                            BoxWithConstraints(Modifier.fillMaxWidth()) {
-                                                val hasRoomForButton = maxWidth >= 360.dp
-                                                MuscleStatusSection(
-                                                    recentWorkouts = recent,
-                                                    advicePayload = "",
-                                                    nowEpochMillis = System.currentTimeMillis(),
-                                                    modifier = Modifier.fillMaxWidth(),
-
-                                                    onOpenWeeklySummary = {
-                                                        navController.navigate("WeeklySummary")
-                                                        haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.KeyboardTap)
-                                                    }
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
+                                    navController = navController,
+                                    haptics = haptics
+                                )
                             }
                             item { Spacer(Modifier.height(32.dp)) }
                         }
                     }
                 }
+
                 if (cold.afterFirstFrame) {
                     FloatingTaskbar(
                         modifier = Modifier.align(Alignment.BottomCenter),
@@ -288,6 +212,73 @@ fun ProfileMuscleStatusRoute(
                         cornerRadius = 32.dp,
                         iconAlpha = 1f,
                         uiState = uiState
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SummarySection(allWorkouts: List<Workout>, visible: Boolean) {
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn(tween(500)) + slideInVertically(tween(500)) { it / 2 }
+    ) {
+        GlowingCard {
+            Column(Modifier.padding(20.dp)) {
+                SectionTitle("Summary")
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceAround
+                ) {
+                    val stats = remember(allWorkouts) {
+                        val cal = Calendar.getInstance().apply {
+                            firstDayOfWeek = Calendar.MONDAY
+                            set(Calendar.DAY_OF_WEEK, Calendar.MONDAY)
+                            set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0)
+                            set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
+                        }
+                        val start = cal.timeInMillis
+                        val end = start + TimeUnit.DAYS.toMillis(6)
+
+                        val thisWeekCount = allWorkouts.count { it.date in start until end }
+                        val streak = if (allWorkouts.isEmpty()) 0 else computeStreak(System.currentTimeMillis(), allWorkouts)
+                        Triple(thisWeekCount, streak, allWorkouts.size)
+                    }
+
+                    LabeledStat("This Week", stats.first.toString())
+                    LabeledStat("Streak", "${stats.second}d")
+                    LabeledStat("Total", stats.third.toString())
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MuscleStatusSectionWrapper(
+    recent: List<WorkoutSummary>,
+    visible: Boolean,
+    navController: NavController,
+    haptics: HapticFeedback
+) {
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn(tween(500, 100)) + slideInVertically(tween(500, 100)) { it / 2 }
+    ) {
+        GlowingCard {
+            Column(Modifier.padding(vertical = 16.dp)) {
+                BoxWithConstraints(Modifier.fillMaxWidth()) {
+                    MuscleStatusSection(
+                        recentWorkouts = recent,
+                        advicePayload = "",
+                        nowEpochMillis = System.currentTimeMillis(),
+                        modifier = Modifier.fillMaxWidth(),
+                        onOpenWeeklySummary = {
+                            navController.navigate("WeeklySummary")
+                            haptics.performHapticFeedback(HapticFeedbackType.KeyboardTap)
+                        }
                     )
                 }
             }

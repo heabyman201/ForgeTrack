@@ -23,6 +23,9 @@ import androidx.annotation.RequiresApi
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.EaseInCubic
+import androidx.compose.animation.core.EaseOutExpo
+import androidx.compose.animation.core.EaseOutQuart
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.Spring
@@ -55,6 +58,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -90,9 +94,11 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.dropShadow
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
@@ -233,7 +239,7 @@ class MainActivity : ComponentActivity() {
             WorkoutTrackerTheme {
                 val context = LocalContext.current
 
-                // Handle widget intents
+
                 val initialRoute = remember { 
                     intent?.getStringExtra("navigation_route") 
                 }
@@ -348,36 +354,46 @@ fun MainScreen(viewModel: WorkoutListViewModel, viewModel2: MainScreenViewModel,
             navController = navController,
             startDestination = startDestination,
             enterTransition = {
-                fadeIn(animationSpec = fadeInSpec) +
-                        scaleIn(
-                            initialScale = 0.92f,
-                            animationSpec = spring(dampingRatio = 0.78f, stiffness = 300f),
-                            transformOrigin = TransformOrigin.Center
-                        )
+                fadeIn(
+                    animationSpec = tween(300, easing = EaseOutQuart)
+                ) + scaleIn(
+                    initialScale = 0.88f,
+                    animationSpec = spring(
+                        dampingRatio = 0.7f,
+                        stiffness = 400f
+                    ),
+                    transformOrigin = TransformOrigin.Center
+                )
             },
             exitTransition = {
-                fadeOut(animationSpec = fadeOutSpec) +
-                        scaleOut(
-                            targetScale = 1.04f,
-                            animationSpec = tween(800, easing = LinearEasing),
-                            transformOrigin = TransformOrigin.Center
-                        )
+                fadeOut(
+                    animationSpec = tween(250, easing = EaseInCubic)
+                ) + scaleOut(
+                    targetScale = 1.08f,
+                    animationSpec = tween(250, easing = EaseInCubic),
+                    transformOrigin = TransformOrigin.Center
+                )
             },
             popEnterTransition = {
-                fadeIn(animationSpec = fadeInSpec) +
-                        scaleIn(
-                            initialScale = 0.92f,
-                            animationSpec = spring(dampingRatio = 0.78f, stiffness = 300f),
-                            transformOrigin = TransformOrigin.Center
-                        )
+                fadeIn(
+                    animationSpec = tween(300, easing = EaseOutQuart)
+                ) + scaleIn(
+                    initialScale = 0.88f,
+                    animationSpec = spring(
+                        dampingRatio = 0.7f,
+                        stiffness = 400f
+                    ),
+                    transformOrigin = TransformOrigin.Center
+                )
             },
             popExitTransition = {
-                fadeOut(animationSpec = fadeOutSpec) +
-                        scaleOut(
-                            targetScale = 0.96f,
-                            animationSpec = tween(800, easing = LinearEasing),
-                            transformOrigin = TransformOrigin.Center
-                        )
+                fadeOut(
+                    animationSpec = tween(250, easing = EaseInCubic)
+                ) + scaleOut(
+                    targetScale = 0.92f,
+                    animationSpec = tween(250, easing = EaseInCubic),
+                    transformOrigin = TransformOrigin.Center
+                )
             }
         ) {
             composable("HomeScreen") {
@@ -406,33 +422,34 @@ fun MainScreen(viewModel: WorkoutListViewModel, viewModel2: MainScreenViewModel,
             composable(
                 route = "WorkoutSelector",
                 enterTransition = {
-
                     if (initialState.destination.route == "HomeScreen") {
                         slideInHorizontally(
-                            animationSpec = tween(200, easing = LinearEasing),
-                            initialOffsetX = { it }
-                        )
+                            initialOffsetX = { it / 3 },
+                            animationSpec = tween(400, easing = EaseOutQuart)
+                        ) + fadeIn(animationSpec = tween(300))
                     } else {
-                        fadeIn(animationSpec = fadeInSpec) +
+                        fadeIn(animationSpec = tween(300, easing = EaseOutQuart)) +
                                 scaleIn(
-                                    initialScale = 0.92f,
-                                    animationSpec = spring(dampingRatio = 0.78f, stiffness = 300f),
+                                    initialScale = 0.90f,
+                                    animationSpec = spring(
+                                        dampingRatio = 0.8f,
+                                        stiffness = 380f
+                                    ),
                                     transformOrigin = TransformOrigin.Center
                                 )
                     }
                 },
-                // WorkoutSelector
                 exitTransition = {
                     if (targetState.destination.route == "HomeScreen") {
                         slideOutHorizontally(
-                            animationSpec = tween(200, easing = LinearEasing),
-                            targetOffsetX = { it }
-                        )
+                            targetOffsetX = { it },
+                            animationSpec = tween(350, easing = EaseInCubic)
+                        ) + fadeOut(animationSpec = tween(200))
                     } else {
-                        fadeOut(animationSpec = fadeOutSpec) +
+                        fadeOut(animationSpec = tween(250, easing = EaseInCubic)) +
                                 scaleOut(
-                                    targetScale = 1.04f,
-                                    animationSpec = tween(800, easing = LinearEasing),
+                                    targetScale = 1.06f,
+                                    animationSpec = tween(250, easing = EaseInCubic),
                                     transformOrigin = TransformOrigin.Center
                                 )
                     }
@@ -1075,95 +1092,134 @@ fun WorkoutListScreen(
                                 modifier = Modifier.fillMaxWidth(),
                                 verticalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
-                                items(topPresets, key = { it.first }, contentType = { "preset" }) { (workoutName, useCount) ->
+                                itemsIndexed(topPresets, key = { _, it -> it.first }, contentType = { _, _ -> "preset" }) { index, (workoutName, useCount) ->
                                     val haptics = LocalHapticFeedback.current
-                                    val interactionSource = remember { MutableInteractionSource() }
-                                    val pressed by interactionSource.collectIsPressedAsState()
-                                    val pressScale by animateFloatAsState(
-                                        targetValue = if (pressed) 0.975f else 1f,
-                                        animationSpec = tween(120, easing = FastOutSlowInEasing),
-                                        label = "presetPressScale"
+                                    val scope = rememberCoroutineScope()
+                                    var isLaunching by remember { mutableStateOf(false) }
+
+
+                                    val entranceAlpha = remember { Animatable(0f) }
+                                    val entranceSlide = remember { Animatable(40f) }
+
+
+                                    val launchProgress = animateFloatAsState(
+                                        targetValue = if (isLaunching) 1f else 0f,
+                                        animationSpec = spring(stiffness = Spring.StiffnessLow, dampingRatio = 0.6f),
+                                        label = "launchProgress"
                                     )
 
-                                    var expanded by remember { mutableStateOf(false) }
-                                    val targetHeight by animateDpAsState(
-                                        targetValue = if (expanded) 140.dp else 65.dp,
-                                        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow),
-                                        label = "presetExpandHeight"
+                                    LaunchedEffect(Unit) {
+                                        delay(index * 35L)
+                                        launch { entranceAlpha.animateTo(1f, tween(400)) }
+                                        launch { entranceSlide.animateTo(0f, spring(0.75f, 200f)) }
+                                    }
+
+                                    val interactionSource = remember { MutableInteractionSource() }
+                                    val pressed by interactionSource.collectIsPressedAsState()
+
+                                    val pressScale by animateFloatAsState(
+                                        targetValue = if (pressed) 0.96f else 1f,
+                                        animationSpec = tween(100),
+                                        label = "pressScale"
                                     )
 
                                     Card(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .height(targetHeight)
+                                            .height(65.dp)
                                             .graphicsLayer {
-                                                scaleX = pressScale
-                                                scaleY = pressScale
+
+                                                alpha = entranceAlpha.value
+                                                translationY = entranceSlide.value
+
+
+                                                val finalScale = pressScale + (launchProgress.value * 0.08f)
+                                                scaleX = finalScale
+                                                scaleY = finalScale
                                             }
-                                            .border(width = 1.dp, brush = borderBrushStatic, shape = cardShape16)
+                                            .drawBehind {
+
+                                                if (launchProgress.value > 0.01f) {
+                                                    val glowAlpha = (launchProgress.value * 0.4f)
+                                                    drawRoundRect(
+                                                        brush = Brush.radialGradient(
+                                                            colors = listOf(theme.primary.copy(alpha = glowAlpha), Color.Transparent),
+                                                            center = center,
+                                                            radius = size.width * 1.2f
+                                                        ),
+                                                        size = size,
+                                                        cornerRadius = CornerRadius(16.dp.toPx(), 16.dp.toPx())
+                                                    )
+                                                }
+                                            }
+                                            .border(
+                                                width = 1.dp + (launchProgress.value.dp * 1.5f),
+                                                brush = if (isLaunching) borderBrushStatic else borderBrushStatic,
+                                                shape = cardShape16
+                                            )
                                             .clickable(
                                                 interactionSource = interactionSource,
                                                 indication = null
                                             ) {
-
-                                                if (ConnectedWorkout.currentMode.value == ConnectedWorkout.WorkoutMode.INACTIVE) {
-                                                    haptics.performHapticFeedback(HapticFeedbackType.ContextClick)
+                                                if (ConnectedWorkout.currentMode.value == ConnectedWorkout.WorkoutMode.INACTIVE && !isLaunching) {
+                                                    isLaunching = true
+                                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                                                     workout.value = workoutName
-                                                    val intent = Intent(context, WorkoutActivity::class.java).apply {
-                                                        putExtra("WORKOUT_NAME", workoutName)
+                                                    scope.launch {
+
+                                                        delay(180)
+                                                        val intent = Intent(context, WorkoutActivity::class.java).apply {
+                                                            putExtra("WORKOUT_NAME", workoutName)
+                                                        }
+                                                        startActivity(context, intent, null)
+
+
+                                                        delay(300)
+                                                        isLaunching = false
                                                     }
-                                                    startActivity(context, intent, null)
                                                 }
                                             },
                                         shape = cardShape16,
                                         colors = CardDefaults.cardColors(
-                                            containerColor = if (ConnectedWorkout.currentMode.value == ConnectedWorkout.WorkoutMode.INACTIVE)
-                                                surface.copy(alpha = 0.22f)
-                                            else Color.DarkGray
+                                            containerColor = surface.copy(alpha = 0.3f)
                                         )
                                     ) {
                                         Box(
-                                            modifier = Modifier
-                                                .fillMaxSize()
-                                                .padding(horizontal = 20.dp),
+                                            modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp),
                                             contentAlignment = Alignment.CenterStart
                                         ) {
-                                            Column(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .animateContentSize(
-                                                        animationSpec = spring(
-                                                            dampingRatio = Spring.DampingRatioMediumBouncy,
-                                                            stiffness = Spring.StiffnessLow
-                                                        )
-                                                    )
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.SpaceBetween
                                             ) {
-                                                Row(
-                                                    modifier = Modifier.fillMaxWidth(),
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement = Arrangement.SpaceBetween
-                                                ) {
-                                                    Text(text = workoutName, fontSize = 18.sp, color = onSurface)
-                                                    val isFavorite = workoutName in favoritePresets
-                                                    val showChip = isFavorite || useCount.count > 0 || useCount.lastUsed > 0L
-                                                    if (showChip) {
-                                                        Text(
-                                                            text = if (isFavorite) "Favorite" else "Suggested",
-                                                            style = MaterialTheme.typography.labelMedium,
-                                                            color = onSurface.copy(alpha = 0.9f),
-                                                            modifier = Modifier
-                                                                .clip(RoundedCornerShape(10.dp))
-                                                                .background(theme.primary.copy(alpha = 0.25f)) // Theme tint
-                                                                .padding(horizontal = 8.dp, vertical = 4.dp)
-                                                        )
-                                                    }
+                                                Text(
+                                                    text = workoutName,
+                                                    fontSize = 18.sp,
+                                                    color = onSurface,
+                                                    fontWeight = if (isLaunching) FontWeight.Bold else FontWeight.Normal
+                                                )
+
+                                                val isFavorite = workoutName in favoritePresets
+                                                if (isFavorite || useCount.count > 0) {
+                                                    Text(
+                                                        text = if (isFavorite) "★ Favorite" else "Suggested",
+                                                        style = MaterialTheme.typography.labelMedium,
+                                                        color = Color.White,
+                                                        modifier = Modifier
+                                                            .graphicsLayer {
+                                                                alpha = 0.6f + (launchProgress.value * 0.4f)
+                                                                scaleX = 1f + (launchProgress.value * 0.1f)
+                                                                scaleY = 1f + (launchProgress.value * 0.1f)
+                                                            }
+                                                            .clip(RoundedCornerShape(10.dp))
+                                                            .background(theme.primary.copy(alpha = 0.25f + (launchProgress.value * 0.4f)))
+                                                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                                                    )
                                                 }
-
-
                                             }
                                         }
                                     }
-
                                 }
                             }
                             Box(
