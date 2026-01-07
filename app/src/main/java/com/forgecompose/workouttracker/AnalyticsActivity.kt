@@ -355,7 +355,7 @@ fun ExerciseAnalyticsScreen(
 }
 
 @Composable
-private fun AnalysisInsightsCard(data: List<Workout>) {
+ fun AnalysisInsightsCard(data: List<Workout>) {
     if (data.size < 3) {
         GlassCard {
             Column(
@@ -471,7 +471,7 @@ private fun AnalysisInsightsCard(data: List<Workout>) {
                     .fillMaxWidth()
             ) {
                 Text(
-                    text = "Coach: $summary",
+                    text = summary,
                     style = MaterialTheme.typography.bodyMedium.copy(fontStyle = androidx.compose.ui.text.font.FontStyle.Italic),
                     color = Color.White.copy(alpha = 0.7f)
                 )

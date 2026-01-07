@@ -30,10 +30,16 @@ android {
         buildFeatures { buildConfig = true }
         minSdk = 31
         targetSdk = 36
-        versionCode = 5
-        versionName = "1.04"
+        versionCode = 6
+        versionName = "1.06"
         buildConfigField("String", "API_KEY", "\"$apiKey\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        ndk {
+            abiFilters.add("arm64-v8a")
+            abiFilters.add("armeabi-v7a")
+
+        }
+
     }
 
     buildTypes {

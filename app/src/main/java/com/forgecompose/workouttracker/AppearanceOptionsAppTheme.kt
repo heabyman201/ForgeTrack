@@ -64,7 +64,7 @@ enum class ColorThemeApp(val themeName: String, val colors: ColorSchemeAppTheme)
             primary = Color(0xFFFF5252),
             secondary = Color(0xFF121212),
             tertiary = Color(0xFF280A0A),
-            background = Color(0xFF000000)
+            background = Color(0xFF0A0505)
         )
     ),
     Ocean(
@@ -73,7 +73,7 @@ enum class ColorThemeApp(val themeName: String, val colors: ColorSchemeAppTheme)
             primary = Color(0xFF2196F3),
             secondary = Color(0xFF152A38),
             tertiary = Color(0xFF0D1B26),
-            background = Color(0xFF0B1217)
+            background = Color(0xFF06090B)
         )
     ),
     DeepSea(
@@ -82,7 +82,7 @@ enum class ColorThemeApp(val themeName: String, val colors: ColorSchemeAppTheme)
             primary = Color(0xFF1976D2),
             secondary = Color(0xFF0D2137),
             tertiary = Color(0xFF051221),
-            background = Color(0xFF080C12)
+            background = Color(0xFF040609)
         )
     ),
     Frost(
@@ -91,7 +91,7 @@ enum class ColorThemeApp(val themeName: String, val colors: ColorSchemeAppTheme)
             primary = Color(0xFFB2EBF2),
             secondary = Color(0xFF2B4D52),
             tertiary = Color(0xFF1A3033),
-            background = Color(0xFF0F1718)
+            background = Color(0xFF070B0B)
         )
     ),
     Forest(
@@ -100,7 +100,7 @@ enum class ColorThemeApp(val themeName: String, val colors: ColorSchemeAppTheme)
             primary = Color(0xFF81C784),
             secondary = Color(0xFF2E422E),
             tertiary = Color(0xFF1B291B),
-            background = Color(0xFF0E140E)
+            background = Color(0xFF070A07)
         )
     ),
     Zen(
@@ -109,7 +109,7 @@ enum class ColorThemeApp(val themeName: String, val colors: ColorSchemeAppTheme)
             primary = Color(0xFFC8E6C9),
             secondary = Color(0xFF384D39),
             tertiary = Color(0xFF243024),
-            background = Color(0xFF121712)
+            background = Color(0xFF090B09)
         )
     ),
     Sunset(
@@ -118,7 +118,7 @@ enum class ColorThemeApp(val themeName: String, val colors: ColorSchemeAppTheme)
             primary = Color(0xFFF4511E),
             secondary = Color(0xFF4E261B),
             tertiary = Color(0xFF2E1610),
-            background = Color(0xFF140D0B)
+            background = Color(0xFF0A0706)
         )
     ),
     Ember(
@@ -127,7 +127,7 @@ enum class ColorThemeApp(val themeName: String, val colors: ColorSchemeAppTheme)
             primary = Color(0xFFFF8A65),
             secondary = Color(0xFF4D2C22),
             tertiary = Color(0xFF2D1914),
-            background = Color(0xFF140E0C)
+            background = Color(0xFF0A0706)
         )
     ),
     Campfire(
@@ -136,7 +136,7 @@ enum class ColorThemeApp(val themeName: String, val colors: ColorSchemeAppTheme)
             primary = Color(0xFFFFB74D),
             secondary = Color(0xFF5D4037),
             tertiary = Color(0xFF3E2723),
-            background = Color(0xFF1B1412)
+            background = Color(0xFF0D0A09)
         )
     ),
     Void(
@@ -145,7 +145,7 @@ enum class ColorThemeApp(val themeName: String, val colors: ColorSchemeAppTheme)
             primary = Color(0xFFB0BEC5),
             secondary = Color(0xFF263238),
             tertiary = Color(0xFF1A2125),
-            background = Color(0xFF0F1214)
+            background = Color(0xFF07090A)
         )
     ),
     Midnight(
@@ -154,7 +154,7 @@ enum class ColorThemeApp(val themeName: String, val colors: ColorSchemeAppTheme)
             primary = Color(0xFF9575CD),
             secondary = Color(0xFF311B92),
             tertiary = Color(0xFF1A0F4E),
-            background = Color(0xFF0D0B14)
+            background = Color(0xFF06050A)
         )
     ),
     Twilight(
@@ -163,7 +163,7 @@ enum class ColorThemeApp(val themeName: String, val colors: ColorSchemeAppTheme)
             primary = Color(0xFFC5CAE9),
             secondary = Color(0xFF3F51B5),
             tertiary = Color(0xFF283593),
-            background = Color(0xFF0E101A)
+            background = Color(0xFF07080D)
         )
     ),
     Cyber(
@@ -172,7 +172,7 @@ enum class ColorThemeApp(val themeName: String, val colors: ColorSchemeAppTheme)
             primary = Color(0xFF26C6DA),
             secondary = Color(0xFF006064),
             tertiary = Color(0xFF00363A),
-            background = Color(0xFF0A1112)
+            background = Color(0xFF050809)
         )
     ),
     Synthwave(
@@ -181,7 +181,7 @@ enum class ColorThemeApp(val themeName: String, val colors: ColorSchemeAppTheme)
             primary = Color(0xFFF06292),
             secondary = Color(0xFF880E4F),
             tertiary = Color(0xFF4A082C),
-            background = Color(0xFF120A16)
+            background = Color(0xFF09050B)
         )
     ),
     Retro(
@@ -190,7 +190,7 @@ enum class ColorThemeApp(val themeName: String, val colors: ColorSchemeAppTheme)
             primary = Color(0xFFFFD54F),
             secondary = Color(0xFF6D4C41),
             tertiary = Color(0xFF3E2723),
-            background = Color(0xFF1A160E)
+            background = Color(0xFF0D0B07)
         )
     ),
     Noir(
@@ -199,7 +199,7 @@ enum class ColorThemeApp(val themeName: String, val colors: ColorSchemeAppTheme)
             primary = Color(0xFFE0E0E0),
             secondary = Color(0xFF424242),
             tertiary = Color(0xFF212121),
-            background = Color(0xFF121212)
+            background = Color(0xFF0A0A0A)
         )
     ),
     Ink(
@@ -208,7 +208,7 @@ enum class ColorThemeApp(val themeName: String, val colors: ColorSchemeAppTheme)
             primary = Color(0xFF90A4AE),
             secondary = Color(0xFF37474F),
             tertiary = Color(0xFF263238),
-            background = Color(0xFF0D1012)
+            background = Color(0xFF060809)
         )
     ),
     Slate(
@@ -217,7 +217,7 @@ enum class ColorThemeApp(val themeName: String, val colors: ColorSchemeAppTheme)
             primary = Color(0xFF78909C),
             secondary = Color(0xFF455A64),
             tertiary = Color(0xFF263238),
-            background = Color(0xFF1C2225)
+            background = Color(0xFF0E1112)
         )
     ),
     Storm(
@@ -226,7 +226,7 @@ enum class ColorThemeApp(val themeName: String, val colors: ColorSchemeAppTheme)
             primary = Color(0xFF90A4AE),
             secondary = Color(0xFF37474F),
             tertiary = Color(0xFF263238),
-            background = Color(0xFF101416)
+            background = Color(0xFF080A0B)
         )
     ),
     Mint(
@@ -235,7 +235,7 @@ enum class ColorThemeApp(val themeName: String, val colors: ColorSchemeAppTheme)
             primary = Color(0xFF80CBC4),
             secondary = Color(0xFF00695C),
             tertiary = Color(0xFF004D40),
-            background = Color(0xFF0D1413)
+            background = Color(0xFF060A09)
         )
     ),
     OldPaper(
@@ -244,7 +244,7 @@ enum class ColorThemeApp(val themeName: String, val colors: ColorSchemeAppTheme)
             primary = Color(0xFFD7CCC8),
             secondary = Color(0xFF8D6E63),
             tertiary = Color(0xFF5D4037),
-            background = Color(0xFF1B1817)
+            background = Color(0xFF0D0C0B)
         )
     ),
     Coffee(
@@ -253,7 +253,7 @@ enum class ColorThemeApp(val themeName: String, val colors: ColorSchemeAppTheme)
             primary = Color(0xFFBCAAA4),
             secondary = Color(0xFF4E342E),
             tertiary = Color(0xFF3E2723),
-            background = Color(0xFF120E0D)
+            background = Color(0xFF090706)
         )
     ),
     Vampire(
@@ -262,16 +262,16 @@ enum class ColorThemeApp(val themeName: String, val colors: ColorSchemeAppTheme)
             primary = Color(0xFFE53935),
             secondary = Color(0xFF4A1414),
             tertiary = Color(0xFF2B0A0A),
-            background = Color(0xFF0F0808)
+            background = Color(0xFF070404)
         )
     ),
     PastelNight(
         "Pastel Night",
         ColorSchemeAppTheme(
-            primary = Color(0xFFD1C4E9), // Soft, desaturated lavender
-            secondary = Color(0xFF1A161F), // Deep obsidian with a hint of purple
-            tertiary = Color(0xFF311B92), // Rich indigo for subtle depth
-            background = Color(0xFF000000) // Pure AMOLED black
+            primary = Color(0xFFD1C4E9),
+            secondary = Color(0xFF1A161F),
+            tertiary = Color(0xFF311B92),
+            background = Color(0xFF08070A)
         )
     ),
     Custom(

@@ -33,6 +33,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
 import com.forgecompose.workouttracker.blurAnim.intensity
@@ -43,6 +44,7 @@ import java.text.SimpleDateFormat
 import java.util.*
 import kotlinx.coroutines.delay
 import java.time.Duration
+import java.time.format.TextStyle
 
 
 data class PersonalRecord(val exerciseName: String, val maxWeight: Double)
@@ -110,15 +112,15 @@ fun UserProfileScreen(
         }
     }
 
-    // Intro logic...
-    val hour = remember { java.time.LocalTime.now().hour }
-    val introColors = remember(hour) {
-        when (hour) {
-            in 5..10 -> listOf(Color(0xFF2B1A00), Color(0xFF3C2405), Color(0xFF5A360A), Color(0xFF7A4A12))
-            in 11..16 -> listOf(Color(0xFF332300), Color(0xFF4A3408), Color(0xFF6B4B0F), Color(0xFF8C6217))
-            in 17..20 -> listOf(Color(0xFF1A0614), Color(0xFF2A0A20), Color(0xFF3D0F2D), Color(0xFF52153A))
-            else -> listOf(Color(0xFF02040A), Color(0xFF0A1324), Color(0xFF15243D), Color(0xFF1E3352))
-        }
+
+
+    val introColors = remember(theme) {
+        listOf(
+            theme.secondary.copy(alpha = 0.8f),
+            theme.tertiary,
+            theme.background,
+            theme.background
+        )
     }
     val introBrush = remember(introColors) { Brush.linearGradient(colors = introColors) }
     var showIntro by remember { mutableStateOf(true) }
@@ -181,15 +183,37 @@ fun UserProfileScreen(
             containerColor = Color.Transparent,
             topBar = {
                 TopAppBar(
-                    title = { Text("Profile", fontWeight = FontWeight.Bold) },
-//                    navigationIcon = {
-//                        IconButton(onClick = { navController.navigateUp() }) {
-//                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Go back")
-//                        }
-//                    },
+                    title = {
+                        Text(
+                            text = "Profile",
+                            style = androidx.compose.ui.text.TextStyle(
+                                brush = Brush.linearGradient(
+                                    colors = listOf(
+                                        theme.primary,
+                                        theme.primary.copy(alpha = 1f),
+                                        Color.White
+                                    )
+                                ),
+                                fontSize = 27.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                letterSpacing = 0.5.sp
+                            )
+                        )
+                    },
                     actions = {
-                        IconButton(onClick = { navController.navigate("Settings") }) {
-                            Icon(Icons.Default.Settings, contentDescription = "Settings")
+                        IconButton(
+                            onClick = { navController.navigate("Settings") },
+                            modifier = Modifier
+                                .padding(end = 8.dp)
+                                .clip(CircleShape)
+                                .background(theme.secondary.copy(alpha = 0.2f))
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Settings,
+                                contentDescription = "Settings",
+                                tint = Color.White,
+                                modifier = Modifier.size(26.dp)
+                            )
                         }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(
@@ -197,7 +221,8 @@ fun UserProfileScreen(
                         titleContentColor = Color.White,
                         navigationIconContentColor = Color.White,
                         actionIconContentColor = Color.White
-                    )
+                    ),
+                    modifier = Modifier.padding(top = 12.dp)
                 )
             },
             modifier = Modifier.fillMaxSize(),
@@ -325,7 +350,7 @@ fun UserProfileScreen(
                 item { Spacer(modifier = Modifier.height(80.dp)) }
             }
         }
-        if (stages.after100ms) {
+
             FloatingTaskbar(
                 modifier = Modifier.align(Alignment.BottomCenter),
                 navController = navController,
@@ -333,7 +358,7 @@ fun UserProfileScreen(
                 iconAlpha = 1f,
                 uiState = uiState
             )
-        }
+
     }
 }
 

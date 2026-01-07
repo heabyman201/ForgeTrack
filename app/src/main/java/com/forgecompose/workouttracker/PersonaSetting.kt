@@ -2,15 +2,24 @@ package com.forgecompose.workouttracker
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.net.Uri
+import android.provider.OpenableColumns
+import android.util.Log
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.CloudDownload
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.FileUpload
+import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -18,28 +27,37 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.core.content.edit
 import androidx.navigation.NavController
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
-import androidx.core.content.edit
-import dev.chrisbanes.haze.HazeState
-import androidx.compose.runtime.collectAsState
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 
-
+import kotlinx.coroutines.withContext
+import java.io.File
+import java.io.FileOutputStream
+import java.net.HttpURLConnection
+import java.net.URL
 object PersonaPrefs {
     private const val FILE = "ai_prefs_secure"
     private const val KEY_PERSONA = "persona_mode"
     private const val KEY_ENABLED = "persona_enabled"
+    // New Key to store the name of the file user imported (e.g. "llama-3.bin")
+    private const val KEY_MODEL_DISPLAY_NAME = "model_display_name"
 
     @Volatile private var ready = false
     private lateinit var appContext: Context
@@ -100,9 +118,135 @@ object PersonaPrefs {
         }
     }
 
+    // New methods for Model Name storage
+    fun saveModelName(name: String) {
+        runCatching { prefs().edit { putString(KEY_MODEL_DISPLAY_NAME, name) } }
+    }
+
+    fun getModelName(): String? {
+        return runCatching { prefs().getString(KEY_MODEL_DISPLAY_NAME, null) }.getOrNull()
+    }
+
+    fun clearModelName() {
+        runCatching { prefs().edit { remove(KEY_MODEL_DISPLAY_NAME) } }
+    }
+
     fun bootstrapInto(global: MutableState<dynamicModel.PersonaConfig>, defaultMode: String = "coach", defaultEnabled: Boolean = true) {
         val persisted = readConfig(defaultMode, defaultEnabled)
         if (global.value != persisted) global.value = persisted
+    }
+}
+
+object EdgeModelManager {
+    // We rename ANY imported file to this generic name so the Inference Engine
+    // always knows where to look, regardless of the original file name.
+    private const val GENERIC_MODEL_FILENAME = "current_imported_model.bin"
+
+    private val _importProgress = MutableStateFlow(0f)
+    val importProgress = _importProgress.asStateFlow()
+
+    private val _isImporting = MutableStateFlow(false)
+    val isImporting = _isImporting.asStateFlow()
+
+    private val _isModelReady = MutableStateFlow(false)
+    val isModelReady = _isModelReady.asStateFlow()
+
+    // Exposed flow for the UI to show the current file name
+    private val _currentModelName = MutableStateFlow<String?>(null)
+    val currentModelName = _currentModelName.asStateFlow()
+
+    private var internalFile: File? = null
+
+    fun init(context: Context) {
+        internalFile = File(context.filesDir, GENERIC_MODEL_FILENAME)
+        // Load the display name from prefs if available
+        _currentModelName.value = PersonaPrefs.getModelName()
+        checkModelStatus()
+    }
+
+    private fun checkModelStatus() {
+        if (internalFile?.exists() == true && internalFile?.length() ?: 0L > 0) {
+            _isModelReady.value = true
+            _importProgress.value = 1f
+        } else {
+            _isModelReady.value = false
+            _importProgress.value = 0f
+            _currentModelName.value = null // Clear name if file is gone
+            PersonaPrefs.clearModelName()
+        }
+    }
+
+    fun getModelPath(): String? = internalFile?.absolutePath
+
+    fun importModelFromUri(context: Context, sourceUri: Uri) {
+        if (_isImporting.value) return
+
+        CoroutineScope(Dispatchers.IO).launch {
+            _isImporting.value = true
+            _importProgress.value = 0f
+
+            try {
+                val contentResolver = context.contentResolver
+
+                // 1. Get file size and Original Name
+                var fileSize = -1L
+                var originalName = "Unknown Model"
+
+                contentResolver.query(sourceUri, null, null, null, null)?.use { cursor ->
+                    if (cursor.moveToFirst()) {
+                        val sizeIndex = cursor.getColumnIndex(OpenableColumns.SIZE)
+                        val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+
+                        if (sizeIndex != -1) fileSize = cursor.getLong(sizeIndex)
+                        if (nameIndex != -1) originalName = cursor.getString(nameIndex)
+                    }
+                }
+
+                // 2. Stream copy to our generic internal file
+                contentResolver.openInputStream(sourceUri)?.use { input ->
+                    FileOutputStream(internalFile).use { output ->
+                        val buffer = ByteArray(8 * 1024)
+                        var bytesRead: Int
+                        var totalBytes = 0L
+
+                        while (input.read(buffer).also { bytesRead = it } != -1) {
+                            output.write(buffer, 0, bytesRead)
+                            totalBytes += bytesRead
+                            if (fileSize > 0) {
+                                _importProgress.value = totalBytes.toFloat() / fileSize
+                            }
+                        }
+                    }
+                }
+
+                withContext(Dispatchers.Main) {
+                    // Save the friendly name for the UI
+                    PersonaPrefs.saveModelName(originalName)
+                    _currentModelName.value = originalName
+
+                    checkModelStatus()
+                    _isImporting.value = false
+                }
+
+                Log.d("EdgeAI", "Import successful. Renamed '$originalName' to '$GENERIC_MODEL_FILENAME'")
+
+            } catch (e: Exception) {
+                e.printStackTrace()
+                withContext(Dispatchers.Main) {
+                    _isImporting.value = false
+                    _importProgress.value = 0f
+                }
+            }
+        }
+    }
+
+    fun deleteModel() {
+        internalFile?.let {
+            if (it.exists()) {
+                it.delete()
+                checkModelStatus()
+            }
+        }
     }
 }
 
@@ -111,7 +255,6 @@ fun String.sanitizePersona(): String = when (val v = lowercase()) {
     else -> "coach"
 }
 
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PersonaSettingsScreen(
@@ -119,7 +262,13 @@ fun PersonaSettingsScreen(
     navController: NavController
 ) {
     val context = LocalContext.current
-    PersonaPrefs.init(context)
+
+    // Initialize Logic
+    LaunchedEffect(Unit) {
+        PersonaPrefs.init(context)
+        EdgeModelManager.init(context)
+    }
+
     val cfg by dynamicModel.personaConfig
 
     // --- Theme Hook ---
@@ -143,10 +292,23 @@ fun PersonaSettingsScreen(
     val performanceOptions = remember { PerformanceOptionsManager.current }
     val movingEnabled = performanceOptions.collectAsState().value.movingGradientAndParticles
 
-    Box(
-        modifier = modifier
-            .fillMaxSize()
+    // Edge Model State
+    val isImporting by EdgeModelManager.isImporting.collectAsState()
+    val importProgress by EdgeModelManager.importProgress.collectAsState()
+    val isModelReady by EdgeModelManager.isModelReady.collectAsState()
+    val currentModelName by EdgeModelManager.currentModelName.collectAsState()
 
+
+    // --- FILE PICKER LAUNCHER ---
+    val filePickerLauncher = rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        // We accept any file, relying on the user to pick a valid .bin
+        uri?.let { EdgeModelManager.importModelFromUri(context, it) }
+    }
+
+    Box(
+        modifier = modifier.fillMaxSize()
     ) {
         AnimatedBackdrop(
             modifier = Modifier.fillMaxSize(),
@@ -154,10 +316,8 @@ fun PersonaSettingsScreen(
             introAlpha = 0f,
             enableWaves = movingEnabled,
             enableAnimation = movingEnabled,
-
-            )
+        )
         Scaffold(
-
             containerColor = Color.Transparent,
             topBar = {
                 TopAppBar(
@@ -184,6 +344,7 @@ fun PersonaSettingsScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(24.dp)
             ) {
+                // 1. Master Toggle
                 item {
                     PersonaSectionCard(title = "Assistant", theme = theme) {
                         Row(
@@ -196,7 +357,7 @@ fun PersonaSettingsScreen(
                                 Spacer(Modifier.height(2.dp))
                                 Text(
                                     if (cfg.enabled) "Assistant uses the selected persona."
-                                    else "Assistant disabled. No requests will be sent.",
+                                    else "Assistant disabled.",
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = Color.White.copy(alpha = 0.75f)
                                 )
@@ -210,15 +371,98 @@ fun PersonaSettingsScreen(
                                 },
                                 colors = SwitchDefaults.colors(
                                     checkedThumbColor = theme.primary,
-                                    checkedTrackColor = theme.secondary,
-                                    uncheckedThumbColor = Color.Gray,
-                                    uncheckedTrackColor = Color.DarkGray
+                                    checkedTrackColor = theme.secondary
                                 )
                             )
                         }
                     }
                 }
 
+                // 2. Generic Edge Intelligence Section
+                item {
+                    PersonaSectionCard(title = "Offline AI Model", theme = theme) {
+                        Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(
+                                        text = currentModelName ?: "No Model Loaded",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        color = Color.White,
+                                        fontWeight = FontWeight.SemiBold,
+                                        maxLines = 1
+                                    )
+                                    Spacer(Modifier.height(4.dp))
+                                    Text(
+                                        when {
+                                            isImporting -> "Importing model file..."
+                                            isModelReady -> "Ready for inference."
+                                            else -> "Import a compatible .bin file (MediaPipe)."
+                                        },
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = if (isModelReady) theme.primary else Color.White.copy(alpha = 0.6f)
+                                    )
+                                }
+
+                                IconButton(
+                                    onClick = {
+                                        if (isModelReady) EdgeModelManager.deleteModel()
+                                        else filePickerLauncher.launch("*/*") // Accept any file, copied internally
+                                    },
+                                    enabled = !isImporting,
+                                    colors = IconButtonDefaults.iconButtonColors(
+                                        contentColor = if (isModelReady) Color.Red.copy(alpha = 0.8f) else theme.primary
+                                    )
+                                ) {
+                                    Icon(
+                                        imageVector = if (isModelReady) Icons.Default.Delete else Icons.Default.FileUpload,
+                                        contentDescription = "Manage Model"
+                                    )
+                                }
+                            }
+
+                            AnimatedVisibility(visible = isImporting) {
+                                Column(Modifier.fillMaxWidth()) {
+                                    LinearProgressIndicator(
+                                        progress = { importProgress },
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(6.dp)
+                                            .clip(RoundedCornerShape(3.dp)),
+                                        color = theme.primary,
+                                        trackColor = theme.primary.copy(alpha = 0.2f),
+                                    )
+                                    Spacer(Modifier.height(4.dp))
+                                    Text(
+                                        text = "${(importProgress * 100).toInt()}%",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = theme.primary,
+                                        modifier = Modifier.align(Alignment.End)
+                                    )
+                                }
+                            }
+
+                            if (isModelReady) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(theme.secondary.copy(alpha=0.1f), RoundedCornerShape(8.dp))
+                                        .padding(8.dp)
+                                ) {
+                                    Icon(Icons.Default.Memory, null, tint = theme.primary, modifier = Modifier.size(16.dp))
+                                    Text("Running on Device (CPU/NPU)", style = MaterialTheme.typography.labelSmall, color = Color.White.copy(0.7f))
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 3. Persona Selection (unchanged)
                 item {
                     val enabled = cfg.enabled
                     val alpha = if (enabled) 1f else 0.45f
@@ -229,105 +473,31 @@ fun PersonaSettingsScreen(
                             PersonaPrefs.writeConfig(updated)
                         }
 
-                        PersonaOptionRow(
-                            title = "Supportive Coach",
-                            subtitle = "Friendly, encouraging, practical",
-                            value = "coach",
-                            selected = cfg.mode,
-                            enabled = enabled,
-                            onSelect = onSelect,
-                            theme = theme
+                        val personas = listOf(
+                            Triple("Supportive Coach", "Friendly, encouraging, practical", "coach"),
+                            Triple("Disciplined Trainer", "Crisp, direct, safety-first", "drill"),
+                            Triple("Companion", "Warm, supportive, practical", "companion"),
+                            Triple("Companion Plus", "Energetic, upbeat, playful", "companion_plus"),
+                            Triple("Hype Master", "High energy, punchy lines", "hype"),
+                            Triple("Minimal", "One-line, straight to point", "minimal"),
+                            Triple("Nerd Scholar", "Precise, geeky metaphors", "nerd"),
+                            Triple("Zen Monk", "Calm, reflective, minimal", "monk"),
+                            Triple("Scientist", "Evidence-driven, biohacker tone", "scientist"),
+                            Triple("Surgeon Apex", "Cold, calculated and precise", "surgeon_apex")
                         )
-                        PersonaDivider(theme)
-                        PersonaOptionRow(
-                            title = "Disciplined Trainer",
-                            subtitle = "Crisp, direct, safety-first",
-                            value = "drill",
-                            selected = cfg.mode,
-                            enabled = enabled,
-                            onSelect = onSelect,
-                            theme = theme
-                        )
-                        PersonaDivider(theme)
-                        PersonaOptionRow(
-                            title = "companion",
-                            subtitle = "Warm, supportive, practical",
-                            value = "companion",
-                            selected = cfg.mode,
-                            enabled = enabled,
-                            onSelect = onSelect,
-                            theme = theme
-                        )
-                        PersonaDivider(theme)
-                        PersonaOptionRow(
-                            title = "companion_plus",
-                            subtitle = "Energetic, upbeat, playful",
-                            value = "companion_plus",
-                            selected = cfg.mode,
-                            enabled = enabled,
-                            onSelect = onSelect,
-                            theme = theme
-                        )
-                        PersonaDivider(theme)
-                        PersonaOptionRow(
-                            title = "Hype Master",
-                            subtitle = "High energy, punchy lines",
-                            value = "hype",
-                            selected = cfg.mode,
-                            enabled = enabled,
-                            onSelect = onSelect,
-                            theme = theme
-                        )
-                        PersonaDivider(theme)
-                        PersonaOptionRow(
-                            title = "Minimal",
-                            subtitle = "One-line, straight to point",
-                            value = "minimal",
-                            selected = cfg.mode,
-                            enabled = enabled,
-                            onSelect = onSelect,
-                            theme = theme
-                        )
-                        PersonaDivider(theme)
-                        PersonaOptionRow(
-                            title = "Nerd Scholar",
-                            subtitle = "Precise, geeky metaphors",
-                            value = "nerd",
-                            selected = cfg.mode,
-                            enabled = enabled,
-                            onSelect = onSelect,
-                            theme = theme
-                        )
-                        PersonaDivider(theme)
-                        PersonaOptionRow(
-                            title = "Zen Monk",
-                            subtitle = "Calm, reflective, minimal",
-                            value = "monk",
-                            selected = cfg.mode,
-                            enabled = enabled,
-                            onSelect = onSelect,
-                            theme = theme
-                        )
-                        PersonaDivider(theme)
-                        PersonaOptionRow(
-                            title = "Scientist",
-                            subtitle = "Evidence-driven, biohacker tone",
-                            value = "scientist",
-                            selected = cfg.mode,
-                            enabled = enabled,
-                            onSelect = onSelect,
-                            theme = theme
-                        )
-                        PersonaDivider(theme)
-                        PersonaOptionRow(
-                            title = "surgeon_apex",
-                            subtitle = "Cold, calculated and precise",
-                            value = "surgeon_apex",
-                            selected = cfg.mode,
-                            enabled = enabled,
-                            onSelect = onSelect,
-                            theme = theme
-                        )
+
+                        personas.forEachIndexed { index, (title, sub, key) ->
+                            PersonaOptionRow(
+                                title = title,
+                                subtitle = sub,
+                                value = key,
+                                selected = cfg.mode,
+                                enabled = enabled,
+                                onSelect = onSelect,
+                                theme = theme
+                            )
+                            if (index < personas.lastIndex) PersonaDivider(theme)
+                        }
                     }
                 }
 

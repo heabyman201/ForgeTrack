@@ -99,6 +99,7 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.zIndex
 import androidx.datastore.preferences.core.edit
@@ -390,17 +391,18 @@ fun WorkoutSelector(
     viewModel: WorkoutListViewModel,
     navController: NavController
 ) {
-    val cardioExerciseNames = listOf(
-        "Running (Treadmill)", "Stair Climber", "Elliptical Trainer",
-        "Rowing Machine", "Stationary Bike", "Swimming"
-    )
+    val cardioExerciseNames = remember {
+        listOf(
+            "Running (Treadmill)", "Stair Climber", "Elliptical Trainer",
+            "Rowing Machine", "Stationary Bike", "Swimming"
+        )
+    }
     val routines = remember { workoutRoutines }
     val haze = remember { HazeState() }
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val haptics = LocalHapticFeedback.current
     val context = LocalContext.current
 
-    // --- Theme Subscription ---
     val appearanceOptions by AppearanceOptionsManagerAppTheme
         .flow(context)
         .collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
@@ -423,7 +425,6 @@ fun WorkoutSelector(
         )
     }
 
-    // Dynamic Intro Gradient based on Theme
     val introColors = remember(theme) {
         listOf(
             theme.secondary.copy(alpha = 0.8f),
@@ -435,10 +436,22 @@ fun WorkoutSelector(
     val introBrush = remember(introColors) { Brush.linearGradient(colors = introColors) }
 
     var showIntro by remember { mutableStateOf(true) }
-    val introProgress by animateFloatAsState(targetValue = if (showIntro) 0f else 1f, animationSpec = tween(650, easing = LinearEasing), label = "introFade")
-    LaunchedEffect(Unit) { showIntro = false
-        Firebase.crashlytics.setCustomKey("current_screen", "Workout Selection Screen")}
-    val blurAnim by animateDpAsState(if (showIntro) intensity.value else 0.dp, animationSpec = tween(length.value.toInt()), label = "blur")
+    val introProgress by animateFloatAsState(
+        targetValue = if (showIntro) 0f else 1f,
+        animationSpec = tween(650, easing = LinearEasing),
+        label = "introFade"
+    )
+
+    LaunchedEffect(Unit) {
+        showIntro = false
+        Firebase.crashlytics.setCustomKey("current_screen", "Workout Selection Screen")
+    }
+
+    val blurAnim by animateDpAsState(
+        if (showIntro) intensity.value else 0.dp,
+        animationSpec = tween(length.value.toInt()),
+        label = "blur"
+    )
 
     val performanceOptions by PerformanceOptionsManager.flow(context).collectAsState(initial = PerformanceOptions.Defaults)
     val movingEffectsEnabled = performanceOptions.movingGradientAndParticles
@@ -455,21 +468,31 @@ fun WorkoutSelector(
                     animationClock += deltaTime
                 }
                 lastFrameTime = currentTime
-                delay(42)
             }
         }
     }
 
     val fullPi = 2f * PI.toFloat()
-    val waveOffset = (animationClock * fullPi / 22f) % fullPi
-    val pulseAlpha = 0.25f + 0.10f * sin(animationClock * fullPi / 8f)
-    val glowIntensity = 0.4f + 0.2f * sin(animationClock * fullPi / 6f)
-    val gradientProgress = (animationClock / 15f) % 2f
-    val gradientOffset = if (gradientProgress > 1f) 2f - gradientProgress else gradientProgress
-    val clampedGlow by remember { derivedStateOf { glowIntensity.coerceIn(0f, 1f) } }
-    val clampedPulse by remember { derivedStateOf { pulseAlpha.coerceIn(0f, 1f) } }
-    val clampedGrad by remember { derivedStateOf { gradientOffset.coerceIn(0f, 1f) } }
-    val wavePath = remember { Path() }
+    val clampedGlow by remember {
+        derivedStateOf {
+            (0.4f + 0.2f * sin(animationClock * fullPi / 6f)).coerceIn(0f, 1f)
+        }
+    }
+    val clampedPulse by remember {
+        derivedStateOf {
+            (0.25f + 0.10f * sin(animationClock * fullPi / 8f)).coerceIn(0f, 1f)
+        }
+    }
+    val clampedGrad by remember {
+        derivedStateOf {
+            val progress = (animationClock / 15f) % 2f
+            (if (progress > 1f) 2f - progress else progress).coerceIn(0f, 1f)
+        }
+    }
+    val waveOffset by remember {
+        derivedStateOf { (animationClock * fullPi / 22f) % fullPi }
+    }
+
     val particleSeed = remember { Random(42) }
     val particles = remember {
         List(12) { i ->
@@ -484,9 +507,9 @@ fun WorkoutSelector(
         val intent = remember { Intent(context, WorkoutActivity::class.java) }
         var searchText by remember { mutableStateOf("") }
         var selectedCategory by remember { mutableStateOf("All") }
-        val baseCategories = listOf("All", "Bodyweight", "Dumbbell/Kettlebell", "Barbell", "Machines/Cables")
-        val workoutCategories by remember(customPresets) {
-            mutableStateOf(if (customPresets.isEmpty()) baseCategories else baseCategories + "Custom")
+        val baseCategories = remember { listOf("All", "Bodyweight", "Dumbbell/Kettlebell", "Barbell", "Machines/Cables") }
+        val workoutCategories = remember(customPresets) {
+            if (customPresets.isEmpty()) baseCategories else baseCategories + "Custom"
         }
 
         var showCreate by remember { mutableStateOf(false) }
@@ -498,7 +521,7 @@ fun WorkoutSelector(
 
         val allPresets = remember(customPresets) { workoutPresets + customPresets }
 
-        val filteredWorkoutsBase by remember(searchText, selectedCategory, abbreviationMap, allPresets) {
+        val filteredWorkoutsBase by remember(searchText, selectedCategory, allPresets) {
             derivedStateOf {
                 val base = if (selectedCategory == "All") allPresets else allPresets.filter { it.category == selectedCategory }
                 if (searchText.isBlank()) base else {
@@ -545,13 +568,10 @@ fun WorkoutSelector(
             }
         }
 
-        val cardShape16 = remember { RoundedCornerShape(16.dp) }
-
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .blur(blurAnim)
-
         ) {
             AnimatedBackdrop(
                 modifier = Modifier.fillMaxSize(),
@@ -559,14 +579,27 @@ fun WorkoutSelector(
                 introAlpha = 1f - introProgress,
                 enableAnimation = movingEffectsEnabled,
                 enableWaves = movingEffectsEnabled
-
-
             )
+
             Scaffold(
                 topBar = {
                     TopAppBar(
                         title = {
-                            Text("Select Workout", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                            Text(
+                                text = "Select Workout",
+                                style = androidx.compose.ui.text.TextStyle(
+                                    brush = Brush.linearGradient(
+                                        colors = listOf(
+                                            theme.primary,
+                                            theme.primary.copy(alpha = 1f),
+                                            Color.White
+                                        )
+                                    ),
+                                    fontSize = 27.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    letterSpacing = 0.5.sp
+                                )
+                            )
                         },
                         navigationIcon = {
                             IconButton(onClick = { navController.navigateUp() }) {
@@ -661,10 +694,10 @@ fun WorkoutSelector(
 
                     Spacer(modifier = Modifier.height(8.dp))
                     val liststate = rememberLazyListState()
-LaunchedEffect(filteredWorkouts) {
-liststate.animateScrollToItem(0)
+                    LaunchedEffect(filteredWorkouts) {
+                        liststate.animateScrollToItem(0)
+                    }
 
-}
                     if (stages.after200ms) {
                         LazyColumn(
                             state = liststate,
@@ -676,6 +709,9 @@ liststate.animateScrollToItem(0)
                                 val interactionSource = remember { MutableInteractionSource() }
                                 val isPressed by interactionSource.collectIsPressedAsState()
                                 val scale by animateFloatAsState(targetValue = if (isPressed) 0.98f else 1f, animationSpec = tween(100), label = "cardScale")
+                                val isFavorite = remember(preset.name, favoritePresets) { preset.name in favoritePresets }
+                                val stat = remember(preset.name, usageMap) { usageMap[preset.name] }
+
                                 Card(
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -714,23 +750,21 @@ liststate.animateScrollToItem(0)
                                     ) {
                                         Column(modifier = Modifier.weight(1f)) {
                                             Text(text = preset.name, style = MaterialTheme.typography.titleLarge, color = Color.White, fontWeight = FontWeight.Medium)
-                                            val stat = usageMap[preset.name]
-                                            val isFavorite = preset.name in favoritePresets
-                                            // Pass theme-derived color to pills (e.g. secondary color)
                                             val pillColor = theme.secondary.copy(alpha = 0.6f)
+
                                             MostUsedPill(stat = stat, color = pillColor, modifier = Modifier.padding(top = 6.dp))
+
                                             if (preset.name in cardioExerciseNames) {
                                                 ExperimentalPill(color = pillColor, modifier = Modifier.padding(top = 6.dp))
                                             }
                                             if (preset.category == "Custom") {
                                                 CustomPill(color = pillColor, modifier = Modifier.padding(top = 6.dp))
                                             }
-                                            if (preset.name in favoritePresets){
+                                            if (isFavorite){
                                                 FavouritePill(color = pillColor, modifier = Modifier.padding(top = 6.dp))
                                             }
                                         }
                                         Row(verticalAlignment = Alignment.CenterVertically) {
-                                            val isFavorite = preset.name in favoritePresets
                                             IconButton(onClick = {
                                                 scope.launch {
                                                     FavoritePresetStore.toggle(context, preset.name)
@@ -967,8 +1001,6 @@ liststate.animateScrollToItem(0)
                 }
             }
 
-
-
             FloatingTaskbar(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
@@ -981,7 +1013,6 @@ liststate.animateScrollToItem(0)
         }
     }
 }
-
 
 object customDeletion {
     var showDeleteDialog = mutableStateOf(false)

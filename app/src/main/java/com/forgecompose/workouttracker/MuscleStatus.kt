@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -58,6 +59,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.SheetState
 import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.SuggestionChipDefaults
@@ -78,6 +80,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
@@ -88,10 +92,15 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.health.connect.client.records.BodyFatRecord
 import androidx.health.connect.client.records.NutritionRecord
 import androidx.health.connect.client.records.OxygenSaturationRecord
@@ -104,6 +113,7 @@ import kotlinx.coroutines.withContext
 import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
+import java.time.format.TextStyle
 import java.time.temporal.ChronoUnit
 import java.util.Locale
 import kotlin.math.exp
@@ -778,7 +788,7 @@ private fun CategoryFilterBar(selected: BodyCategory, onSelect: (BodyCategory) -
                     .clip(RoundedCornerShape(pillRadius))
                     .clickable { onSelect(cat) }
                     .background(
-                        if (isSelected) Brush.radialGradient(listOf(theme.secondary, theme.tertiary))
+                        if (isSelected) Brush.radialGradient(listOf(theme.background, theme.tertiary.copy(alpha = 0.45f)))
                         else Brush.linearGradient(listOf(Color.Transparent, Color.Transparent))
                     )
                     .border(1.dp, if (isSelected) theme.primary.copy(0.6f) else Color(0xFF525252), RoundedCornerShape(pillRadius))
@@ -877,48 +887,89 @@ fun MuscleStatusSection(
     val sortedLoads = remember(filtered) { filtered.sortedByDescending { it.score } }
 
     Column(modifier = modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            val buttonModifier = Modifier
+                .weight(1f)
+                .height(45.dp)
+
+
+            @Composable
+            fun ButtonContent(icon: ImageVector, label: String) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        text = label,
+                        style = MaterialTheme.typography.labelMedium,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
 
             FilledTonalButton(
                 onClick = {
                     haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                     onOpenWeeklySummary()
                 },
-                modifier = Modifier.weight(1f).height(45.dp).glow(theme.tertiary, radius = 8.dp),
+                modifier = buttonModifier.glow(theme.tertiary, radius = 8.dp),
                 shape = RoundedCornerShape(32.dp),
-                colors = ButtonDefaults.filledTonalButtonColors(containerColor = theme.tertiary, contentColor = theme.primary),
-                border = BorderStroke(1.dp, theme.secondary.copy(alpha = 0.5f))
+                colors = ButtonDefaults.filledTonalButtonColors(
+                    containerColor = theme.background,
+                    contentColor = theme.primary
+                ),
+                border = BorderStroke(1.dp, theme.secondary.copy(alpha = 0.5f)),
+                contentPadding = PaddingValues(horizontal = 4.dp) // Minimize padding to prevent early wrapping
             ) {
-                Icon(Icons.Outlined.FitnessCenter, null, Modifier.size(16.dp))
-                Spacer(Modifier.width(6.dp))
-                Text("Weekly", style = MaterialTheme.typography.labelMedium)
+                ButtonContent(Icons.Outlined.FitnessCenter, "Weekly")
             }
 
             FilledTonalButton(
                 onClick = { if (recoveryFactors != null) showHealth = true },
-                modifier = Modifier.weight(1f).height(45.dp).glow(theme.tertiary, radius = 8.dp),
+                modifier = buttonModifier.glow(theme.tertiary, radius = 8.dp),
                 shape = RoundedCornerShape(32.dp),
-                colors = ButtonDefaults.filledTonalButtonColors(containerColor = theme.tertiary, contentColor = theme.primary),
-                border = BorderStroke(1.dp, theme.secondary.copy(alpha = 0.5f))
+                colors = ButtonDefaults.filledTonalButtonColors(
+                    containerColor = theme.background,
+                    contentColor = theme.primary
+                ),
+                border = BorderStroke(1.dp, theme.secondary.copy(alpha = 0.5f)),
+                contentPadding = PaddingValues(horizontal = 4.dp)
             ) {
-                Icon(Icons.Outlined.MonitorHeart, null, Modifier.size(16.dp))
-                Spacer(Modifier.width(6.dp))
-                Text("Recovery", style = MaterialTheme.typography.labelMedium)
+                ButtonContent(Icons.Outlined.MonitorHeart, "Recovery")
             }
 
             FilledTonalButton(
                 onClick = { showGoalSheet = true },
-                modifier = Modifier.weight(1f).height(45.dp).glow(if(sprintGoal.isActive) theme.primary else theme.tertiary, radius = 8.dp),
+                modifier = buttonModifier.glow(
+                    if (sprintGoal.isActive) theme.primary else theme.tertiary,
+                    radius = 8.dp
+                ),
                 shape = RoundedCornerShape(32.dp),
                 colors = ButtonDefaults.filledTonalButtonColors(
-                    containerColor = if(sprintGoal.isActive) theme.primary.copy(alpha = 0.2f) else theme.tertiary,
+                    containerColor = if (sprintGoal.isActive) theme.background.copy(alpha = 0.2f) else theme.tertiary,
                     contentColor = theme.primary
                 ),
-                border = BorderStroke(1.dp, if(sprintGoal.isActive) theme.primary else theme.secondary.copy(alpha = 0.5f))
+                border = BorderStroke(
+                    1.dp,
+                    if (sprintGoal.isActive) theme.primary else theme.secondary.copy(alpha = 0.5f)
+                ),
+                contentPadding = PaddingValues(horizontal = 4.dp)
             ) {
-                Icon(Icons.Outlined.AutoAwesome, null, Modifier.size(16.dp))
-                Spacer(Modifier.width(6.dp))
-                Text(if(sprintGoal.isActive) "Active" else "Goal", style = MaterialTheme.typography.labelMedium)
+                ButtonContent(
+                    Icons.Outlined.AutoAwesome,
+                    if (sprintGoal.isActive) "Active" else "Goal"
+                )
             }
         }
 
@@ -1062,7 +1113,7 @@ private fun OverviewRow(loads: List<MuscleLoad>) {
             "Recovery" to (loads.count { it.band == LoadBand.Recovering } to Color(0xFFAB47BC)), "Warning" to (loads.count { it.band == LoadBand.Overreached } to Color(0xFFFFCA28)))
     }
     Surface(
-        color = theme.tertiary,
+        color = theme.background,
         shape = RoundedCornerShape(32.dp),
         border = BorderStroke(1.dp, theme.secondary.copy(0.3f))
     ) {
@@ -1087,6 +1138,7 @@ private fun MuscleCircleTile(load: MuscleLoad) {
         .collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
     val theme = appearanceOptions.selectedTheme.colors
 
+
     val color = remember(load.band) {
         when (load.band) {
             LoadBand.Building -> Color(0xFF42A5F5)
@@ -1097,79 +1149,64 @@ private fun MuscleCircleTile(load: MuscleLoad) {
     }
 
     val pct = remember(load.weeklyProgress, load.weeklyTarget) {
-        if (load.weeklyTarget > 0f) ((load.weeklyProgress / load.weeklyTarget) * 100f) else 0f
+        if (load.weeklyTarget > 0f)
+            (load.weeklyProgress / load.weeklyTarget).coerceIn(0f, 1f)
+        else 0f
     }
-
-    val animatedPctState = animateFloatAsState(
-        targetValue = pct.coerceIn(0f, 100f),
-        animationSpec = tween(1000, easing = FastOutSlowInEasing),
-        label = "pct"
-    )
-
-    val transition = rememberInfiniteTransition(label = "muscleState")
-
-    val pulseScaleState = transition.animateFloat(
-        initialValue = 1f,
-        targetValue = if (load.band == LoadBand.Building) 1.02f else if (load.band == LoadBand.Overreached) 1.04f else 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(if (load.band == LoadBand.Overreached) 800 else 2000, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ), label = "pulse"
-    )
-
-    val rotationState = transition.animateFloat(
-        initialValue = 0f,
-        targetValue = if (load.band == LoadBand.OnTrack) 360f else 0f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(25000, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ), label = "slowSpin"
-    )
 
     Surface(
         color = theme.background,
         shape = RoundedCornerShape(32.dp),
-        border = BorderStroke(1.dp, Brush.verticalGradient(listOf(color.copy(0.2f), Color.Transparent))),
-        modifier = Modifier.graphicsLayer {
-            scaleX = pulseScaleState.value
-            scaleY = pulseScaleState.value
-        }
+        border = BorderStroke(
+            width = 1.dp,
+            brush = Brush.verticalGradient(listOf(color.copy(0.2f), Color.Transparent))
+        ),
+        modifier = Modifier.fillMaxWidth()
     ) {
         Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
+            modifier = Modifier.padding(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Box(contentAlignment = Alignment.Center) {
                 Canvas(modifier = Modifier.size(64.dp)) {
+                    val strokeWidth = 6.dp.toPx()
+
+
                     drawCircle(
                         brush = Brush.radialGradient(
-                            colors = listOf(color.copy(alpha = 0.35f), Color.Transparent),
-                            center = center,
-                            radius = size.minDimension / 1.3f
+                            colors = listOf(color.copy(alpha = 0.25f), Color.Transparent),
+                            radius = size.minDimension / 1.2f
                         )
                     )
 
-                    drawCircle(color = Color.White.copy(0.05f), style = Stroke(width = 6.dp.toPx()))
+                    drawCircle(
+                        color = Color.White.copy(0.05f),
+                        style = Stroke(width = strokeWidth)
+                    )
 
-                    val sweep = (animatedPctState.value / 100f) * 360f
 
-                    rotate(degrees = rotationState.value) {
+                    val sweep = pct * 360f
+
+                    rotate(degrees = -90f) {
                         drawArc(
-                            brush = Brush.sweepGradient(listOf(color.copy(0.3f), color)),
-                            startAngle = -90f,
+                            brush = Brush.sweepGradient(
+                                0.0f to color.copy(alpha = 0.3f),
+                                pct to color,
+                                pct + 0.01f to Color.Transparent, // Hard stop to avoid bleed
+                                1.0f to Color.Transparent
+                            ),
+                            startAngle = 0f,
                             sweepAngle = sweep,
                             useCenter = false,
-                            style = Stroke(width = 6.dp.toPx(), cap = StrokeCap.Round)
+                            style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
                         )
                     }
                 }
 
                 Text(
-                    text = "${animatedPctState.value.toInt()}%",
-                    style = MaterialTheme.typography.titleSmall,
+                    text = "${(pct * 100).toInt()}%",
+                    style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.Bold,
                     color = color
                 )
@@ -1179,19 +1216,23 @@ private fun MuscleCircleTile(load: MuscleLoad) {
                 Text(
                     text = load.group.name,
                     style = MaterialTheme.typography.titleSmall,
-                    color = Color.White
+                    color = Color.White,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
 
+                Spacer(Modifier.height(4.dp))
+
                 Surface(
-                    color = color.copy(alpha = 0.15f),
+                    color = color.copy(alpha = 0.12f),
                     shape = RoundedCornerShape(32.dp),
-                    border = BorderStroke(1.dp, color.copy(alpha = 0.3f))
+                    border = BorderStroke(1.dp, color.copy(alpha = 0.25f))
                 ) {
                     Text(
                         text = load.band.name,
                         style = MaterialTheme.typography.labelSmall,
                         color = color,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
                     )
                 }
             }
@@ -1448,8 +1489,11 @@ class StimulantManager(context: Context) {
 }
 
 @Composable
-fun StimulantTrackerSection() {
+fun StimulantTrackerSection(
+    modifier: Modifier = Modifier
+) {
     val context = LocalContext.current
+    val haptics = LocalHapticFeedback.current
     val appearanceOptions by AppearanceOptionsManagerAppTheme.flow(context).collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
     val theme = appearanceOptions.selectedTheme.colors
     val manager = remember { StimulantManager(context) }
@@ -1457,43 +1501,59 @@ fun StimulantTrackerSection() {
     var caffeineState by remember { mutableStateOf(manager.get("caffeine")) }
     var pseudoState by remember { mutableStateOf(manager.get("pseudo")) }
 
-    Column(
-        modifier = Modifier
+    Surface(
+        modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(32.dp))
-            .background(theme.secondary.copy(0.15f))
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+            .clip(RoundedCornerShape(28.dp))
+            .border(
+                1.dp,
+                Brush.verticalGradient(listOf(theme.primary.copy(0.2f), Color.Transparent)),
+                RoundedCornerShape(28.dp)
+            ),
+        color = theme.background.copy(alpha = 0.4f)
     ) {
-        Text("Stimulant Log", style = MaterialTheme.typography.titleMedium, color = Color.White, fontWeight = FontWeight.Bold)
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(24.dp)
+        ) {
+            Text(
+                text = "STIMULANT LOG",
+                style = MaterialTheme.typography.labelLarge,
+                color = theme.primary.copy(alpha = 0.8f),
+                letterSpacing = 2.sp,
+                fontWeight = FontWeight.Black
+            )
 
-        StimulantRow(
-            label = "Caffeine",
-            icon = Icons.Outlined.Bolt,
-            current = caffeineState.first,
-            limit = caffeineState.second,
-            avg = caffeineState.third.toInt(),
-            theme = theme,
-            onAdd = {
-                manager.add("caffeine", it)
-                caffeineState = manager.get("caffeine")
-            },
-            mostUsed = manager.getMostUsed("caffeine")
-        )
+            StimulantRow(
+                label = "Caffeine",
+                icon = Icons.Outlined.Bolt,
+                current = caffeineState.first,
+                limit = caffeineState.second,
+                theme = theme,
+                onAdd = {
+                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                    manager.add("caffeine", it)
+                    caffeineState = manager.get("caffeine")
+                },
+                mostUsed = manager.getMostUsed("caffeine")
+            )
 
-        StimulantRow(
-            label = "Pseudoephedrine",
-            icon = Icons.Outlined.Healing,
-            current = pseudoState.first,
-            limit = pseudoState.second,
-            avg = pseudoState.third.toInt(),
-            theme = theme,
-            onAdd = {
-                manager.add("pseudo", it)
-                pseudoState = manager.get("pseudo")
-            },
-            mostUsed = manager.getMostUsed("pseudo")
-        )
+            Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(theme.primary.copy(0.1f)))
+
+            StimulantRow(
+                label = "Pseudoephedrine",
+                icon = Icons.Outlined.Healing,
+                current = pseudoState.first,
+                limit = pseudoState.second,
+                theme = theme,
+                onAdd = {
+                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                    manager.add("pseudo", it)
+                    pseudoState = manager.get("pseudo")
+                },
+                mostUsed = manager.getMostUsed("pseudo")
+            )
+        }
     }
 }
 
@@ -1503,58 +1563,107 @@ fun StimulantRow(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     current: Int,
     limit: Int,
-    avg: Int,
     theme: ColorSchemeAppTheme,
     onAdd: (Int) -> Unit,
     mostUsed: List<Int>
 ) {
     var customDose by remember { mutableStateOf("") }
+    val progress = (current.toFloat() / limit.toFloat()).coerceIn(0f, 1.2f)
+    val overLimit = current > limit
 
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.Bottom
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Icon(icon, contentDescription = null, tint = theme.primary, modifier = Modifier.size(20.dp))
-                Text(label, color = Color.White, style = MaterialTheme.typography.bodyLarge)
+            Column {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Icon(icon, null, tint = theme.primary, modifier = Modifier.size(18.dp))
+                    Text(label, color = Color.White, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                }
+                Text(
+                    text = if (overLimit) "LIMIT EXCEEDED" else "DAILY ALLOWANCE",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (overLimit) Color.Red else Color.White.copy(0.4f)
+                )
             }
-            Text("$current / $limit mg", color = if (current > limit) Color.Red else Color.Gray)
+
+            Text(
+                text = buildAnnotatedString {
+                    withStyle(
+                        SpanStyle(
+                            color = if (overLimit) Color.Red else theme.primary,
+                            fontWeight = FontWeight.Black,
+                            fontSize = 20.sp
+                        )
+                    ) {
+                        append("$current")
+                    }
+                    withStyle(SpanStyle(color = Color.White.copy(0.4f), fontSize = 14.sp)) {
+                        append(" / $limit mg")
+                    }
+                }
+            )
+        }
+
+        // Custom Progress Bar matching MuscleCircleTile logic
+        Canvas(modifier = Modifier.fillMaxWidth().height(8.dp)) {
+            val trackColor = Color.White.copy(0.05f)
+            val barBrush = Brush.horizontalGradient(
+                listOf(theme.primary.copy(0.6f), theme.primary)
+            )
+
+            drawRoundRect(color = trackColor, size = size, cornerRadius = CornerRadius(4.dp.toPx()))
+            drawRoundRect(
+                brush = barBrush,
+                size = Size(width = size.width * progress.coerceAtMost(1f), height = size.height),
+                cornerRadius = CornerRadius(4.dp.toPx())
+            )
+
+            if (progress > 1f) {
+                drawRoundRect(
+                    color = Color.Red.copy(0.5f),
+                    size = Size(width = size.width * (progress - 1f).coerceAtMost(1f), height = size.height),
+                    cornerRadius = CornerRadius(4.dp.toPx())
+                )
+            }
         }
 
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             OutlinedTextField(
                 value = customDose,
-                onValueChange = { if (it.all { char -> char.isDigit() }) customDose = it },
+                onValueChange = { if (it.all { c -> c.isDigit() }) customDose = it },
                 modifier = Modifier.weight(1f),
-                label = { Text("Dose (mg)", color = Color.Gray) },
+                placeholder = { Text("Custom mg", color = Color.White.copy(0.3f), style = MaterialTheme.typography.bodyMedium) },
                 singleLine = true,
-                colors = TextFieldDefaults.colors(
-                    focusedTextColor = Color.White,
-                    unfocusedTextColor = Color.White,
-                    focusedContainerColor = theme.secondary.copy(0.15f),
+//                textStyle = TextStyle(color = Color.White, fontWeight = FontWeight.Bold),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = theme.primary,
+                    unfocusedBorderColor = theme.secondary.copy(0.5f),
+                    focusedContainerColor = theme.secondary.copy(0.2f),
+                    unfocusedContainerColor = theme.secondary.copy(0.1f),
+                    cursorColor = theme.primary
                 ),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                shape = RoundedCornerShape(12.dp)
+                shape = RoundedCornerShape(16.dp)
             )
 
-            Button(
+            Surface(
                 onClick = {
-                    customDose.toIntOrNull()?.let {
-                        onAdd(it)
-                        customDose = ""
-                    }
+                    customDose.toIntOrNull()?.let { onAdd(it); customDose = "" }
                 },
-                colors = ButtonDefaults.buttonColors(containerColor = theme.primary, contentColor = theme.background),
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.height(56.dp)
+                shape = RoundedCornerShape(16.dp),
+                color = theme.primary,
+                modifier = Modifier.size(56.dp)
             ) {
-                Icon(Icons.Default.Add, contentDescription = null, tint = Color.Black)
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(Icons.Default.Add, null, tint = theme.background, modifier = Modifier.size(24.dp))
+                }
             }
         }
 
@@ -1563,14 +1672,19 @@ fun StimulantRow(
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             mostUsed.take(3).forEach { dose ->
-                SuggestionChip(
+                Surface(
                     onClick = { onAdd(dose) },
-                    label = { Text("${dose}mg") },
-                    colors = SuggestionChipDefaults.suggestionChipColors(
-                        labelColor = Color.White,
-                        containerColor = theme.secondary.copy(0.3f)
+                    shape = RoundedCornerShape(12.dp),
+                    color = theme.secondary.copy(0.3f),
+                    border = BorderStroke(1.dp, theme.primary.copy(0.15f))
+                ) {
+                    Text(
+                        text = "+${dose}mg",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = Color.White.copy(0.8f),
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
                     )
-                )
+                }
             }
         }
     }

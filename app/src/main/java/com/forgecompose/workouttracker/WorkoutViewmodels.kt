@@ -1,6 +1,7 @@
 package com.forgecompose.workouttracker
 
 import android.content.Context
+import android.os.Environment
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -26,8 +27,15 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
+import java.io.FileWriter
+import java.time.LocalDate
+import java.time.ZoneId
+import java.time.temporal.ChronoUnit
 
 @Entity(tableName = "workouts")
 data class Workout(
@@ -387,18 +395,19 @@ class WorkoutListViewModel(
         }
     }
 
-    // Example action: Add a new dummy workout
-    fun addSampleWorkout(name: String, status: WorkoutStatus, durationMillis: Long? = null
-    ,weight: Double?,sets: Int?,reps: Int?,distance: Double?,notes: String?) {
+
+    fun LogWorkout(name: String, status: WorkoutStatus, durationMillis: Long? = null
+                   , weight: Double?, sets: Int?, reps: Int?, distance: Double?, notes: String?) {
 
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val currentTime = System.currentTimeMillis()
+
                 val newWorkout = Workout(
                     name = name,
                     date = currentTime,
                     startTime = currentTime,
-                    endTime = null, // Not ended yet
+                    endTime = null,
                     durationMillis = durationMillis,
                     status = WorkoutStatus.COMPLETED,
 weight = weight,
@@ -432,6 +441,52 @@ weight = weight,
     fun deleteAllWorkouts() {
         viewModelScope.launch {
             workoutRepository.deleteAllWorkouts()
+        }
+    }
+    fun exportWorkoutsToCsv(context: Context, range: ExportDateRange, onResult: (String) -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val (startDate, endDate) = when (range) {
+                    ExportDateRange.LAST_WEEK -> LocalDate.now().minus(1, ChronoUnit.WEEKS).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli() to System.currentTimeMillis()
+                    ExportDateRange.LAST_MONTH -> LocalDate.now().minus(1, ChronoUnit.MONTHS).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli() to System.currentTimeMillis()
+                    ExportDateRange.LAST_YEAR -> LocalDate.now().minus(1, ChronoUnit.YEARS).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli() to System.currentTimeMillis()
+                    ExportDateRange.LIFETIME -> 0L to System.currentTimeMillis()
+                }
+
+                val workouts = if (range == ExportDateRange.LIFETIME) {
+                    workoutRepository.getAllWorkouts().first()
+                } else {
+                    workoutRepository.getAllWorkouts().first()
+                }
+
+                if (workouts.isEmpty()) {
+                    withContext(Dispatchers.Main) {
+                        onResult("No workouts to export for the selected range.")
+                    }
+                    return@launch
+                }
+
+                val csvHeader = "ID,Name,Date,Duration (ms),Start Time,End Time,Status,Weight,Sets,Reps,Distance,Notes\n"
+                val fileName = "workout_history_${System.currentTimeMillis()}.csv"
+                val documentsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS)
+                val file = File(documentsDir, fileName)
+
+                FileWriter(file).use { writer ->
+                    writer.append(csvHeader)
+                    workouts.forEach { workout ->
+                        writer.append("${workout.id},${workout.name},${workout.date},${workout.durationMillis ?: ""},${workout.startTime},${workout.endTime ?: ""},${workout.status},${workout.weight ?: ""},${workout.sets ?: ""},${workout.reps ?: ""},${workout.distance ?: ""},${workout.notes?.replace(",", ";") ?: ""}\n")
+                    }
+                }
+
+                withContext(Dispatchers.Main) {
+                    onResult("Export successful! Saved to Documents/$fileName")
+                }
+
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    onResult("Export failed: ${e.message}")
+                }
+            }
         }
     }
 }
@@ -472,5 +527,4 @@ class MainScreenViewModelFactory(private val repository: WorkoutRepo) : ViewMode
         throw IllegalArgumentException("Unknown ViewModel class")
     }
 }
-
 

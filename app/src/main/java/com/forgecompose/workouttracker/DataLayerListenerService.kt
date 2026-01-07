@@ -39,7 +39,7 @@ class DataLayerListenerService : WearableListenerService() {
 
                 serviceScope.launch {
                     Log.d("DataLayerListenerService", "Received completed workout: $workoutName. Saving via ViewModel...")
-                    viewModel.addSampleWorkout(
+                    viewModel.LogWorkout(
                         name = workoutName,
                         status = WorkoutStatus.COMPLETED,
                         durationMillis = duration,

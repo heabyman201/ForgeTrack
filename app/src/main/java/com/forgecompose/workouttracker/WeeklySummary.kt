@@ -6,9 +6,11 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -19,8 +21,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.ArrowForward
+import androidx.compose.material.icons.outlined.DateRange
 import androidx.compose.material.icons.outlined.FitnessCenter
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -30,11 +35,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -44,6 +50,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onStart
 import java.time.*
 import java.time.format.DateTimeFormatter
+import java.time.format.TextStyle
 import java.time.temporal.WeekFields
 import java.util.*
 import kotlin.math.max
@@ -145,7 +152,6 @@ fun WeeklySummaryScreen(
 ) {
     val context = LocalContext.current
 
-    // --- Theme Hook ---
     val appearanceOptions by AppearanceOptionsManagerAppTheme.flow(context).collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
     val theme = appearanceOptions.selectedTheme.colors
 
@@ -156,94 +162,146 @@ fun WeeklySummaryScreen(
     val isTwoPane = widthDp >= 840 || (widthDp >= 600 && isTall)
     val compactTitle = widthDp < 360
 
-    val lazyListState = rememberLazyListState()
 
-    // Dynamic scroll animation colors
-    val startColor = theme.secondary
-    val endColor = theme.tertiary
-
-    val animatedColor by remember(startColor, endColor) {
-        derivedStateOf {
-            val scrollOffset = lazyListState.firstVisibleItemIndex * 400f + lazyListState.firstVisibleItemScrollOffset
-            val fraction = (scrollOffset / 1200f).coerceIn(0f, 1f)
-            lerp(startColor, endColor, FastOutSlowInEasing.transform(fraction))
-        }
+    val density = LocalDensity.current
+    val maxDimension = remember(density, widthDp, heightDp) {
+        with(density) { max(widthDp.dp.toPx(), heightDp.dp.toPx()) }
     }
 
-    val animatedGradientBrush = remember(animatedColor, theme) {
+
+    val ambientGlowBrush = remember(theme, maxDimension) {
         Brush.radialGradient(
             colors = listOf(
-                theme.background,
-                theme.tertiary.copy(alpha = 0.5f),
-                animatedColor.copy(alpha = 0.8f),
-                animatedColor,
+                theme.secondary.copy(alpha = 0.15f),
+                theme.background.copy(alpha = 0.7f),
                 theme.background
             ),
-            radius = 1200f,
-            center = Offset(0.5f, 0.3f)
+            center = Offset(0.3f, 0.4f),
+            radius = maxDimension * 1.2f
         )
     }
 
-    val overlayBrush = remember(theme) {
+
+    val detailedStreakBrush = remember(theme) {
         Brush.linearGradient(
-            colors = listOf(
-                theme.secondary.copy(alpha = 0.2f),
-                Color.Transparent,
-                theme.tertiary.copy(alpha = 0.15f),
-                Color.Transparent
-            )
+            colorStops = arrayOf(
+                0.0f to theme.tertiary.copy(alpha = 0.05f),
+                0.3f to Color.Transparent,
+                0.5f to theme.secondary.copy(alpha = 0.08f),
+                0.7f to Color.Transparent,
+                1.0f to theme.tertiary.copy(alpha = 0.1f)
+            ),
+            start = Offset(0f, 0f),
+            end = Offset(Float.POSITIVE_INFINITY, Float.POSITIVE_INFINITY) // Diagonal
         )
     }
+
+    // Layer 3: A subtle, repeating linear gradient for fine texture
+    val fineTextureBrush = remember(theme) {
+        Brush.verticalGradient(
+            colors = listOf(
+                Color.Transparent,
+                theme.secondary.copy(alpha = 0.03f),
+                Color.Transparent
+            ),
+            startY = 0f,
+            endY = 100f, // Small repeat interval
+            tileMode = TileMode.Repeated
+        )
+    }
+
+    // Layer 4: A corner vignette to focus attention towards the center
+    val vignetteBrush = remember(theme, maxDimension) {
+        Brush.radialGradient(
+            colors = listOf(
+                Color.Transparent,
+                theme.background.copy(alpha = 0.5f)
+            ),
+            center = Offset(1f, 1f), // Bottom-right corner in relative coordinates
+            radius = maxDimension * 0.8f
+        )
+    }
+
 
     val parsedFlow = remember(tapeFlow, zoneId) { tapeFlow.onStart { emit("") }.map { entriesFromTape(it, zoneId) } }
     val allEntries by parsedFlow.collectAsState(initial = emptyList())
-    var weekOffset by remember { mutableStateOf(0) }
+
     val today = remember { LocalDate.now(zoneId) }
     val currentWeekStart = remember(today, firstDayOfWeek) { startOfWeek(today, firstDayOfWeek) }
-    val selectedWeekStart = remember(currentWeekStart, weekOffset) { currentWeekStart.plusWeeks(weekOffset.toLong()) }
+    var selectedWeekStart by remember { mutableStateOf(currentWeekStart) }
+    var isCalendarExpanded by remember { mutableStateOf(false) }
+
     val summary = remember(allEntries, selectedWeekStart) { summarizeWeek(allEntries, selectedWeekStart) }
-    val canGoForward = remember(weekOffset) { weekOffset < 0 }
+    val canGoForward = remember(selectedWeekStart, currentWeekStart) { selectedWeekStart < currentWeekStart }
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        "${summary.weekStart} — ${summary.weekEnd}",
-                        style = if (compactTitle) MaterialTheme.typography.titleMedium else MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        letterSpacing = if (compactTitle) 0.sp else 0.2.sp
-                    )
-                },
-                navigationIcon = {
-                    IconButton(onClick = { navController.navigateUp() }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
-                    }
-                },
-                actions = {
-                    IconButton(onClick = { weekOffset -= 1 }) {
-                        Icon(Icons.Outlined.ArrowBack, contentDescription = "Previous week", tint = Color.White)
-                    }
-                    IconButton(onClick = { if (canGoForward) weekOffset += 1 }, enabled = canGoForward) {
-                        Icon(
-                            Icons.Outlined.ArrowForward,
-                            contentDescription = "Next week",
-                            tint = if (canGoForward) Color.White else Color.White.copy(alpha = 0.3f)
+            Column {
+                TopAppBar(
+                    title = {
+                        Text(
+                            "${summary.weekStart} — ${summary.weekEnd}",
+                            style = if (compactTitle) MaterialTheme.typography.titleMedium else MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            letterSpacing = if (compactTitle) 0.sp else 0.2.sp
                         )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
-            )
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = { navController.navigateUp() }) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
+                        }
+                    },
+                    actions = {
+                        IconButton(onClick = { selectedWeekStart = selectedWeekStart.minusWeeks(1) }) {
+                            Icon(Icons.Outlined.ArrowBack, contentDescription = "Previous week", tint = Color.White)
+                        }
+                        IconButton(onClick = { isCalendarExpanded = !isCalendarExpanded }) {
+                            Icon(
+                                Icons.Outlined.DateRange,
+                                contentDescription = "Select Week",
+                                tint = if (isCalendarExpanded) theme.primary else Color.White
+                            )
+                        }
+                        IconButton(onClick = { if (canGoForward) selectedWeekStart = selectedWeekStart.plusWeeks(1) }, enabled = canGoForward) {
+                            Icon(
+                                Icons.Outlined.ArrowForward,
+                                contentDescription = "Next week",
+                                tint = if (canGoForward) Color.White else Color.White.copy(alpha = 0.3f)
+                            )
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
+                )
+
+                AnimatedVisibility(
+                    visible = isCalendarExpanded,
+                    enter = expandVertically() + fadeIn(),
+                    exit = shrinkVertically() + fadeOut()
+                ) {
+                    InlineCalendar(
+                        selectedWeekStart = selectedWeekStart,
+                        onWeekSelected = {
+                            selectedWeekStart = it
+                            isCalendarExpanded = false
+                        },
+                        firstDayOfWeek = firstDayOfWeek,
+                        theme = theme
+                    )
+                }
+            }
         },
         containerColor = Color.Transparent,
         modifier = Modifier
             .fillMaxSize()
-            .background(theme.background)
-            .background(animatedGradientBrush)
-            .background(overlayBrush)
+            // Apply the layered, detailed, static background
+            .background(theme.background) // Base solid color
+            .background(ambientGlowBrush)   // Layer 1: Ambient depth
+            .background(detailedStreakBrush) // Layer 2: Color streaks
+            .background(fineTextureBrush)    // Layer 3: Fine texture
+            .background(vignetteBrush)       // Layer 4: Corner vignette
     ) { padding ->
         if (allEntries.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
@@ -284,7 +342,7 @@ fun WeeklySummaryScreen(
                         }
                     }
                     LazyColumn(
-                        state = lazyListState,
+                        state = rememberLazyListState(), // Use a separate state for the second column
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxHeight(),
@@ -315,7 +373,7 @@ fun WeeklySummaryScreen(
                 }
             } else {
                 LazyColumn(
-                    state = lazyListState,
+                    state = rememberLazyListState(), // Use a separate state
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(padding)
@@ -362,14 +420,112 @@ fun WeeklySummaryScreen(
                 }
             }
         }
-        Box(modifier = Modifier.fillMaxSize()) {
-            FloatingTaskbar(
-                modifier = Modifier.align(Alignment.BottomCenter),
-                navController = navController,
-                cornerRadius = 34.dp,
-                iconAlpha = 1f,
-                uiState = androidx.compose.runtime.remember { WorkoutListUiState.Success(emptyList()) }
+    }
+}
+
+@Composable
+fun InlineCalendar(
+    selectedWeekStart: LocalDate,
+    onWeekSelected: (LocalDate) -> Unit,
+    firstDayOfWeek: DayOfWeek,
+    theme: ColorSchemeAppTheme
+) {
+    var viewMonth by remember(selectedWeekStart) { mutableStateOf(YearMonth.from(selectedWeekStart)) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Color.Black.copy(alpha = 0.3f))
+            .padding(bottom = 12.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            IconButton(onClick = { viewMonth = viewMonth.minusMonths(1) }) {
+                Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, null, tint = Color.White)
+            }
+            Text(
+                "${viewMonth.month.getDisplayName(TextStyle.FULL, Locale.getDefault())} ${viewMonth.year}",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = Color.White
             )
+            IconButton(onClick = { viewMonth = viewMonth.plusMonths(1) }) {
+                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = Color.White)
+            }
+        }
+
+        Row(Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
+            val days = WeekFields.of(firstDayOfWeek, 1).firstDayOfWeek
+            for (i in 0..6) {
+                val d = days.plus(i.toLong())
+                Text(
+                    text = d.getDisplayName(TextStyle.SHORT, Locale.getDefault()).take(1),
+                    modifier = Modifier.weight(1f),
+                    textAlign = TextAlign.Center,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = theme.secondary.copy(alpha = 0.7f)
+                )
+            }
+        }
+
+        val firstDayOfMonth = viewMonth.atDay(1)
+        val firstDayOfGrid = firstDayOfMonth.minusDays(
+            ((firstDayOfMonth.dayOfWeek.value - firstDayOfWeek.value + 7) % 7).toLong()
+        )
+
+        val selectedWeekEnd = selectedWeekStart.plusDays(6)
+
+        Column {
+            for (w in 0 until 6) {
+                val weekStartDate = firstDayOfGrid.plusDays((w * 7).toLong())
+                // Stop rendering if row is completely outside current month
+                if (weekStartDate.month != viewMonth.month && weekStartDate.plusDays(6).month != viewMonth.month && w > 3) break
+
+                val isSelectedWeek = (selectedWeekStart <= weekStartDate.plusDays(6) && selectedWeekEnd >= weekStartDate)
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 2.dp, horizontal = 12.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(if (isSelectedWeek) theme.primary.copy(alpha = 0.2f) else Color.Transparent)
+                        .clickable { onWeekSelected(weekStartDate) }
+                        .padding(vertical = 8.dp)
+                ) {
+                    Row(Modifier.fillMaxWidth()) {
+                        for (d in 0 until 7) {
+                            val date = weekStartDate.plusDays(d.toLong())
+                            val isToday = date == LocalDate.now()
+                            val isCurrentMonth = date.month == viewMonth.month
+
+                            Box(
+                                modifier = Modifier.weight(1f),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (isToday) {
+                                    Box(
+                                        Modifier
+                                            .size(28.dp)
+                                            .clip(CircleShape)
+                                            .background(theme.secondary.copy(alpha = 0.6f))
+                                    )
+                                }
+                                Text(
+                                    text = date.dayOfMonth.toString(),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = if (isCurrentMonth) Color.White else Color.White.copy(alpha = 0.3f),
+                                    fontWeight = if (isSelectedWeek) FontWeight.Bold else FontWeight.Normal
+                                )
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }

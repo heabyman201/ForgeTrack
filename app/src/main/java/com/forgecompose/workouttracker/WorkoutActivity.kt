@@ -32,6 +32,7 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.EaseOutCubic
 import androidx.compose.animation.core.EaseOutExpo
 import androidx.compose.animation.core.EaseOutQuad
+import androidx.compose.animation.core.FastOutLinearInEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.LinearOutSlowInEasing
@@ -43,6 +44,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.updateTransition
 import androidx.compose.animation.expandIn
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -87,6 +89,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.RemoveCircleOutline
+import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -146,6 +149,7 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.TileMode
+import androidx.compose.ui.graphics.asAndroidPath
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
@@ -236,6 +240,7 @@ class WorkoutActivity : ComponentActivity() {
         }
 
 
+
         AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_YES)
         enableEdgeToEdge(
             statusBarStyle = SystemBarStyle.auto(
@@ -259,6 +264,7 @@ fun MainScreen(viewModel: WorkoutListViewModel,badgeViewModel: BadgeViewModel) {
     val navController = rememberNavController()
     val context = LocalContext.current
     val currentMode by ConnectedWorkout.currentMode
+
 
     LaunchedEffect(currentMode) {
         when (currentMode) {
@@ -423,20 +429,20 @@ fun AdviceSection(
     modifier: Modifier = Modifier
 ) {
     var glow by remember { mutableFloatStateOf(0.35f) }
-    var glowDir by remember { mutableStateOf(1) }
+//    var glowDir by remember { mutableStateOf(1) }
     var starRotation by remember { mutableFloatStateOf(0f) }
     val context = LocalContext.current
     val appearanceOptions by AppearanceOptionsManagerAppTheme.flow(context).collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
-    val theme = appearanceOptions.selectedTheme.colors
-    LaunchedEffect(Unit) {
-        while (true) {
-            glow += glowDir * 0.01f
-            if (glow >= 0.9f) glowDir = -1
-            if (glow <= 0.35f) glowDir = 1
-            starRotation = (starRotation + 1.5f) % 360f
-            delay(1000L / 24L)
-        }
-    }
+
+//    LaunchedEffect(Unit) {
+//        while (true) {
+//            glow += glowDir * 0.01f
+//            if (glow >= 0.9f) glowDir = -1
+//            if (glow <= 0.35f) glowDir = 1
+//            starRotation = (starRotation + 1.5f) % 360f
+//            delay(1000L / 24L)
+//        }
+//    }
 
     val cardShape = RoundedCornerShape(20.dp)
 
@@ -478,7 +484,7 @@ fun AdviceSection(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Icon(
-                    imageVector = Icons.Rounded.Star,
+                    imageVector = Icons.Rounded.AutoAwesome,
                     contentDescription = null,
                     tint = appearanceOptions.colors.primary,
                     modifier = Modifier
@@ -520,7 +526,7 @@ fun AdviceSection(
 
 
 @Composable
-private fun CountdownOverlay(countdownValue: Int, theme: ColorSchemeAppTheme) {
+fun CountdownOverlay(countdownValue: Int, theme: ColorSchemeAppTheme) {
     val smallRipple = remember { Animatable(0f) }
     val bigRipple = remember { Animatable(0f) }
     val haptics = LocalHapticFeedback.current
@@ -553,6 +559,7 @@ private fun CountdownOverlay(countdownValue: Int, theme: ColorSchemeAppTheme) {
             .background(Color.Black.copy(alpha = 0.88f)),
         contentAlignment = Alignment.Center
     ) {
+        // --- Background Ripples ---
         Canvas(modifier = Modifier.fillMaxSize()) {
             if (bigRipple.value > 0f) {
                 val progress = bigRipple.value
@@ -579,25 +586,21 @@ private fun CountdownOverlay(countdownValue: Int, theme: ColorSchemeAppTheme) {
             }
         }
 
-        AnimatedContent(
-            targetState = countdownValue,
-            label = "CountdownAnimation",
-            transitionSpec = {
-                val springSpec = spring<Float>(
-                    dampingRatio = 0.55f,
-                    stiffness = Spring.StiffnessLow
-                )
-                val springSizeSpec = spring<IntSize>(
-                    dampingRatio = Spring.DampingRatioMediumBouncy,
-                    stiffness = Spring.StiffnessLow
-                )
+        // --- Main Animation Content ---
+        // We create the transition explicitly to avoid type ambiguity (Int vs EnterExitState)
+        val transition = updateTransition(targetState = countdownValue, label = "Countdown")
 
-                (fadeIn(tween(250)) + scaleIn(springSpec, initialScale = 0.4f) + expandIn(springSizeSpec, Alignment.Center))
-                    .togetherWith(fadeOut(tween(200)) + scaleOut(tween(200), targetScale = 1.8f))
+        transition.AnimatedContent(
+            transitionSpec = {
+                val duration = 700
+                (fadeIn(tween(duration)) + scaleIn(initialScale = 0.6f, animationSpec = tween(duration, easing = FastOutSlowInEasing)))
+                    .togetherWith(fadeOut(tween(duration)) + scaleOut(targetScale = 1.4f, animationSpec = tween(duration, easing = FastOutSlowInEasing)))
             }
         ) { targetCountdown ->
             if (targetCountdown > 0) {
                 val infiniteTransition = rememberInfiniteTransition(label = "core")
+
+                // Subtle breathing pulse
                 val pulse by infiniteTransition.animateFloat(
                     initialValue = 0.94f,
                     targetValue = 1.06f,
@@ -608,7 +611,8 @@ private fun CountdownOverlay(countdownValue: Int, theme: ColorSchemeAppTheme) {
                     label = "pulse"
                 )
 
-                val rotation by infiniteTransition.animateFloat(
+                // Slow, constant rotation
+                val idleRotation by infiniteTransition.animateFloat(
                     initialValue = -3f,
                     targetValue = 3f,
                     animationSpec = infiniteRepeatable(
@@ -618,22 +622,36 @@ private fun CountdownOverlay(countdownValue: Int, theme: ColorSchemeAppTheme) {
                     label = "rotation"
                 )
 
+                // The fast spin transition
+                // If 'state' (the transition target) == 'targetCountdown' (this content), we are entering -> rotate to 0.
+                // If 'state' != 'targetCountdown', we are exiting -> rotate to 180.
+                val spinRotation by transition.animateFloat(
+                    transitionSpec = { tween(700, easing = FastOutSlowInEasing) },
+                    label = "spin"
+                ) { state ->
+                    if (state == targetCountdown) 0f else 180f
+                }
+
                 Box(
                     contentAlignment = Alignment.Center,
                     modifier = Modifier.graphicsLayer {
-                        rotationZ = rotation
+                        // Combine idle sway with the fast spin
+                        rotationZ = idleRotation + spinRotation
+                        scaleX = pulse
+                        scaleY = pulse
                     }
                 ) {
                     Canvas(modifier = Modifier.size(280.dp)) {
-                        val shapeSize = size * 0.82f * pulse
+                        val shapeSize = size * 0.82f
                         val shapeTopLeft = Offset((size.width - shapeSize.width) / 2f, (size.height - shapeSize.height) / 2f)
 
                         when (targetCountdown) {
                             3 -> {
                                 drawIntoCanvas { c ->
+                                    // FIXED: Added .asFrameworkPaint() to access setShadowLayer
                                     val p = Paint().asFrameworkPaint().apply {
                                         isAntiAlias = true
-                                        setShadowLayer(35.dp.toPx() * pulse, 0f, 0f, theme.secondary.toArgb())
+                                        setShadowLayer(35.dp.toPx(), 0f, 0f, theme.secondary.toArgb())
                                     }
                                     c.nativeCanvas.drawRoundRect(
                                         shapeTopLeft.x, shapeTopLeft.y,
@@ -652,14 +670,14 @@ private fun CountdownOverlay(countdownValue: Int, theme: ColorSchemeAppTheme) {
                                 drawIntoCanvas { c ->
                                     val p = Paint().asFrameworkPaint().apply {
                                         isAntiAlias = true
-                                        setShadowLayer(40.dp.toPx() * pulse, 0f, 0f, theme.primary.toArgb())
+                                        setShadowLayer(40.dp.toPx(), 0f, 0f, theme.primary.toArgb())
                                     }
                                     c.nativeCanvas.drawCircle(center.x, center.y, shapeSize.minDimension / 2f, p)
                                 }
                                 drawCircle(color = theme.secondary, radius = shapeSize.minDimension / 2f, center = center)
                             }
                             1 -> {
-                                val path = android.graphics.Path().apply {
+                                val path = Path().apply {
                                     moveTo(center.x, shapeTopLeft.y)
                                     lineTo(shapeTopLeft.x + shapeSize.width, shapeTopLeft.y + shapeSize.height)
                                     lineTo(shapeTopLeft.x, shapeTopLeft.y + shapeSize.height)
@@ -668,22 +686,18 @@ private fun CountdownOverlay(countdownValue: Int, theme: ColorSchemeAppTheme) {
                                 drawIntoCanvas { c ->
                                     val p = Paint().asFrameworkPaint().apply {
                                         isAntiAlias = true
-                                        setShadowLayer(45.dp.toPx() * pulse, 0f, 0f, theme.primary.toArgb())
+                                        setShadowLayer(45.dp.toPx(), 0f, 0f, theme.primary.toArgb())
                                     }
-                                    c.nativeCanvas.drawPath(path, p)
+                                    c.nativeCanvas.drawPath(path.asAndroidPath(), p)
                                 }
                                 drawPath(
-                                    path = Path().apply {
-                                        moveTo(center.x, shapeTopLeft.y)
-                                        lineTo(shapeTopLeft.x + shapeSize.width, shapeTopLeft.y + shapeSize.height)
-                                        lineTo(shapeTopLeft.x, shapeTopLeft.y + shapeSize.height)
-                                        close()
-                                    },
+                                    path = path,
                                     color = theme.primary
                                 )
                             }
                         }
 
+                        // Glossy overlay
                         drawRect(
                             brush = Brush.verticalGradient(
                                 listOf(Color.White.copy(alpha = 0.12f), Color.Transparent, Color.Black.copy(alpha = 0.15f))
@@ -700,8 +714,9 @@ private fun CountdownOverlay(countdownValue: Int, theme: ColorSchemeAppTheme) {
                         fontWeight = FontWeight.Black,
                         color = Color.White,
                         modifier = Modifier.graphicsLayer {
-                            scaleX = pulse
-                            scaleY = pulse
+                            // Counter-rotate the text so it stays upright while the shape spins
+                            // (Optional: remove this modifier if you want the text to spin with the shape)
+                            rotationZ = -spinRotation - idleRotation
                         }
                     )
                 }
@@ -1283,7 +1298,12 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
 
     val fitnessContext = "You are a fitness coach. The user provides sets, reps, and either weights , time or distance. Give them encouragement. Max 15 words only."
     val scope = rememberCoroutineScope()
-    val (advice, _, generateAdvice) = useGeminiAdviceGenerator(contextPrompt = fitnessContext)
+    val aiState = useGeminiAdviceGenerator(
+        contextPrompt = "$fitnessContext."
+    )
+    val advice = aiState.currentAdvice
+    var showAdvice by remember { mutableStateOf(false) }
+
 
     fun timeToMillis() {
         val hoursInMillis = hours * 60 * 60 * 1000L
@@ -1518,7 +1538,17 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
         animationSpec = tween(750, easing = LinearEasing),
         label = "introFade"
     )
-    LaunchedEffect(Unit) { showIntro = false }
+    LaunchedEffect(Unit) {
+        if(showCountdown)
+        aiState.generateBatch(
+            "The User has performed $CurrentReps reps and $CurrentSets so far",
+            "The Workout weight is $CurrentWeight",
+            "The Workout name is $workout"
+        )
+
+        showIntro = false
+
+    }
 
     val glowColor = theme.secondary
     val deepColor = theme.background
@@ -1710,7 +1740,7 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                                 )
 
                                 scope.launch(Dispatchers.IO) {
-                                    viewModel.addSampleWorkout(
+                                    viewModel.LogWorkout(
                                         workout.value, WorkoutStatus.COMPLETED,
                                         CurrentTime.value, CurrentWeight.value,
                                         CurrentSets.intValue, CurrentReps.intValue,
@@ -1817,6 +1847,7 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
 
                     Spacer(modifier = Modifier.weight(0.75f))
                     val aiEnabled = dynamicModel.personaConfig.value.enabled
+
                     if (aiEnabled) {
                         AdviceSection(
                             advice = advice,
@@ -1849,30 +1880,6 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                             },
                             label = "btnBg"
                         )
-                        LaunchedEffect(Unit) {
-                            while (true) {
-                                val uVal =
-                                    if (CurrentWeight.value > 0) "current weight is ${CurrentWeight.value}Kg"
-                                    else if (CurrentTime.value < 0) "current distance walked or ran is ${currentDistance.value}km"
-                                    else "current time elapsed is ${CurrentTime.value}"
-//                                generateAdvice(
-//                                    """
-//The user is performing ${workout.value}.
-//They have completed ${CurrentReps.intValue}/${GoalReps.intValue} reps and ${CurrentSets.intValue}/${GoalSets.intValue} sets.
-//Respond with energetic, focused encouragement only — no questions, no analysis.
-//Examples:
-//• “Keep that rhythm — power through the last few reps!”
-//• “Perfect pace — lock in, finish strong!”
-//• “Explosive form — stay tight, last push!”
-//The output doesn't have to be like the examples but stay in a similar layout.
-//Output ≤1 line, purely motivational.
-//""".trimIndent(),
-//                                    "",
-//                                    uVal
-//                                )
-                                delay(60000)
-                            }
-                        }
 
 
                         Box(
@@ -1901,11 +1908,13 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                                     interactionSource = interactionSource,
                                     indication = null
                                 ) {
-                                    timeToMillis()
-                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    CurrentReps.intValue += 10
-                                    CurrentSets.intValue += 1
-                                    EnterRestMode()
+                                    if (!showCountdown) {
+                                        timeToMillis()
+                                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        CurrentReps.intValue += 10
+                                        CurrentSets.intValue += 1
+                                        EnterRestMode()
+                                    }
                                 },
                             contentAlignment = Alignment.Center
                         ) {
@@ -1949,7 +1958,7 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
 
                         Button(
                             onClick = { showSyncDialog.showSyncDialog.value = true },
-                            enabled = isPaused,
+                            enabled = isPaused && !showCountdown,
                             shape = RoundedCornerShape(25.dp),
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = lerp(theme.secondary, theme.tertiary, riseEffectProgress).copy(alpha = 0.8f),
@@ -1979,7 +1988,7 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                         onCustomAction = {
                             timeToMillis()
                             scope.launch(Dispatchers.IO) {
-                                viewModel.addSampleWorkout(
+                                viewModel.LogWorkout(
                                     workout.value, WorkoutStatus.COMPLETED,
                                     CurrentTime.value, CurrentWeight.value,
                                     CurrentSets.intValue, CurrentReps.intValue,
@@ -2022,7 +2031,7 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                                 "Rowing Machine", "Stationary Bike", "Swimming"
                             )
                             scope.launch(Dispatchers.IO) {
-                                viewModel.addSampleWorkout(
+                                viewModel.LogWorkout(
                                     workout.value, WorkoutStatus.COMPLETED,
                                     CurrentTime.value, CurrentWeight.value,
                                     CurrentSets.intValue, CurrentReps.intValue,
@@ -4168,7 +4177,7 @@ private fun epley1RM(weight: Float, reps: Int): Float {
     return weight * (1f + reps / 30f)
 }
 
-private fun checkPrForExercise(
+fun checkPrForExercise(
     allWorkouts: List<Workout>,
     exerciseName: String,
     newWeight: Float,

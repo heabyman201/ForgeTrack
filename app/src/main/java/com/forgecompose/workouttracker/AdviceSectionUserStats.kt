@@ -45,6 +45,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -65,9 +66,18 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
+import com.forgecompose.workouttracker.ConnectedWorkout.CurrentReps
+import com.forgecompose.workouttracker.ConnectedWorkout.CurrentSets
+import com.forgecompose.workouttracker.ConnectedWorkout.CurrentWeight
+import com.forgecompose.workouttracker.ConnectedWorkout.workout
+import com.forgecompose.workouttracker.checkPrForExercise
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+
+
+
+
 
 @Composable
 fun AdviceSectionUser(
@@ -76,12 +86,42 @@ fun AdviceSectionUser(
     extraLines: List<String>,
     maxExtraLines: Int = 4,
     modifier: Modifier = Modifier,
+    viewModel: WorkoutListViewModel,
     navController: NavController
 ) {
     val context = LocalContext.current
     val aiEnabled = dynamicModel.personaConfig.value.enabled
     val cold = rememberColdStartStages()
+    val uiState by viewModel.uiState.collectAsState()
+    val allWorkouts = remember(uiState) { (uiState as? WorkoutListUiState.Success)?.workouts.orEmpty() }
+    val selectedWorkout by remember(workout, allWorkouts) {
+        derivedStateOf { allWorkouts.firstOrNull { it.name == workout.value } }
+    }
 
+    val prFlags = remember(selectedWorkout, CurrentWeight.value, CurrentReps.intValue, CurrentSets.intValue) {
+        val currentWorkout = selectedWorkout
+        if (currentWorkout == null) {
+
+            PrFlags(strengthPr = false, volumePr = false, repsPr = false, setsPr = false)
+        } else {
+
+            val historicalWorkouts = allWorkouts.filter { it.id != currentWorkout.id }
+
+            val pr = checkPrForExercise(
+                allWorkouts = historicalWorkouts,
+                exerciseName = currentWorkout.name,
+                newWeight = currentWorkout.weight?.toFloat() ?: 0.0.toFloat(),
+                newReps = currentWorkout.reps ?: 0,
+                newSets = currentWorkout.sets ?: 0
+            )
+            PrFlags(
+                strengthPr = pr.isStrengthPr,
+                volumePr = pr.isVolumePr,
+                repsPr = false,
+                setsPr = false
+            )
+        }
+    }
     val appearanceOptions by AppearanceOptionsManagerAppTheme
         .flow(context)
         .collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
@@ -160,6 +200,23 @@ fun AdviceSectionUser(
 
     val funTip = remember { tips.random() }
 
+    val displayTitle = remember(prFlags) {
+        if (prFlags.strengthPr || prFlags.volumePr) "New Record!" else "Quick tip"
+    }
+
+
+    val displayBody = remember(prFlags, funTip) {
+        when {
+            prFlags.strengthPr -> "You just set a new Strength PR! Moving more weight than ever."
+            prFlags.volumePr -> "Volume PR achieved! Your total workload just hit a new high."
+            else -> funTip
+        }
+    }
+
+    val displayIcon = remember(prFlags) {
+        if (prFlags.strengthPr || prFlags.volumePr) Icons.Rounded.FlagCircle else Icons.Rounded.AutoAwesome
+    }
+
     var isLoading by remember { mutableStateOf(true) }
     LaunchedEffect(Unit) {
         delay(9500)
@@ -227,7 +284,7 @@ fun AdviceSectionUser(
                                 modifier = Modifier.fillMaxWidth()
                             ) {
                                 Icon(
-                                    imageVector = Icons.Rounded.AutoAwesome,
+                                    imageVector = displayIcon,
                                     contentDescription = null,
                                     tint = accent,
                                     modifier = Modifier.size(42.dp)
@@ -235,13 +292,13 @@ fun AdviceSectionUser(
                                 Spacer(modifier = Modifier.size(10.dp))
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
-                                        text = "Quick tip",
+                                        text = displayTitle,
                                         style = MaterialTheme.typography.bodyMedium,
                                         color = Color.White.copy(alpha = 0.7f)
                                     )
                                     Spacer(modifier = Modifier.height(4.dp))
                                     Text(
-                                        text = funTip,
+                                        text = displayBody,
                                         style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
                                         color = Color.White.copy(alpha = 0.95f),
                                         maxLines = 3,

@@ -1,5 +1,6 @@
 package com.forgecompose.workouttracker
 
+import android.widget.Toast
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateDpAsState
@@ -35,6 +36,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Watch
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -49,6 +51,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -89,11 +92,23 @@ import com.google.firebase.ktx.Firebase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.io.File
+import java.io.FileWriter
+import java.time.LocalDate
 import java.time.LocalTime
+import java.time.ZoneId
+import java.time.temporal.ChronoUnit
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.random.Random
+
+enum class ExportDateRange {
+    LAST_WEEK,
+    LAST_MONTH,
+    LAST_YEAR,
+    LIFETIME
+}
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -114,6 +129,8 @@ fun WorkoutHistory(
     val scope = rememberCoroutineScope()
     var searchQuery by remember { mutableStateOf("") }
     var sortAscending by remember { mutableStateOf(false) }
+    var showExportDialog by remember { mutableStateOf(false) }
+
 
     // --- Dynamic Intro Colors based on Theme ---
     val introColors = remember(theme) {
@@ -171,6 +188,13 @@ fun WorkoutHistory(
                             onClick = {
                                 sortAscending = false
                                 showMenu = false
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Export to CSV", color = Color.White) },
+                            onClick = {
+                                showMenu = false
+                                showExportDialog = true
                             }
                         )
                         DropdownMenuItem(
@@ -293,6 +317,72 @@ fun WorkoutHistory(
             }
         )
     }
+    if (showExportDialog) {
+        ExportOptionsDialog(
+            theme = theme,
+            onDismiss = { showExportDialog = false },
+            onExport = { range ->
+                showExportDialog = false
+                viewModel.exportWorkoutsToCsv(context, range) { message ->
+//                    Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                }
+            }
+        )
+    }
+}
+
+@Composable
+fun ExportOptionsDialog(
+    theme: ColorSchemeAppTheme,
+    onDismiss: () -> Unit,
+    onExport: (ExportDateRange) -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Export Workout History", color = Color.White) },
+        text = {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text("Select the time range to export:", color = Color.White.copy(alpha = 0.8f))
+                Button(
+                    onClick = { onExport(ExportDateRange.LAST_WEEK) },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(containerColor = theme.primary)
+                ) {
+                    Text("Last 7 Days")
+                }
+                Button(
+                    onClick = { onExport(ExportDateRange.LAST_MONTH) },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(containerColor = theme.primary)
+                ) {
+                    Text("Last 30 Days")
+                }
+                Button(
+                    onClick = { onExport(ExportDateRange.LAST_YEAR) },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(containerColor = theme.primary)
+                ) {
+                    Text("Last 365 Days")
+                }
+                Button(
+                    onClick = { onExport(ExportDateRange.LIFETIME) },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(containerColor = theme.primary)
+                ) {
+                    Text("All Time")
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel", color = theme.primary)
+            }
+        },
+        containerColor = theme.background,
+        shape = RoundedCornerShape(28.dp)
+    )
 }
 
 @Composable

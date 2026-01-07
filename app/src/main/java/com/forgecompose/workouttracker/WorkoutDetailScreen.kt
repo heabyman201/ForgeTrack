@@ -120,23 +120,17 @@ fun WorkoutDetailScreen(
                     animationClock += deltaTime
                 }
                 lastFrameTime = currentTime
-                delay(42)
             }
         }
     }
 
     val fullPi = 2f * PI.toFloat()
-    val waveOffset = (animationClock * fullPi / 22f) % fullPi
-    val pulseAlpha = 0.25f + 0.10f * sin(animationClock * fullPi / 8f)
-    val glowIntensity = 0.4f + 0.2f * sin(animationClock * fullPi / 6f)
-    val gradientProgress = (animationClock / 15f) % 2f
-    val gradientOffset = if (gradientProgress > 1f) 2f - gradientProgress else gradientProgress
+    val waveOffset by remember { derivedStateOf { (animationClock * fullPi / 22f) % fullPi } }
+    val glowIntensity by remember { derivedStateOf { 0.4f + 0.2f * sin(animationClock * fullPi / 6f) } }
+    val gradientProgress by remember { derivedStateOf { (animationClock / 15f) % 2f } }
 
     val clampedGlow by remember { derivedStateOf { glowIntensity.coerceIn(0f, 1f) } }
-    val clampedPulse by remember { derivedStateOf { pulseAlpha.coerceIn(0f, 1f) } }
-    val clampedGrad by remember { derivedStateOf { gradientOffset.coerceIn(0f, 1f) } }
 
-    val wavePath = remember { Path() }
     val particleSeed = remember { Random(42) }
     val particles = remember {
         List(12) { i ->
@@ -190,9 +184,10 @@ fun WorkoutDetailScreen(
         )
     }
 
-    LaunchedEffect(Unit) { showIntro = false
-        Firebase.crashlytics.setCustomKey("current_screen", "Workout Details screen")}
-
+    LaunchedEffect(Unit) {
+        showIntro = false
+        Firebase.crashlytics.setCustomKey("current_screen", "Workout Details screen")
+    }
 
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val selectedId: Int? = navController
@@ -260,19 +255,26 @@ fun WorkoutDetailScreen(
     }
     val cachedAllWorkouts = remember(chartSeriesSig) { allWorkouts.toList() }
 
-    LaunchedEffect(Unit) { taskbarOverride.shouldOverrideVisiblity.value = false;
-        Log.d("WorkoutDetailScreen", "cold: ${selectedWorkout?.name}")}
-    val cardioExerciseNames = listOf(
-        "Running (Treadmill)", "Stair Climber", "Elliptical Trainer",
-        "Rowing Machine", "Stationary Bike","Swimming"
-    )
-    val presetByName = workoutPresets.associateBy { it.name.trim().lowercase() }
-
-    fun isCardioName(name: String?): Boolean {
-        val p = presetByName[name?.trim()?.lowercase()] ?: return false
-        return p.category.equals("Cardio", ignoreCase = true)
+    LaunchedEffect(Unit) {
+        taskbarOverride.shouldOverrideVisiblity.value = false
+        Log.d("WorkoutDetailScreen", "cold: ${selectedWorkout?.name}")
     }
-    val isCardio = isCardioName(selectedWorkout?.name)
+
+    val cardioExerciseNames = remember {
+        listOf(
+            "Running (Treadmill)", "Stair Climber", "Elliptical Trainer",
+            "Rowing Machine", "Stationary Bike","Swimming"
+        )
+    }
+    val presetByName = remember(workoutPresets) { workoutPresets.associateBy { it.name.trim().lowercase() } }
+
+    val isCardioName = remember(presetByName) {
+        { name: String? ->
+            val p = presetByName[name?.trim()?.lowercase()] ?: false
+            if (p is WorkoutPreset) p.category.equals("Cardio", ignoreCase = true) else false
+        }
+    }
+
     val blurLength = length.value.toInt()
     val blurEnabled = performanceOptions.blurEnabled
     val blurIntro by animateDpAsState(
@@ -322,43 +324,27 @@ fun WorkoutDetailScreen(
             )
         },
         containerColor = Color.Transparent,
-        modifier = Modifier
-            .fillMaxSize()
-
-
+        modifier = Modifier.fillMaxSize()
     ) { padding ->
-
-        Box(modifier = Modifier.fillMaxSize()
+        Box(modifier = Modifier
+            .fillMaxSize()
             .graphicsLayer {
-
                 compositingStrategy = CompositingStrategy.Offscreen
                 clip = true
-
-                val radiusPx = with(density) { blurIntro.value.dp.toPx() }
-
-
-                renderEffect =
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
-                        radiusPx.isFinite() &&
-                        radiusPx > 0.5f
-                    ) {
-                        RenderEffect.createBlurEffect(
-                            radiusPx,
-                            radiusPx,
-                            Shader.TileMode.CLAMP
-                        ).asComposeRenderEffect()
-                    } else {
-                        null
-                    }
+                val radiusPx = blurIntro.toPx()
+                renderEffect = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && radiusPx.isFinite() && radiusPx > 0.5f) {
+                    RenderEffect.createBlurEffect(radiusPx, radiusPx, Shader.TileMode.CLAMP).asComposeRenderEffect()
+                } else {
+                    null
+                }
             }
-
         ) {
             AnimatedBackdrop(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(padding),
                 introBrush = introBrush,
-                introAlpha = 1f- introProgress,
+                introAlpha = 1f - introProgress,
                 enableWaves = movingEffectsEnabled,
                 enableAnimation = movingEffectsEnabled
             )
@@ -406,52 +392,44 @@ fun WorkoutDetailScreen(
                                                     )
                                                     StatusChip(selectedWorkout!!.status)
                                                     InfoChip(
-                                                        label = dateFormat.format(
-                                                            Date(
-                                                                selectedWorkout!!.date
-                                                            )
-                                                        ),
+                                                        label = dateFormat.format(Date(selectedWorkout!!.date)),
                                                         icon = Icons.Filled.DateRange
                                                     )
                                                     if (selectedWorkout!!.name in cardioExerciseNames) {
-                                                        Row(
-                                                            horizontalArrangement = Arrangement.spacedBy(
-                                                                8.dp
-                                                            )
-                                                        ) {
+                                                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                                             InfoChip(
-                                                                label = selectedWorkout!!.distance?.let { "$it km" }
-                                                                    ?: "No Distance Recorded",
+                                                                label = selectedWorkout!!.distance?.let { "$it km" } ?: "No Distance Recorded",
                                                                 icon = Icons.Filled.FitnessCenter
                                                             )
                                                         }
-
                                                     } else {
-                                                        Row(
-                                                            horizontalArrangement = Arrangement.spacedBy(
-                                                                8.dp
-                                                            )
-                                                        ) {
+                                                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                                             InfoChip(
-                                                                label = selectedWorkout!!.sets?.let { "$it Sets" }
-                                                                    ?: "No Sets Recorded",
+                                                                label = selectedWorkout!!.sets?.let { "$it Sets" } ?: "No Sets Recorded",
                                                                 icon = Icons.Filled.FitnessCenter
                                                             )
                                                             InfoChip(
-                                                                label = selectedWorkout!!.reps?.let { "$it Reps" }
-                                                                    ?: "No Reps Recorded",
+                                                                label = selectedWorkout!!.reps?.let { "$it Reps" } ?: "No Reps Recorded",
                                                                 icon = Icons.Filled.FitnessCenter
                                                             )
                                                             InfoChip(
-                                                                label = selectedWorkout!!.weight?.let { "$it Kg" }
-                                                                    ?: "No Weight Recorded",
+                                                                label = selectedWorkout!!.weight?.let { "$it Kg" } ?: "No Weight Recorded",
                                                                 icon = Icons.Filled.FitnessCenter
                                                             )
                                                         }
                                                     }
                                                 }
                                             }
+
                                         }
+                                    }
+                                    item {
+                                        GlassCard {
+                                            AnalysisInsightsCard(
+                                                data = allWorkouts
+                                            )
+                                        }
+
                                     }
                                     item {
                                         AnimatedVisibility(visible = stages.afterFirstFrame, enter = fadeIn()) {
@@ -658,12 +636,10 @@ fun WorkoutDetailScreen(
                                                     Icon(
                                                         imageVector = Icons.Filled.Lightbulb,
                                                         contentDescription = "Notes",
-                                                        tint = Color.Yellow,
-                                                        modifier = Modifier
+                                                        tint = Color.Yellow
                                                     )
                                                     Text(
                                                         text = "Notes : ${selectedWorkout!!.notes}",
-                                                        modifier = Modifier,
                                                         color = Color.White,
                                                         style = MaterialTheme.typography.bodyLarge,
                                                         fontWeight = FontWeight.Bold
@@ -762,11 +738,9 @@ fun WorkoutDetailScreen(
                     }
                 }
             }
-
         }
     }
 }
-
 
 
 @Composable

@@ -34,6 +34,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
 import com.forgecompose.workouttracker.blurAnim.intensity
@@ -120,7 +121,7 @@ fun ProfileMuscleStatusRoute(
 
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
-    // Stabilize the recent workouts list so LazyColumn doesn't jitter
+
     val recent = remember(uiState) {
         (uiState as? WorkoutListUiState.Success)?.workouts
             ?.sortedByDescending { it.date }
@@ -149,10 +150,21 @@ fun ProfileMuscleStatusRoute(
             topBar = {
                 TopAppBar(
                     title = {
+
                         Text(
-                            "Muscle Status",
-                            style = MaterialTheme.typography.headlineMedium,
-                            fontWeight = FontWeight.Bold
+                            text = "Muscle Status",
+                            style = androidx.compose.ui.text.TextStyle(
+                                brush = Brush.linearGradient(
+                                    colors = listOf(
+                                        theme.primary,
+                                        theme.primary.copy(alpha = 1f),
+                                        Color.White
+                                    )
+                                ),
+                                fontSize = 27.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                letterSpacing = 0.5.sp
+                            )
                         )
                     },
                     colors = TopAppBarDefaults.topAppBarColors(
@@ -205,7 +217,7 @@ fun ProfileMuscleStatusRoute(
                     }
                 }
 
-                if (cold.afterFirstFrame) {
+
                     FloatingTaskbar(
                         modifier = Modifier.align(Alignment.BottomCenter),
                         navController = navController,
@@ -213,7 +225,7 @@ fun ProfileMuscleStatusRoute(
                         iconAlpha = 1f,
                         uiState = uiState
                     )
-                }
+
             }
         }
     }

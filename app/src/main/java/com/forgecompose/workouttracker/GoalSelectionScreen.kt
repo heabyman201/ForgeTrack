@@ -109,7 +109,7 @@ import kotlin.math.sin
 fun GoalScreen(navController: NavController, viewModel: WorkoutListViewModel) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
-    val workouts by viewModel.uiState.collectAsState()
+
     val appearanceOptions by AppearanceOptionsManagerAppTheme
         .flow(ctx)
         .collectAsState(initial = AppearanceOptionsAppTheme.Defaults)

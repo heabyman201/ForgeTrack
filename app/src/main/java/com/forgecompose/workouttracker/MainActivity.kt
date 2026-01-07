@@ -1025,7 +1025,8 @@ fun WorkoutListScreen(
                                         } else {
                                             listOf("Weight : ${latestName?.weight ?: "0"} Kg", "Time : $time")
                                         },
-                                        navController = navController
+                                        navController = navController,
+                                        viewModel = viewModel
                                     )
                                 }
                             }
@@ -1240,7 +1241,7 @@ fun WorkoutListScreen(
                         }
                     }
                 }
-                if (stages.after100ms) {
+
                     FloatingTaskbar(
                         modifier = Modifier.align(Alignment.BottomCenter),
                         navController = navController,
@@ -1248,7 +1249,7 @@ fun WorkoutListScreen(
                         iconAlpha = iconAlpha,
                         uiState = uiState
                     )
-                }
+
             }
         }
     }

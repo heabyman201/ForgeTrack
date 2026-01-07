@@ -34,14 +34,6 @@ fun AnimatedBackdrop(
     enableAnimation: Boolean,
     slowCycleMinutes: Float = 8f
 ) {
-    val p1 = remember { mutableFloatStateOf(0.5f) }
-    val p2 = remember { mutableFloatStateOf(0.2f) }
-
-    fun tri(t: Float): Float {
-        val x = (t % 2f + 2f) % 2f
-        return 1f - abs(x - 1f)
-    }
-
     val context = LocalContext.current
     val performanceOptions by PerformanceOptionsManager
         .flow(context)
@@ -51,69 +43,81 @@ fun AnimatedBackdrop(
         .flow(context)
         .collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
 
-    val currentThemeColors = appearanceOptions.selectedTheme.colors
-
+    val theme = appearanceOptions.selectedTheme.colors
     val density = LocalDensity.current
-    val navEffects = performanceOptions.navEffects
 
     val blurRadiusPx = remember(performanceOptions.blurEnabled) {
-        if (
-            performanceOptions.blurEnabled &&
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
-        ) {
-            with(density) { 40.dp.toPx() }
-        } else {
-            0f
-        }
+        if (performanceOptions.blurEnabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            with(density) { 60.dp.toPx() } // Increased blur for smoother blending
+        } else 0f
     }
 
     Canvas(
         modifier = modifier
-            .fillMaxSize().graphicsLayer {
-
-
-                renderEffect =
-                    if (blurRadiusPx > 0f) {
-                        RenderEffect
-                            .createBlurEffect(
-                                blurRadiusPx,
-                                blurRadiusPx,
-                                Shader.TileMode.DECAL
-                            )
-                            .asComposeRenderEffect()
-                    } else null
+            .fillMaxSize()
+            .graphicsLayer {
+                if (blurRadiusPx > 0f) {
+                    renderEffect = RenderEffect
+                        .createBlurEffect(blurRadiusPx, blurRadiusPx, Shader.TileMode.DECAL)
+                        .asComposeRenderEffect()
+                }
             }
     ) {
         val w = size.width
         val h = size.height
-        val s1 = 0.4f
-        val s2 = 0.3f
 
-        val mainGradient = Brush.radialGradient(
-            0.0f to currentThemeColors.secondary.copy(alpha = 0.40f),
-            0.45f to currentThemeColors.tertiary.copy(alpha = 0.55f),
-            1.0f to Color.Transparent,
-            center = Offset(w * (0.25f + 0.10f * s1), h * (0.20f + 0.10f * s2)),
-            radius = max(w, h) * 1.2f
+
+        drawRect(theme.background)
+
+
+        drawCircle(
+            brush = Brush.radialGradient(
+                colors = listOf(theme.secondary.copy(alpha = 0.35f), Color.Transparent),
+                center = Offset(w * 0.1f, h * 0.1f),
+                radius = w * 1.2f
+            ),
+            center = Offset(w * 0.1f, h * 0.1f),
+            radius = w * 1.2f
         )
 
-        val accentGradient = Brush.linearGradient(
-            0.0f to currentThemeColors.primary.copy(alpha = 0.04f),
-            1.0f to Color.Transparent,
-            start = Offset(w, 0f),
-            end = Offset(0f, h)
+
+        drawCircle(
+            brush = Brush.radialGradient(
+                colors = listOf(theme.tertiary.copy(alpha = 0.45f), Color.Transparent),
+                center = Offset(w * 0.9f, h * 0.8f),
+                radius = w * 1.5f
+            ),
+            center = Offset(w * 0.9f, h * 0.8f),
+            radius = w * 1.5f
         )
 
-        drawRect(currentThemeColors.background)
-        drawRect(mainGradient)
-        drawRect(accentGradient)
 
-        if (introAlpha > 0f && navEffects) {
+        drawRect(
+            brush = Brush.linearGradient(
+                colors = listOf(
+                    theme.primary.copy(alpha = 0.08f),
+                    Color.Transparent
+                ),
+                start = Offset(w, 0f),
+                end = Offset(w * 0.4f, h * 0.5f)
+            )
+        )
+
+        // 5. Very subtle Vignette to keep focus in the center
+        drawRect(
+            brush = Brush.radialGradient(
+                colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.3f)),
+                center = center,
+                radius = max(w, h)
+            )
+        )
+
+        // Intro layer
+        if (introAlpha > 0f && performanceOptions.navEffects) {
             drawRect(introBrush, alpha = introAlpha.coerceIn(0f, 1f))
         }
     }
 }
-
 @Composable
 fun AnimatedBackdropBlue(
     modifier: Modifier = Modifier,
@@ -123,55 +127,82 @@ fun AnimatedBackdropBlue(
     enableAnimation: Boolean,
     slowCycleMinutes: Float = 8f
 ) {
-    val p1 = remember { mutableFloatStateOf(0.5f) }
-    val p2 = remember { mutableFloatStateOf(0.2f) }
-
-    fun tri(t: Float): Float {
-        val x = (t % 2f + 2f) % 2f
-        return 1f - kotlin.math.abs(x - 1f)
-    }
     val context = LocalContext.current
     val performanceOptions by PerformanceOptionsManager.flow(context).collectAsState(initial = PerformanceOptions.Defaults)
+    val appearanceOptions by AppearanceOptionsManagerAppTheme.flow(context).collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
 
-    val appearanceOptions by AppearanceOptionsManagerAppTheme
-        .flow(context)
-        .collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
     val theme = appearanceOptions.selectedTheme.colors
+    val density = LocalDensity.current
+    val blurRadiusPx = with(density) { if (performanceOptions.blurEnabled) 64.dp.toPx() else 0f }
 
-    val blurEnabled = performanceOptions.blurEnabled
-    val blurCanva = remember { if (blurEnabled) 64.dp else 0.dp }
 
-    Canvas(modifier = modifier.fillMaxSize()
-        .graphicsLayer{
-            renderEffect = RenderEffect.createBlurEffect(
-                blurCanva.value,blurCanva.value, Shader.TileMode.DECAL
-            ).asComposeRenderEffect()
+    val darkBlueBase = Color(0xFF094F6E)
+    val darkTealBase = Color(0xFF061418)
+    val darkBlackBase = Color(0xFF020506)
 
-        }) {
+    Canvas(modifier = modifier
+        .fillMaxSize()
+        .graphicsLayer {
+            if (blurRadiusPx > 0f && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                renderEffect = RenderEffect.createBlurEffect(
+                    blurRadiusPx, blurRadiusPx, Shader.TileMode.DECAL
+                ).asComposeRenderEffect()
+            }
+        }
+    ) {
         val w = size.width
         val h = size.height
-        val s1 =  0.4f
-        val s2 = 0.3f
 
-        val darkBlueBase = Color(0xFF094F6E)
-        val darkTealBase = Color(0xFF061418)
-        val darkBlackBase = Color(0xFF020506)
 
-        val mixedCenter = theme.primary.copy(alpha = 0.15f).compositeOver(darkBlueBase)
-        val mixedMiddle = theme.secondary.copy(alpha = 0.10f).compositeOver(darkTealBase)
-        val mixedOuter = theme.background.copy(alpha = 0.60f).compositeOver(darkBlackBase)
-
-        val bg = Brush.radialGradient(
-            colors = listOf(
-                mixedCenter.copy(alpha = 0.60f - 0.06f * s1),
-                mixedMiddle,
-                mixedOuter
-            ),
-            center = Offset(w * (0.30f + 0.14f * s1), h * (0.24f + 0.12f * s2)),
-            radius = max(w, h) * (0.72f + 0.06f * s1)
+        drawRect(
+            brush = Brush.verticalGradient(
+                listOf(darkTealBase, darkBlackBase)
+            )
         )
-        drawRect(bg)
 
+
+        val coreColor = theme.primary.copy(alpha = 0.20f).compositeOver(darkBlueBase)
+        drawCircle(
+            brush = Brush.radialGradient(
+                colors = listOf(coreColor.copy(alpha = 0.5f), Color.Transparent),
+                center = Offset(w * 0.35f, h * 0.30f),
+                radius = w * 1.1f
+            ),
+            center = Offset(w * 0.35f, h * 0.30f),
+            radius = w * 1.1f
+        )
+
+
+        val secondaryNode = theme.secondary.copy(alpha = 0.12f).compositeOver(darkTealBase)
+        drawCircle(
+            brush = Brush.radialGradient(
+                colors = listOf(secondaryNode.copy(alpha = 0.4f), Color.Transparent),
+                center = Offset(w * 0.85f, h * 0.75f),
+                radius = w * 1.3f
+            ),
+            center = Offset(w * 0.85f, h * 0.75f),
+            radius = w * 1.3f
+        )
+
+
+        drawRect(
+            brush = Brush.linearGradient(
+                colors = listOf(theme.primary.copy(alpha = 0.05f), Color.Transparent),
+                start = Offset(w * 0.2f, 0f),
+                end = Offset(w * 0.8f, h * 0.4f)
+            )
+        )
+
+
+        drawRect(
+            brush = Brush.radialGradient(
+                colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.35f)),
+                center = center,
+                radius = max(w, h)
+            )
+        )
+
+        // Intro layer
         if (introAlpha > 0f && performanceOptions.navEffects) {
             drawRect(introBrush, alpha = introAlpha.coerceIn(0f, 1f))
         }
