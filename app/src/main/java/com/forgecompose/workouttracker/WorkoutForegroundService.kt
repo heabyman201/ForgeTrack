@@ -1,7 +1,18 @@
 package com.forgecompose.workouttracker
 
+import com.forgecompose.workouttracker.*
+import com.forgecompose.workouttracker.ai.*
+import com.forgecompose.workouttracker.analytics.*
+import com.forgecompose.workouttracker.badges.*
+import com.forgecompose.workouttracker.health.*
+import com.forgecompose.workouttracker.muscle.*
+import com.forgecompose.workouttracker.profile.*
+import com.forgecompose.workouttracker.ui.components.*
+import com.forgecompose.workouttracker.workout.*
+
 import android.app.Notification
 import android.app.Notification.Action
+import android.app.ActivityManager
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -42,6 +53,12 @@ class WorkoutForegroundService : Service() {
         fun stop(context: Context) {
             val i = Intent(context, WorkoutForegroundService::class.java).apply { action = ACTION_STOP }
             context.startService(i)
+        }
+
+        fun isRunning(context: Context): Boolean {
+            val manager = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager ?: return false
+            @Suppress("DEPRECATION")
+            return manager.getRunningServices(Int.MAX_VALUE).any { it.service.className == WorkoutForegroundService::class.java.name }
         }
     }
 
@@ -99,12 +116,14 @@ class WorkoutForegroundService : Service() {
 
     private fun currentInterval(): Long {
         return when {
+
             powerSave && !screenOn -> 10000L
             !screenOn -> 6000L
             powerSave -> 2500L
             else -> 1250L
         }
     }
+
 
     private fun startTicking() {
         val notif = buildNotification()

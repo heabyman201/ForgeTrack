@@ -1,5 +1,15 @@
 package com.forgecompose.workouttracker
 
+import com.forgecompose.workouttracker.*
+import com.forgecompose.workouttracker.ai.*
+import com.forgecompose.workouttracker.analytics.*
+import com.forgecompose.workouttracker.badges.*
+import com.forgecompose.workouttracker.health.*
+import com.forgecompose.workouttracker.muscle.*
+import com.forgecompose.workouttracker.profile.*
+import com.forgecompose.workouttracker.ui.components.*
+import com.forgecompose.workouttracker.workout.*
+
 import android.content.Context
 import android.content.Intent
 import androidx.compose.animation.AnimatedContent
@@ -108,8 +118,8 @@ import androidx.datastore.preferences.preferencesDataStore
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
 import com.forgecompose.workouttracker.ConnectedWorkout.workout
-import com.forgecompose.workouttracker.blurAnim.intensity
-import com.forgecompose.workouttracker.blurAnim.length
+import com.forgecompose.workouttracker.ui.components.blurAnim.intensity
+import com.forgecompose.workouttracker.ui.components.blurAnim.length
 import com.forgecompose.workouttracker.ui.theme.WorkoutTrackerTheme
 import com.google.firebase.crashlytics.ktx.crashlytics
 import com.google.firebase.ktx.Firebase
@@ -670,9 +680,9 @@ fun WorkoutSelector(
                                     },
                                     label = {
                                         Text(category, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                            color = if (isSelected) Color.White else Color.White.copy(alpha = 0.7f))
+                                            color = if (isSelected) appearanceOptions.colors.tertiary else Color.White.copy(alpha = 0.7f))
                                     },
-                                    leadingIcon = if (isSelected) { { Icon(Icons.Filled.Done, contentDescription = "Selected", tint = Color.White) } } else null,
+                                    leadingIcon = if (isSelected) { { Icon(Icons.Filled.Done, contentDescription = "Selected", tint = appearanceOptions.colors.tertiary) } } else null,
                                     shape = RoundedCornerShape(16.dp),
                                     colors = FilterChipDefaults.filterChipColors(
                                         selectedContainerColor = appearanceOptions.colors.primary,
@@ -690,6 +700,7 @@ fun WorkoutSelector(
                                 )
                             }
                         }
+
                     }
 
                     Spacer(modifier = Modifier.height(8.dp))
@@ -698,91 +709,91 @@ fun WorkoutSelector(
                         liststate.animateScrollToItem(0)
                     }
 
-                    if (stages.after200ms) {
-                        LazyColumn(
-                            state = liststate,
-                            modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 90.dp),
-                            verticalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            items(filteredWorkouts, key = { it.name }, contentType = { "preset" }) { preset ->
-                                val interactionSource = remember { MutableInteractionSource() }
-                                val isPressed by interactionSource.collectIsPressedAsState()
-                                val scale by animateFloatAsState(targetValue = if (isPressed) 0.98f else 1f, animationSpec = tween(100), label = "cardScale")
-                                val isFavorite = remember(preset.name, favoritePresets) { preset.name in favoritePresets }
-                                val stat = remember(preset.name, usageMap) { usageMap[preset.name] }
+                    Box(modifier = Modifier.weight(1f)) {
+                        if (stages.after200ms) {
+                            LazyColumn(
+                                state = liststate,
+                                modifier = Modifier.fillMaxSize(),
+                                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 90.dp),
+                                verticalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                items(filteredWorkouts, key = { it.name }, contentType = { "preset" }) { preset ->
+                                    val interactionSource = remember { MutableInteractionSource() }
+                                    val isPressed by interactionSource.collectIsPressedAsState()
+                                    val scale by animateFloatAsState(targetValue = if (isPressed) 0.98f else 1f, animationSpec = tween(100), label = "cardScale")
+                                    val isFavorite = remember(preset.name, favoritePresets) { preset.name in favoritePresets }
+                                    val stat = remember(preset.name, usageMap) { usageMap[preset.name] }
 
-                                Card(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .graphicsLayer { scaleX = scale; scaleY = scale }
-                                        .hazeEffect(state = haze, style = HazeMaterials.ultraThick())
-                                        .border(width = 1.dp, color = theme.primary.copy(alpha = 0.1f), shape = RoundedCornerShape(32.dp))
-                                        .combinedClickable(
-                                            interactionSource = interactionSource,
-                                            indication = null,
-                                            onClick = {
-                                                if (ConnectedWorkout.currentMode.value == ConnectedWorkout.WorkoutMode.INACTIVE) {
+                                    Card(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .graphicsLayer { scaleX = scale; scaleY = scale }
+                                            .hazeEffect(state = haze, style = HazeMaterials.ultraThick())
+                                            .border(width = 1.dp, color = theme.primary.copy(alpha = 0.1f), shape = RoundedCornerShape(32.dp))
+                                            .combinedClickable(
+                                                interactionSource = interactionSource,
+                                                indication = null,
+                                                onClick = {
                                                     haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                                                     scope.launch { usageTracker.increment(preset.name) }
                                                     workout.value = preset.name
                                                     context.startActivity(intent)
+                                                },
+                                                onLongClick = {
+                                                    if (preset.category == "Custom") {
+                                                        customDeletion.showDeleteDialog.value = true
+                                                    }
                                                 }
-                                            },
-                                            onLongClick = {
-                                                if (preset.category == "Custom") {
-                                                    customDeletion.showDeleteDialog.value = true
-                                                }
-                                            }
-                                        ),
-                                    shape = RoundedCornerShape(32.dp),
-                                    colors = CardDefaults.cardColors(
-                                        containerColor = if (ConnectedWorkout.currentMode.value == ConnectedWorkout.WorkoutMode.INACTIVE)
-                                            theme.background.copy(alpha = 0.3f) else Color.DarkGray
-                                    )
-                                ) {
-                                    Row(
-                                        modifier = Modifier
-                                            .padding(horizontal = 20.dp, vertical = 16.dp)
-                                            .fillMaxWidth(),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.SpaceBetween
+                                            ),
+                                        shape = RoundedCornerShape(32.dp),
+                                        colors = CardDefaults.cardColors(
+                                            containerColor = theme.background.copy(alpha = 0.3f)
+                                        )
                                     ) {
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Text(text = preset.name, style = MaterialTheme.typography.titleLarge, color = Color.White, fontWeight = FontWeight.Medium)
-                                            val pillColor = theme.secondary.copy(alpha = 0.6f)
+                                        Row(
+                                            modifier = Modifier
+                                                .padding(horizontal = 20.dp, vertical = 16.dp)
+                                                .fillMaxWidth(),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(text = preset.name, style = MaterialTheme.typography.titleLarge, color = Color.White, fontWeight = FontWeight.Medium)
+                                                val pillColor = theme.background.copy(alpha = 0.6f)
 
-                                            MostUsedPill(stat = stat, color = pillColor, modifier = Modifier.padding(top = 6.dp))
+                                                MostUsedPill(stat = stat, color = pillColor, modifier = Modifier.padding(top = 6.dp))
 
-                                            if (preset.name in cardioExerciseNames) {
-                                                ExperimentalPill(color = pillColor, modifier = Modifier.padding(top = 6.dp))
-                                            }
-                                            if (preset.category == "Custom") {
-                                                CustomPill(color = pillColor, modifier = Modifier.padding(top = 6.dp))
-                                            }
-                                            if (isFavorite){
-                                                FavouritePill(color = pillColor, modifier = Modifier.padding(top = 6.dp))
-                                            }
-                                        }
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            IconButton(onClick = {
-                                                scope.launch {
-                                                    FavoritePresetStore.toggle(context, preset.name)
-                                                    haptics.performHapticFeedback(HapticFeedbackType.KeyboardTap)
+                                                if (preset.name in cardioExerciseNames) {
+                                                    ExperimentalPill(color = pillColor, modifier = Modifier.padding(top = 6.dp))
                                                 }
-                                            }) {
-                                                Icon(
-                                                    imageVector = if (isFavorite) Icons.Filled.Star else Icons.Outlined.Star,
-                                                    contentDescription = "Favorite",
-                                                    tint = if (isFavorite) theme.primary else Color.White.copy(alpha = 0.7f)
-                                                )
+                                                if (preset.category == "Custom") {
+                                                    CustomPill(color = pillColor, modifier = Modifier.padding(top = 6.dp))
+                                                }
+                                                if (isFavorite){
+                                                    FavouritePill(color = pillColor, modifier = Modifier.padding(top = 6.dp))
+                                                }
                                             }
-                                            Icon(imageVector = Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, tint = Color.White.copy(alpha = 0.7f))
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                IconButton(onClick = {
+                                                    scope.launch {
+                                                        FavoritePresetStore.toggle(context, preset.name)
+                                                        haptics.performHapticFeedback(HapticFeedbackType.KeyboardTap)
+                                                    }
+                                                }) {
+                                                    Icon(
+                                                        imageVector = if (isFavorite) Icons.Filled.Star else Icons.Outlined.Star,
+                                                        contentDescription = "Favorite",
+                                                        tint = if (isFavorite) theme.primary else Color.White.copy(alpha = 0.7f)
+                                                    )
+                                                }
+                                                Icon(imageVector = Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, tint = Color.White.copy(alpha = 0.7f))
+                                            }
                                         }
                                     }
                                 }
                             }
                         }
+
                     }
                 }
             }

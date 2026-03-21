@@ -1,5 +1,15 @@
 package com.forgecompose.workouttracker
 
+import com.forgecompose.workouttracker.*
+import com.forgecompose.workouttracker.ai.*
+import com.forgecompose.workouttracker.analytics.*
+import com.forgecompose.workouttracker.badges.*
+import com.forgecompose.workouttracker.health.*
+import com.forgecompose.workouttracker.muscle.*
+import com.forgecompose.workouttracker.profile.*
+import com.forgecompose.workouttracker.ui.components.*
+import com.forgecompose.workouttracker.workout.*
+
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Context
@@ -64,6 +74,8 @@ import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -87,6 +99,10 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.RemoveCircleOutline
 import androidx.compose.material.icons.rounded.AutoAwesome
@@ -123,6 +139,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
@@ -181,6 +198,7 @@ import androidx.navigation.NavController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import com.forgecompose.workouttracker.AI_HEART_ADAPT.showAIHeart
 import com.forgecompose.workouttracker.ConnectedWorkout.CurrentReps
 import com.forgecompose.workouttracker.ConnectedWorkout.CurrentSets
 import com.forgecompose.workouttracker.ConnectedWorkout.CurrentTime
@@ -192,9 +210,6 @@ import com.forgecompose.workouttracker.ConnectedWorkout.GoalTime
 import com.forgecompose.workouttracker.ConnectedWorkout.GoalType
 import com.forgecompose.workouttracker.ConnectedWorkout.WorkoutMode
 import com.forgecompose.workouttracker.ConnectedWorkout.currentDistance
-import com.forgecompose.workouttracker.ConnectedWorkout.interHour
-import com.forgecompose.workouttracker.ConnectedWorkout.interMinute
-import com.forgecompose.workouttracker.ConnectedWorkout.interSecond
 import com.forgecompose.workouttracker.ConnectedWorkout.workout
 import com.forgecompose.workouttracker.ui.theme.WorkoutTrackerTheme
 import kotlinx.coroutines.Dispatchers
@@ -235,7 +250,7 @@ class WorkoutActivity : ComponentActivity() {
         val workoutListViewModel: WorkoutListViewModel by viewModels { factory }
         val badgeViewModel: BadgeViewModel by viewModels {
             BadgeViewModelFactory(
-                badgeStorage = InMemoryBadgeStorage()
+                badgeStorage = PersistentBadgeStorage(applicationContext)
             )
         }
 
@@ -426,6 +441,7 @@ fun MainScreen(viewModel: WorkoutListViewModel,badgeViewModel: BadgeViewModel) {
 fun AdviceSection(
     advice: String,
     isLoading: Boolean,
+    loadingText: String = "Generating advice...",
     modifier: Modifier = Modifier
 ) {
     var glow by remember { mutableFloatStateOf(0.35f) }
@@ -505,11 +521,18 @@ fun AdviceSection(
             }
 
             if (isLoading) {
-                Row(
+                Column(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
-                        .padding(top = 10.dp)
+                        .padding(top = 10.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
+                    Text(
+                        text = loadingText,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = Color.White.copy(alpha = 0.85f)
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
                     LinearProgressIndicator(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -1236,28 +1259,55 @@ suspend fun continuousStepDetectionAndDistanceCalculation(
     }
 }
 
+private fun formatElapsedHms(elapsedMillis: Long): String {
+    val safe = elapsedMillis.coerceAtLeast(0L)
+    val totalSeconds = safe / 1000L
+    val hours = totalSeconds / 3600L
+    val minutes = (totalSeconds % 3600L) / 60L
+    val seconds = totalSeconds % 60L
+    return String.format("%02d:%02d:%02d", hours, minutes, seconds)
+}
+
 @RequiresApi(Build.VERSION_CODES.TIRAMISU)
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalTime::class)
 @Composable
 fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController, vm: BadgeViewModel, bpVM: HrViewModel = viewModel()) {
     val context = LocalContext.current
+    val liveBpm by bpVM.hr.collectAsState()
     val appearanceOptions by AppearanceOptionsManagerAppTheme.flow(context).collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
     val theme = appearanceOptions.selectedTheme.colors
 
     val performanceOptions by PerformanceOptionsManager.current.collectAsState(initial = PerformanceOptions.Defaults)
     val movingGradientAndParticlesEnabled = performanceOptions.movingGradientAndParticles
     val intent = remember(context) { Intent(context, MainActivity::class.java) }
-    var hours by interHour
-    var minutes by interMinute
-    var seconds by interSecond
     var isPaused by remember { mutableStateOf(false) }
     val haptics = LocalHapticFeedback.current
-    var timeMillis by remember { mutableStateOf(0L) }
     var pauseText by remember { mutableStateOf("Pause") }
     val activity = remember(context) { context as? Activity }
     var showCompletionAnimation by remember { mutableStateOf(false) }
     var isStepping by remember { mutableStateOf(false) }
     var lastStepTimestamp by remember { mutableStateOf(0L) }
+    val hrAccumulator = remember { HrAccumulator() }
+
+    val pausedState = rememberUpdatedState(isPaused)
+    val completionState = rememberUpdatedState(showCompletionAnimation)
+
+    DisposableEffect(bpVM) {
+        bpVM.start()
+        bpVM.setWorkoutHrRecording(true)
+        onDispose {
+            bpVM.setWorkoutHrRecording(false)
+            bpVM.stop()
+        }
+    }
+
+    LaunchedEffect(bpVM) {
+        bpVM.hr.collect { bpm ->
+            if (!pausedState.value && !completionState.value && bpm > 0) {
+                hrAccumulator.add(bpm, CurrentTime.value)
+            }
+        }
+    }
 
     LaunchedEffect(lastStepTimestamp) {
         if (lastStepTimestamp > 0) {
@@ -1271,6 +1321,23 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
     PreventBackGesture()
     val uiState by viewModel.uiState.collectAsState()
     val workouts: List<Workout> = (uiState as? WorkoutListUiState.Success)?.workouts.orEmpty()
+
+    LaunchedEffect(
+        workout.value,
+        GoalType,
+        GoalReps.intValue,
+        GoalSets.intValue,
+        CurrentReps.intValue,
+        CurrentSets.intValue,
+        GoalTime.value,
+        GoalDistance.value,
+        currentDistance.value,
+        CurrentWeight.value,
+        ConnectedWorkout.currentMode.value,
+        ConnectedWorkout.restTimeRemaining.longValue
+    ) {
+        ConnectedWorkout.saveSnapshot(context)
+    }
 
     fun List<Workout>.contentKey(): Int =
         fold(1) { acc, w ->
@@ -1296,7 +1363,7 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
         }
     }
 
-    val fitnessContext = "You are a fitness coach. The user provides sets, reps, and either weights , time or distance. Give them encouragement. Max 15 words only."
+    val fitnessContext = "You are a supportive cheerleader coach during an active workout. Output must be very short: 1 line preferred, 2 lines max, and each line under 10 words."
     val scope = rememberCoroutineScope()
     val aiState = useGeminiAdviceGenerator(
         contextPrompt = "$fitnessContext."
@@ -1305,38 +1372,22 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
     var showAdvice by remember { mutableStateOf(false) }
 
 
-    fun timeToMillis() {
-        val hoursInMillis = hours * 60 * 60 * 1000L
-        val minutesInMillis = minutes * 60 * 1000L
-        val secondsInMillis = seconds * 1000L
-        timeMillis = hoursInMillis + minutesInMillis + secondsInMillis
-        CurrentTime.value = timeMillis
-    }
-
     fun triggerSetGoal() {
         when (GoalType) {
             "Reps" -> {
+                if (GoalSets.intValue <= 0 || GoalReps.intValue <= 0) return
                 if (CurrentSets.intValue >= GoalSets.intValue && CurrentReps.intValue >= GoalReps.intValue) {
                     showCompletionAnimation = true
-                    GoalSets.intValue = 0
-                    GoalReps.intValue = 0
-                    GoalTime.value = 0
-                    scope.launch(Dispatchers.IO) {
-                        isPaused = false
-                        delay(10000)
-                        hours = 0; minutes = 0; seconds = 0
-                        CurrentSets.intValue = 0; CurrentReps.intValue = 0
-                    }
                 }
             }
             "Distance" -> {
+                if (GoalDistance.value <= 0.0) return
                 if (currentDistance.value >= GoalDistance.value) {
                     showCompletionAnimation = true
-                    GoalDistance.value = 0.0
-                    currentDistance.value = 0.0
                 }
             }
             else -> {
+                if (GoalTime.value <= 0L) return
 
                 if (CurrentTime.value >= GoalTime.value && !showCompletionAnimation) {
                     showCompletionAnimation = true
@@ -1356,6 +1407,8 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
     }
 
     fun SetsGoalSafetyCheck() {
+        if (showCompletionAnimation) return
+        if (ConnectedWorkout.currentMode.value == WorkoutMode.INACTIVE) return
         when (GoalType) {
             "Reps" -> if (GoalReps.intValue <= 0 && !showCompletionAnimation) {
                 Toast.makeText(context, "Reps must be greater than 0", Toast.LENGTH_SHORT).show()
@@ -1424,23 +1477,19 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
     val startAt = rememberSaveable { mutableLongStateOf(SystemClock.elapsedRealtime()) }
     var accMs by rememberSaveable { mutableLongStateOf(0L) }
     LaunchedEffect(Unit) {
-        accMs = ((hours * 3600L + minutes * 60L + seconds) * 1000L)
+        accMs = CurrentTime.value
     }
     fun incrementTime() {
         if (!isPaused) {
             val now = SystemClock.elapsedRealtime()
-            val elapsed = (now - startAt.longValue) + accMs
-            val totalSec = (elapsed / 1000L).toInt()
-            seconds = totalSec % 60
-            minutes = (totalSec / 60) % 60
-            hours = totalSec / 3600
+            CurrentTime.value = (now - startAt.longValue) + accMs
         }
     }
     var showCountdown by remember { mutableStateOf(false) }
     var countdownValue by remember { mutableIntStateOf(3) }
 
     LaunchedEffect(Unit) {
-        val isStartingFresh = (hours == 0 && minutes == 0 && seconds == 0 && accMs == 0L)
+        val isStartingFresh = (CurrentTime.value == 0L && accMs == 0L)
 
         if (isStartingFresh) {
             showCountdown = true
@@ -1464,7 +1513,6 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
         }
         while (true) {
             incrementTime()
-            timeToMillis()
             triggerSetGoal()
             SetsGoalSafetyCheck()
             delay(1000)
@@ -1538,26 +1586,102 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
         animationSpec = tween(750, easing = LinearEasing),
         label = "introFade"
     )
-    LaunchedEffect(Unit) {
-        if(showCountdown)
+    LaunchedEffect(lastMilestone, GoalType, workout.value, GoalSets.intValue, GoalReps.intValue) {
+        val goalProgressPct = (unified * 100f).roundToInt()
+        val stageCue = when {
+            goalProgressPct >= 90 -> "Final push. One last surge."
+            goalProgressPct >= 70 -> "Almost there. Keep pace high."
+            goalProgressPct >= 40 -> "Mid workout. Stay consistent and focused."
+            else -> "Start strong. Build momentum now."
+        }
+        val goalSummary = when (GoalType) {
+            "Reps" -> "Goal: ${GoalSets.intValue} sets and ${GoalReps.intValue} reps."
+            "Distance" -> "Goal: ${"%.2f".format(GoalDistance.value)} km."
+            else -> "Goal time: ${GoalTime.value / 1000L} seconds."
+        }
+
         aiState.generateBatch(
-            "The User has performed $CurrentReps reps and $CurrentSets so far",
-            "The Workout weight is $CurrentWeight",
-            "The Workout name is $workout"
+            "Workout: ${workout.value}. $goalSummary",
+            "Progress: $goalProgressPct%. Stage: $stageCue",
+            "Current stats: ${CurrentSets.intValue} sets, ${CurrentReps.intValue} reps, ${CurrentTime.value / 1000L}s elapsed. Format rule: 1 short line (max 10 words), 2 lines absolute maximum."
         )
-
         showIntro = false
-
     }
 
     val glowColor = theme.secondary
     val deepColor = theme.background
+    val primaryColor = theme.primary
+    val secondaryColor = theme.secondary
+    val profilePrefs = remember(context) { UserPreferencesManager(context) }
+    val profileAge = remember { profilePrefs.getAge().toIntOrNull() }
+    val profileWeightKg = remember { profilePrefs.getWeight().toDoubleOrNull() }
+    val profileExperienceYears = remember { parseExperienceToYears(profilePrefs.getExperience()) }
+    val adjustedHrZonesForEffects = remember(profileAge, profileWeightKg, profileExperienceYears) {
+        buildAdjustedHrZones(
+            age = profileAge,
+            weightKg = profileWeightKg,
+            experienceYears = profileExperienceYears
+        )
+    }
+    val liveHrZoneForEffects by remember(liveBpm, adjustedHrZonesForEffects) {
+        derivedStateOf { heartRateZone(liveBpm, adjustedHrZonesForEffects) }
+    }
+    val hrFireBoost by remember(liveHrZoneForEffects) {
+        derivedStateOf {
+            when {
+                liveHrZoneForEffects >= 5 -> 1f
+                liveHrZoneForEffects == 4 -> 0.65f
+                liveHrZoneForEffects == 3 -> 0.35f
+                else -> 0f
+            }
+        }
+    }
+    val hrParticleMultiplier by remember(liveHrZoneForEffects) {
+        derivedStateOf {
+            when {
+                liveHrZoneForEffects >= 5 -> 3
+                liveHrZoneForEffects == 4 -> 2
+                liveHrZoneForEffects == 3 -> 1
+                else -> 0
+            }
+        }
+    }
+    val animatedHrFireBoost by animateFloatAsState(
+        targetValue = hrFireBoost,
+        animationSpec = tween(durationMillis = 600, easing = LinearOutSlowInEasing),
+        label = "animatedHrFireBoost"
+    )
+    val animatedGlowColor by animateColorAsState(
+        targetValue = lerp(glowColor, Color(0xFFFF4A3D), animatedHrFireBoost),
+        animationSpec = tween(durationMillis = 650, easing = LinearOutSlowInEasing),
+        label = "animatedGlowColor"
+    )
+    val animatedParticlePrimaryColor by animateColorAsState(
+        targetValue = lerp(primaryColor, Color(0xFFFF3B30), animatedHrFireBoost),
+        animationSpec = tween(durationMillis = 500, easing = LinearOutSlowInEasing),
+        label = "animatedParticlePrimary"
+    )
+    val animatedParticleSecondaryColor by animateColorAsState(
+        targetValue = lerp(secondaryColor, Color(0xFFFF7A45), animatedHrFireBoost),
+        animationSpec = tween(durationMillis = 500, easing = LinearOutSlowInEasing),
+        label = "animatedParticleSecondary"
+    )
+    val animatedClockStartColor by animateColorAsState(
+        targetValue = lerp(Color.White, Color(0xFFFF3B30), animatedHrFireBoost),
+        animationSpec = tween(durationMillis = 650, easing = LinearOutSlowInEasing),
+        label = "animatedClockStartColor"
+    )
+    val animatedClockEndColor by animateColorAsState(
+        targetValue = lerp(Color.White, theme.primary, (0.55f * hype + 0.70f * animatedHrFireBoost).coerceIn(0f, 1f)),
+        animationSpec = tween(durationMillis = 650, easing = LinearOutSlowInEasing),
+        label = "animatedClockEndColor"
+    )
     val allWorkouts = (uiState as? WorkoutListUiState.Success)?.workouts.orEmpty()
     val totalWorkoutCount = remember(uiState) {
         allWorkouts.size
     }
     val particles = remember {
-        List(6) { i ->
+        List(7) { i ->
             val s = (i * 37.123f) % 1000f
             ParticleData(
                 s = s,
@@ -1575,8 +1699,6 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
 
         vm.syncTotalWorkouts(totalWorkoutCount)
     }
-    val primaryColor = theme.primary
-    val secondaryColor = theme.secondary
     val gradientStops = remember(theme) {
         arrayOf(
             0.0f to Color.Transparent,
@@ -1586,7 +1708,21 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
             1.0f to Color.Transparent
         )
     }
+    val primaryPaint = remember {
+        android.graphics.Paint().apply {
+            isAntiAlias = false
+            color = primaryColor.toArgb()
+            style = android.graphics.Paint.Style.FILL
+        }
+    }
 
+    val secondaryPaint = remember {
+        android.graphics.Paint().apply {
+            isAntiAlias = false
+            color = secondaryColor.toArgb()
+            style = android.graphics.Paint.Style.FILL
+        }
+    }
     WorkoutTrackerTheme {
         Scaffold(
             topBar = {
@@ -1612,12 +1748,15 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                 modifier = Modifier
                     .fillMaxSize()
                     .drawBehind {
-                        val currentHype = if (movingGradientAndParticlesEnabled) hype else 0f
+                        val currentHype =
+                            if (movingGradientAndParticlesEnabled) {
+                                (hype + (0.45f * animatedHrFireBoost)).coerceIn(0f, 1f)
+                            } else 0f
                         val radiusMultiplier = 1.0f + 0.5f * currentHype
                         val verticalShift = size.height * 0.1f
                         drawRect(
                             brush = Brush.radialGradient(
-                                colors = listOf(glowColor.copy(alpha = 0.46f + 0.32f * currentHype), deepColor),
+                                colors = listOf(animatedGlowColor.copy(alpha = 0.46f + 0.32f * currentHype), deepColor),
                                 center = Offset(size.width / 2f, size.height + verticalShift),
                                 radius = (size.width * 1.15f) * radiusMultiplier,
                                 tileMode = TileMode.Clamp
@@ -1650,56 +1789,42 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                                 .fillMaxSize()
                                 .graphicsLayer {
 
-                                    alpha = (0.12f + 0.32f * hype) * riseEffectProgress
+                                    alpha = (0.12f + 0.32f * hype + 0.14f * animatedHrFireBoost).coerceIn(0f, 1f) * riseEffectProgress
                                 }
                         ) {
                             val w = size.width
                             val h = size.height
+                            drawIntoCanvas { canvas ->
+                                val nativeCanvas = canvas.nativeCanvas
+                                val baseCount = particles.size
+                                val count = baseCount * (1 + hrParticleMultiplier)
+                                primaryPaint.color = animatedParticlePrimaryColor.toArgb()
+                                secondaryPaint.color = animatedParticleSecondaryColor.toArgb()
 
+                                for (i in 0 until count) {
+                                    val p = particles[i % baseCount]
+                                    val layerBoost = 1f + ((i / baseCount) * 0.18f)
+                                    val phase = (animationClock * (p.speed * (1f + 0.35f * animatedHrFireBoost) * layerBoost) + (p.s * 0.013f)) % 1f
+                                    val invPhase = 1f - phase
+                                    val y = h * invPhase
 
-                            particles.forEach { p ->
+                                    val wobble = kotlin.math.sin((animationClock * p.wobbleSpeed) * 6.28318f + p.wobbleOffset) *
+                                            (p.wobbleMagnitudeBase + p.wobbleMagnitudeExtra * invPhase) * (1f + 0.22f * animatedHrFireBoost)
 
-                                val phase = (animationClock * p.speed + (p.s * 0.013f)) % 1f
-                                val y = h * (1f - phase)
+                                    val x = (p.baseXRatio * w + wobble).coerceIn(-40f, w + 40f)
+                                    val r = p.baseRadius * (0.4f + 0.6f * invPhase) * (1f + 0.20f * animatedHrFireBoost)
 
+                                    val alphaBase = (0.30f + 0.70f * invPhase) * riseEffectProgress * (1f + 0.25f * animatedHrFireBoost)
+                                    val alpha = (alphaBase.coerceIn(0f, 1f) * 255).toInt()
 
-                                val wobble = kotlin.math.sin((animationClock * p.wobbleSpeed) * 6.28318f + p.wobbleOffset) * (p.wobbleMagnitudeBase + p.wobbleMagnitudeExtra * (1f - phase))
+                                    primaryPaint.alpha = alpha
+                                    nativeCanvas.drawCircle(x, y, r, primaryPaint)
 
-                                val x = (p.baseXRatio * w + wobble).coerceIn(-40f, w + 40f)
-                                val r = p.baseRadius * (0.4f + 0.6f * (1f - phase))
-
-                                val a = (0.30f + 0.70f * (1f - phase)) * riseEffectProgress
-                                val constrainedAlpha = a.coerceIn(0f, 1f)
-
-
-
-
-                                drawCircle(
-                                    color = primaryColor,
-                                    radius = r,
-                                    center = Offset(x, y),
-                                    alpha = constrainedAlpha
-                                )
-
-
-                                drawCircle(
-                                    color = secondaryColor,
-                                    radius = r * 1.8f,
-                                    center = Offset(x, y + r * 0.2f),
-                                    alpha = (constrainedAlpha * 0.6f)
-                                )
+                                    secondaryPaint.alpha = (alpha * 0.6f).toInt()
+                                    nativeCanvas.drawCircle(x, y + r * 0.2f, r * 1.8f, secondaryPaint)
+                                }
                             }
                         }
-//                     DiscoAtmosphere(
-//
-//                         riseEffectProgress = riseEffectProgress,
-//                         themeColors = listOf(
-//                             theme.primary,
-//                             theme.secondary,
-//                             theme.tertiary
-//                         )
-//
-//                     )
                     }
                 }
                 if (introProgress < 1f) {
@@ -1709,6 +1834,12 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                             .background(introBrush, alpha = 1f - introProgress)
                     )
                 }
+                BpmEdgePulseOverlay(
+                    bpm = liveBpm,
+                    paused = isPaused || showCompletionAnimation,
+                    tint = theme.primary,
+                    modifier = Modifier.fillMaxSize()
+                )
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
@@ -1731,6 +1862,25 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                         )
                     }
                     if (showCompletionAnimation) {
+                        val timingMetrics = ConnectedWorkout.deriveSetTimingMetrics()
+                        val avgHrForLog = hrAccumulator.avgOrNull()
+                        val maxHrForLog = hrAccumulator.maxOrNull()
+                        val hrTimelineForLog = hrAccumulator.minuteAverageCsv(CurrentTime.value)
+                        val estimatedRpe = ConnectedWorkout.estimateRPE(timingMetrics, avgHrForLog, maxHrForLog)
+                        val estimatedFatigue = ConnectedWorkout.estimateFatigueLevel(estimatedRpe, timingMetrics, avgHrForLog, maxHrForLog)
+                        val systemicDrain = ConnectedWorkout.calculateSystemicDrain(estimatedRpe, timingMetrics, avgHrForLog, maxHrForLog)
+                        val trainingEnv = ConnectedWorkout.inferEnvironment()
+                        val completionSummary = remember {
+                            WorkoutCompletionSummary(
+                                workingWeight = CurrentWeight.value,
+                                totalVolume = CurrentWeight.value * CurrentSets.intValue * CurrentReps.intValue,
+                                intensityScore = timingMetrics.intensityScore,
+                                sets = CurrentSets.intValue,
+                                reps = CurrentReps.intValue,
+                                durationMillis = CurrentTime.value
+                            )
+                        }
+
                         GoalCompletionAnimation(
                             onAnimationFinished = {
                                 val healthConnectManager = HealthConnectManager(context.applicationContext)
@@ -1741,11 +1891,23 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
 
                                 scope.launch(Dispatchers.IO) {
                                     viewModel.LogWorkout(
-                                        workout.value, WorkoutStatus.COMPLETED,
-                                        CurrentTime.value, CurrentWeight.value,
-                                        CurrentSets.intValue, CurrentReps.intValue,
-                                        currentDistance.value,
-                                        ""
+                                        name = workout.value,
+                                        status = WorkoutStatus.COMPLETED,
+                                        durationMillis = CurrentTime.value,
+                                        weight = CurrentWeight.value,
+                                        sets = CurrentSets.intValue,
+                                        reps = CurrentReps.intValue,
+                                        distance = currentDistance.value,
+                                        notes = "",
+                                        rpe = estimatedRpe,
+                                        restPeriodSeconds = timingMetrics.averageRestSeconds,
+                                        fatigueLevel = estimatedFatigue,
+                                        trainingEnvironment = trainingEnv,
+                                        sessionRpe = estimatedRpe,
+                                        systemicDrainScore = systemicDrain,
+                                        heartRateAvg = avgHrForLog,
+                                        heartRateMax = maxHrForLog,
+                                        heartRateTimeline = hrTimelineForLog
                                     )
                                     PDE.logWorkout(
                                         workout.value,
@@ -1753,7 +1915,8 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                                         CurrentWeight.value.toFloat(),
                                         CurrentReps.intValue,
                                         CurrentSets.intValue,
-                                        currentDistance.value.toFloat()
+                                        currentDistance.value.toFloat(),
+                                        rpe = estimatedRpe
                                     )
                                     if (healthConnectManager.hasAllPermissions()) {
                                         val endInstant = Clock.System.now().toJavaInstant()
@@ -1775,13 +1938,11 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                                 }
 
                                 WorkoutLog.sets.clear()
+                                ConnectedWorkout.clearSetTimingData()
                                 WorkoutForegroundService.stop(context)
                                 ConnectedWorkout.currentMode.value = WorkoutMode.INACTIVE
-                                context.startActivity(intent)
-                                activity?.finishAffinity()
-                                hours = 0
-                                minutes = 0
-                                seconds = 0
+                                bpVM.setWorkoutHrRecording(false)
+
                                 accMs = 0L
                                 startAt.longValue = SystemClock.elapsedRealtime()
                                 CurrentSets.intValue = 0
@@ -1791,10 +1952,17 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                                 GoalReps.intValue = 0
                                 GoalTime.value = 0
                                 GoalDistance.value = 0.0
+                                ConnectedWorkout.clearSnapshot(context)
+                                hrAccumulator.reset()
                             },
-                            prFlags = prFlags
+                            onFinishAnimation = {
+                                context.startActivity(intent)
+                                activity?.finishAffinity()
+                            },
+                            summary = completionSummary,
+                            prFlags = prFlags,
+                            estimatedRpe = estimatedRpe
                         )
-
                     }
 
                     Spacer(modifier = Modifier.weight(0.5f))
@@ -1806,22 +1974,20 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = String.format("%02d:%02d:%02d", hours, minutes, seconds),
+                            text = formatElapsedHms(CurrentTime.value),
                             fontSize = 72.sp,
                             fontWeight = FontWeight.ExtraBold,
                             textAlign = TextAlign.Center,
                             style = TextStyle(
                                 brush = Brush.linearGradient(
                                     colors = listOf(
-                                        lerp(Color.White, theme.primary, hype),
-                                        Color.White
+                                        animatedClockStartColor,
+                                        animatedClockEndColor
                                     )
                                 ),
                             ),
                         )
                     }
-
-                    Spacer(modifier = Modifier.height(2.dp))
 
                     if (GoalType == "Reps") {
                         SetProgressDetails(
@@ -1831,11 +1997,23 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                             goalSets = GoalSets.intValue,
                             theme = theme
                         )
+                        Spacer(modifier = Modifier.height(10.dp))
+                        WorkoutLiveHeartRateCard(
+                            bpVM = bpVM,
+                            theme = theme,
+                            modifier = Modifier.fillMaxWidth()
+                        )
                     } else if (GoalType == "Distance") {
                         DistanceProgressTracker(
                             currentDistance = currentDistance.value,
                             goalDistance = GoalDistance.value,
                             hype = hype
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+                        WorkoutLiveHeartRateCard(
+                            bpVM = bpVM,
+                            theme = theme,
+                            modifier = Modifier.fillMaxWidth()
                         )
                     } else {
                         CircularTimerProgressBar(
@@ -1843,16 +2021,25 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                             hype = hype,
                             modifier = Modifier.size(250.dp)
                         )
+                        Spacer(modifier = Modifier.height(10.dp))
+                        WorkoutLiveHeartRateCard(
+                            bpVM = bpVM,
+                            theme = theme,
+                            modifier = Modifier.fillMaxWidth()
+                        )
                     }
 
                     Spacer(modifier = Modifier.weight(0.75f))
                     val aiEnabled = dynamicModel.personaConfig.value.enabled
 
-                    if (aiEnabled) {
+                    if (aiEnabled && showAIHeart.value) {
                         AdviceSection(
                             advice = advice,
-                            modifier = Modifier.fillMaxWidth(),
-                            isLoading = false
+                            modifier = Modifier.fillMaxWidth().animateContentSize(
+                                animationSpec = tween(300, easing = FastOutSlowInEasing)
+                            ),
+                            isLoading = aiState.isLoading,
+                            loadingText = ""
                         )
                     }
 
@@ -1863,7 +2050,10 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                     if (GoalType == "Reps") {
                         val interactionSource = remember { MutableInteractionSource() }
                         val isPressed by interactionSource.collectIsPressedAsState()
-                        val scale by animateFloatAsState(if (isPressed) 0.96f else 1f, label = "buttonScale")
+                        val scale by animateFloatAsState(
+                            if (isPressed) 0.96f else 1f,
+                            label = "buttonScale"
+                        )
                         val animatedBg by animateColorAsState(
                             targetValue = if (isPressed) {
                                 lerp(
@@ -1881,49 +2071,72 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                             label = "btnBg"
                         )
 
-
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(70.dp)
-                                .graphicsLayer {
-                                    scaleX = scale
-                                    scaleY = scale
-                                }
-                                .clip(CircleShape)
-                                .border(
-                                    2.dp,
-                                    Brush.linearGradient(
-                                        listOf(
-                                            lerp(theme.primary, theme.secondary, riseEffectProgress)
-                                                .copy(alpha = (0.70f + 0.26f * hype).coerceIn(0f, 1f)),
-                                            lerp(theme.secondary, theme.tertiary, riseEffectProgress)
-                                                .copy(alpha = (0.55f + 0.28f * hype).coerceIn(0f, 1f))
-                                        )
-                                    ),
-                                    CircleShape
-                                )
-                                .background(animatedBg, CircleShape)
-                                .clickable(
-                                    interactionSource = interactionSource,
-                                    indication = null
-                                ) {
-                                    if (!showCountdown) {
-                                        timeToMillis()
-                                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                        CurrentReps.intValue += 10
-                                        CurrentSets.intValue += 1
-                                        EnterRestMode()
+                        if (showAIHeart.value) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(70.dp)
+                                    .graphicsLayer {
+                                        scaleX = scale
+                                        scaleY = scale
                                     }
-                                },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                "Finish Set",
-                                style = MaterialTheme.typography.titleLarge,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White
-                            )
+                                    .clip(CircleShape)
+                                    .border(
+                                        2.dp,
+                                        Brush.linearGradient(
+                                            listOf(
+                                                lerp(
+                                                    theme.primary,
+                                                    theme.secondary,
+                                                    riseEffectProgress
+                                                )
+                                                    .copy(
+                                                        alpha = (0.70f + 0.26f * hype).coerceIn(
+                                                            0f,
+                                                            1f
+                                                        )
+                                                    ),
+                                                lerp(
+                                                    theme.secondary,
+                                                    theme.tertiary,
+                                                    riseEffectProgress
+                                                )
+                                                    .copy(
+                                                        alpha = (0.55f + 0.28f * hype).coerceIn(
+                                                            0f,
+                                                            1f
+                                                        )
+                                                    )
+                                            )
+                                        ),
+                                        CircleShape
+                                    )
+                                    .background(animatedBg, CircleShape)
+                                    .animateContentSize(
+                                        tween(300, easing = FastOutSlowInEasing)
+                                    )
+                                    .clickable(
+                                        interactionSource = interactionSource,
+                                        indication = null
+                                    ) {
+                                        if (!showCountdown) {
+                                            incrementTime()
+                                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                            ConnectedWorkout.recordSetCompletionTimestamp()
+                                            CurrentReps.intValue += 10
+                                            CurrentSets.intValue += 1
+                                            EnterRestMode()
+                                        }
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    "Finish Set",
+                                    style = MaterialTheme.typography.titleLarge,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White
+                                )
+                            }
                         }
                     }
 
@@ -1986,14 +2199,35 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                         additionalButton = true,
                         additionalButtonText = "Finish Workout Only",
                         onCustomAction = {
-                            timeToMillis()
+                            incrementTime()
+                            val timingMetrics = ConnectedWorkout.deriveSetTimingMetrics()
+                            val avgHrForLog = hrAccumulator.avgOrNull()
+                            val maxHrForLog = hrAccumulator.maxOrNull()
+                            val hrTimelineForLog = hrAccumulator.minuteAverageCsv(CurrentTime.value)
+                            val estimatedRpe = ConnectedWorkout.estimateRPE(timingMetrics, avgHrForLog, maxHrForLog)
+                            val estimatedFatigue = ConnectedWorkout.estimateFatigueLevel(estimatedRpe, timingMetrics, avgHrForLog, maxHrForLog)
+                            val systemicDrain = ConnectedWorkout.calculateSystemicDrain(estimatedRpe, timingMetrics, avgHrForLog, maxHrForLog)
+                            val trainingEnv = ConnectedWorkout.inferEnvironment()
+
                             scope.launch(Dispatchers.IO) {
                                 viewModel.LogWorkout(
-                                    workout.value, WorkoutStatus.COMPLETED,
-                                    CurrentTime.value, CurrentWeight.value,
-                                    CurrentSets.intValue, CurrentReps.intValue,
-                                    currentDistance.value,
-                                    ""
+                                    name = workout.value,
+                                    status = WorkoutStatus.COMPLETED,
+                                    durationMillis = CurrentTime.value,
+                                    weight = CurrentWeight.value,
+                                    sets = CurrentSets.intValue,
+                                    reps = CurrentReps.intValue,
+                                    distance = currentDistance.value,
+                                    notes = "",
+                                    rpe = estimatedRpe,
+                                    restPeriodSeconds = timingMetrics.averageRestSeconds,
+                                    fatigueLevel = estimatedFatigue,
+                                    trainingEnvironment = trainingEnv,
+                                    sessionRpe = estimatedRpe,
+                                    systemicDrainScore = systemicDrain,
+                                    heartRateAvg = avgHrForLog,
+                                    heartRateMax = maxHrForLog,
+                                    heartRateTimeline = hrTimelineForLog
                                 )
                                 PDE.logWorkout(
                                     workout.value,
@@ -2001,17 +2235,17 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                                     CurrentWeight.value.toFloat(),
                                     CurrentReps.intValue,
                                     CurrentSets.intValue,
-                                    currentDistance.value.toFloat()
+                                    currentDistance.value.toFloat(),
+                                    rpe = estimatedRpe
                                 )
                             }
                             WorkoutLog.sets.clear()
+                            ConnectedWorkout.clearSetTimingData()
                             WorkoutForegroundService.stop(context)
                             ConnectedWorkout.currentMode.value = WorkoutMode.INACTIVE
+                            bpVM.setWorkoutHrRecording(false)
                             context.startActivity(intent)
                             activity?.finishAffinity()
-                            hours = 0
-                            minutes = 0
-                            seconds = 0
                             accMs = 0L
                             startAt.longValue = SystemClock.elapsedRealtime()
                             CurrentSets.intValue = 0
@@ -2021,6 +2255,8 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                             GoalReps.intValue = 0
                             GoalTime.value = 0
                             GoalDistance.value = 0.0
+                            ConnectedWorkout.clearSnapshot(context)
+                            hrAccumulator.reset()
                             haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                         },
                         onDismiss = { showSyncDialog.showSyncDialog.value = false },
@@ -2030,13 +2266,34 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                                 "Running (Treadmill)", "Stair Climber", "Elliptical Trainer",
                                 "Rowing Machine", "Stationary Bike", "Swimming"
                             )
+                            val timingMetrics = ConnectedWorkout.deriveSetTimingMetrics()
+                            val avgHrForLog = hrAccumulator.avgOrNull()
+                            val maxHrForLog = hrAccumulator.maxOrNull()
+                            val hrTimelineForLog = hrAccumulator.minuteAverageCsv(CurrentTime.value)
+                            val estimatedRpe = ConnectedWorkout.estimateRPE(timingMetrics, avgHrForLog, maxHrForLog)
+                            val estimatedFatigue = ConnectedWorkout.estimateFatigueLevel(estimatedRpe, timingMetrics, avgHrForLog, maxHrForLog)
+                            val systemicDrain = ConnectedWorkout.calculateSystemicDrain(estimatedRpe, timingMetrics, avgHrForLog, maxHrForLog)
+                            val trainingEnv = ConnectedWorkout.inferEnvironment()
+
                             scope.launch(Dispatchers.IO) {
                                 viewModel.LogWorkout(
-                                    workout.value, WorkoutStatus.COMPLETED,
-                                    CurrentTime.value, CurrentWeight.value,
-                                    CurrentSets.intValue, CurrentReps.intValue,
-                                    currentDistance.value,
-                                    ""
+                                    name = workout.value,
+                                    status = WorkoutStatus.COMPLETED,
+                                    durationMillis = CurrentTime.value,
+                                    weight = CurrentWeight.value,
+                                    sets = CurrentSets.intValue,
+                                    reps = CurrentReps.intValue,
+                                    distance = currentDistance.value,
+                                    notes = "",
+                                    rpe = estimatedRpe,
+                                    restPeriodSeconds = timingMetrics.averageRestSeconds,
+                                    fatigueLevel = estimatedFatigue,
+                                    trainingEnvironment = trainingEnv,
+                                    sessionRpe = estimatedRpe,
+                                    systemicDrainScore = systemicDrain,
+                                    heartRateAvg = avgHrForLog,
+                                    heartRateMax = maxHrForLog,
+                                    heartRateTimeline = hrTimelineForLog
                                 )
                                 PDE.logWorkout(
                                     workout.value,
@@ -2044,7 +2301,8 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                                     CurrentWeight.value.toFloat(),
                                     CurrentReps.intValue,
                                     CurrentSets.intValue,
-                                    currentDistance.value.toFloat()
+                                    currentDistance.value.toFloat(),
+                                    rpe = estimatedRpe
                                 )
                                 if (healthConnectManager.hasAllPermissions()) {
                                     val endInstant = Clock.System.now().toJavaInstant()
@@ -2063,13 +2321,12 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                                 }
                             }
                             WorkoutLog.sets.clear()
+                            ConnectedWorkout.clearSetTimingData()
                             WorkoutForegroundService.stop(context)
                             ConnectedWorkout.currentMode.value = WorkoutMode.INACTIVE
+                            bpVM.setWorkoutHrRecording(false)
                             context.startActivity(intent)
                             activity?.finishAffinity()
-                            hours = 0
-                            minutes = 0
-                            seconds = 0
                             accMs = 0L
                             startAt.longValue = SystemClock.elapsedRealtime()
                             CurrentSets.intValue = 0
@@ -2079,6 +2336,8 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                             GoalReps.intValue = 0
                             GoalTime.value = 0
                             GoalDistance.value = 0.0
+                            ConnectedWorkout.clearSnapshot(context)
+                            hrAccumulator.reset()
 
                         },
                     )
@@ -2086,6 +2345,427 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
             }
         }
     }
+}
+
+@Composable
+private fun BpmEdgePulseOverlay(
+    bpm: Int,
+    paused: Boolean,
+    tint: Color,
+    modifier: Modifier = Modifier
+) {
+    val clampedBpm = bpm.coerceIn(45, 190)
+    val pulseEnabled = !paused && bpm > 0
+    val beatMillis = (60000f / clampedBpm.toFloat()).toInt().coerceIn(315, 1300)
+
+    val pulseTransition = rememberInfiniteTransition(label = "bpm_edge_pulse")
+    val pulse by pulseTransition.animateFloat(
+        initialValue = 0.25f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = beatMillis, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "bpm_edge_alpha"
+    )
+
+    val intensity = if (pulseEnabled) pulse else 0.18f
+    val edgeAlpha = (0.05f + (clampedBpm - 45) / 145f * 0.06f) * intensity
+
+    Canvas(modifier = modifier) {
+        val topHeight = size.height * 0.18f
+        val sideWidth = size.width * 0.10f
+
+        drawRect(
+            brush = Brush.verticalGradient(
+                colors = listOf(
+                    tint.copy(alpha = edgeAlpha),
+                    Color.Transparent
+                ),
+                startY = 0f,
+                endY = topHeight
+            )
+        )
+        drawRect(
+            brush = Brush.verticalGradient(
+                colors = listOf(
+                    Color.Transparent,
+                    tint.copy(alpha = edgeAlpha * 0.9f)
+                ),
+                startY = size.height - topHeight,
+                endY = size.height
+            )
+        )
+        drawRect(
+            brush = Brush.horizontalGradient(
+                colors = listOf(
+                    tint.copy(alpha = edgeAlpha * 0.85f),
+                    Color.Transparent
+                ),
+                startX = 0f,
+                endX = sideWidth
+            )
+        )
+        drawRect(
+            brush = Brush.horizontalGradient(
+                colors = listOf(
+                    Color.Transparent,
+                    tint.copy(alpha = edgeAlpha * 0.85f)
+                ),
+                startX = size.width - sideWidth,
+                endX = size.width
+            )
+        )
+    }
+}
+
+@Composable
+private fun WorkoutLiveHeartRateCard(
+    bpVM: HrViewModel,
+    theme: ColorSchemeAppTheme,
+    modifier: Modifier = Modifier
+) {
+    val bpm by bpVM.hr.collectAsState()
+    var sum by remember { mutableLongStateOf(0L) }
+    var count by remember { mutableIntStateOf(0) }
+    var maxBpm by remember { mutableIntStateOf(0) }
+    val avgBpm by remember(sum, count) {
+        derivedStateOf { if (count > 0) (sum / count).toInt() else 0 }
+    }
+    LaunchedEffect(bpm) {
+        if (bpm > 0) {
+            sum += bpm.toLong()
+            count += 1
+            if (bpm > maxBpm) maxBpm = bpm
+        }
+    }
+    LiveHeartRateCard(
+        bpm = bpm,
+        avgBpm = avgBpm,
+        maxBpm = maxBpm,
+        theme = theme,
+        modifier = modifier
+    )
+}
+
+private class HrAccumulator {
+    private data class MinuteBucket(var sum: Long = 0L, var count: Int = 0)
+
+    private var sum: Long = 0L
+    private var count: Int = 0
+    private var max: Int = 0
+    private val minuteBuckets = linkedMapOf<Int, MinuteBucket>()
+
+    fun add(bpm: Int, elapsedMillis: Long? = null) {
+        if (bpm <= 0) return
+        sum += bpm.toLong()
+        count += 1
+        if (bpm > max) max = bpm
+
+        val elapsed = elapsedMillis ?: return
+        val minute = ((elapsed.coerceAtLeast(0L) / 60_000L).toInt() + 1).coerceAtLeast(1)
+        val bucket = minuteBuckets.getOrPut(minute) { MinuteBucket() }
+        bucket.sum += bpm.toLong()
+        bucket.count += 1
+    }
+
+    fun avgOrNull(): Int? = if (count > 0) (sum / count).toInt() else null
+    fun maxOrNull(): Int? = max.takeIf { it > 0 }
+    fun minuteAverageCsv(totalDurationMillis: Long? = null): String? {
+        if (minuteBuckets.isEmpty()) return null
+
+        val minuteAverages = minuteBuckets
+            .mapValues { (_, bucket) -> if (bucket.count > 0) (bucket.sum / bucket.count).toInt() else 0 }
+            .filterValues { it > 0 }
+
+        if (minuteAverages.isEmpty()) return null
+
+        val maxRecordedMinute = minuteAverages.keys.maxOrNull() ?: 1
+        val maxByDuration = totalDurationMillis
+            ?.takeIf { it > 0L }
+            ?.let { ((it + 59_999L) / 60_000L).toInt().coerceAtLeast(1) }
+            ?: 1
+        val totalMinutes = maxOf(maxRecordedMinute, maxByDuration)
+
+        val firstValue = minuteAverages[minuteAverages.keys.minOrNull() ?: 1] ?: return null
+        var carry = firstValue
+
+        return (1..totalMinutes).joinToString(",") { minute ->
+            val current = minuteAverages[minute] ?: carry
+            carry = current
+            "$minute:$current"
+        }
+    }
+
+    fun reset() {
+        sum = 0L
+        count = 0
+        max = 0
+        minuteBuckets.clear()
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun LiveHeartRateCard(
+    bpm: Int,
+    avgBpm: Int,
+    maxBpm: Int,
+    theme: ColorSchemeAppTheme,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val liveBpm = bpm.coerceAtLeast(0)
+    val hasAverage = avgBpm > 0
+    val hasMax = maxBpm > 0
+    val prefs = remember(context) { UserPreferencesManager(context) }
+    val age = remember { prefs.getAge().toIntOrNull() }
+    val weightKg = remember { prefs.getWeight().toDoubleOrNull() }
+    val experienceYears = remember { parseExperienceToYears(prefs.getExperience()) }
+    val adjustedZones = remember(age, weightKg, experienceYears) {
+        buildAdjustedHrZones(age = age, weightKg = weightKg, experienceYears = experienceYears)
+    }
+    val zone = remember(liveBpm, adjustedZones) { heartRateZone(liveBpm, adjustedZones) }
+    var previousBpm by remember { mutableIntStateOf(0) }
+    var trendVisible by remember { mutableStateOf(false) }
+    var trendKind by remember { mutableStateOf(HrTrend.STEADY) }
+    var trendEventId by remember { mutableIntStateOf(0) }
+    val pagerState = rememberPagerState(pageCount = { 2 })
+
+    LaunchedEffect(liveBpm) {
+        if (liveBpm <= 0) return@LaunchedEffect
+        if (previousBpm > 0) {
+            val delta = liveBpm - previousBpm
+            trendKind = when {
+                delta >= 4 -> HrTrend.UP
+                delta <= -4 -> HrTrend.DOWN
+                else -> HrTrend.STEADY
+            }
+            trendVisible = true
+            trendEventId += 1
+        }
+        previousBpm = liveBpm
+    }
+
+    LaunchedEffect(trendEventId) {
+        if (trendEventId == 0) return@LaunchedEffect
+        delay(2400)
+        trendVisible = false
+    }
+
+    val trendTransition = rememberInfiniteTransition(label = "hr_trend_arrow")
+    val trendPulse by trendTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(950, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "hr_trend_pulse"
+    )
+    Surface(
+        modifier = modifier,
+        color = Color.Transparent,
+        shape = RoundedCornerShape(26.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            HorizontalPager(
+                state = pagerState,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                LaunchedEffect(pagerState.currentPage) {
+
+                     if (pagerState.currentPage == 0) {
+                         showAIHeart.value = true
+} else {
+    showAIHeart.value = false
+}
+                }
+                if (it == 0) {
+
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(theme.secondary.copy(0.12f), RoundedCornerShape(18.dp))
+                                .padding(horizontal = 14.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                        Icon(
+                            imageVector = Icons.Default.Favorite,
+                            contentDescription = "Heart rate",
+                            tint = theme.primary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        if (trendVisible) {
+                            val trendTint = when (trendKind) {
+                                HrTrend.UP -> Color(0xFF8DEFAE)
+                                HrTrend.DOWN -> Color(0xFFFF9A9A)
+                                HrTrend.STEADY -> Color.White.copy(alpha = 0.72f)
+                            }
+                            val trendShiftX = when (trendKind) {
+                                HrTrend.STEADY -> (trendPulse - 0.5f) * 6f
+                                else -> 0f
+                            }
+                            val trendShiftY = when (trendKind) {
+                                HrTrend.UP -> -3f * trendPulse
+                                HrTrend.DOWN -> 3f * trendPulse
+                                HrTrend.STEADY -> 0f
+                            }
+                            Icon(
+                                imageVector = when (trendKind) {
+                                    HrTrend.UP -> Icons.Default.KeyboardArrowUp
+                                    HrTrend.DOWN -> Icons.Default.KeyboardArrowDown
+                                    HrTrend.STEADY -> Icons.Default.KeyboardArrowRight
+                                },
+                                contentDescription = "Heart rate trend",
+                                tint = trendTint,
+                                modifier = Modifier
+                                    .size(14.dp)
+                                    .graphicsLayer {
+                                        alpha = 0.45f + (trendPulse * 0.4f)
+                                        translationX = trendShiftX
+                                        translationY = trendShiftY
+                                    }
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                        }
+                        Text(
+                            text = if (liveBpm > 0) "$liveBpm BPM" else "-- BPM",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                        Spacer(modifier = Modifier.weight(1f))
+                        Text(
+                            text = "Swipe for zones",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = Color.White.copy(alpha = 0.72f)
+                        )
+                        }
+                    }
+                } else {
+
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(theme.secondary.copy(0.10f), RoundedCornerShape(18.dp))
+                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("Avg ${if (hasAverage) "$avgBpm bpm" else "--"}", color = Color.White)
+                            Text("Peak ${if (hasMax) "$maxBpm bpm" else "--"}", color = Color.White)
+                            Text("Zone Z$zone", color = Color.White)
+                        }
+                        Text(
+                            text = "Adjusted max HR: ${adjustedZones.adjustedMaxHr}",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = Color.White.copy(alpha = 0.74f)
+                        )
+                        adjustedZones.ranges.forEach { range ->
+                            val upperText = if (range.zone == 5) "+" else "${range.max}"
+                            val isActive = liveBpm >= range.min && (range.zone == 5 || liveBpm <= range.max)
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(9.dp))
+                                    .background(
+                                        if (isActive) theme.primary.copy(alpha = 0.30f)
+                                        else theme.secondary.copy(alpha = 0.15f)
+                                    )
+                                    .padding(horizontal = 10.dp, vertical = 7.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("Z${range.zone}", color = Color.White, fontWeight = FontWeight.SemiBold)
+                                Text("${range.min}-$upperText bpm", color = Color.White.copy(alpha = 0.82f))
+                            }
+                        }
+                    }
+                }
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Center
+            ) {
+                repeat(2) { idx ->
+                    Box(
+                        modifier = Modifier
+                            .padding(horizontal = 4.dp)
+                            .size(if (pagerState.currentPage == idx) 8.dp else 6.dp)
+                            .clip(CircleShape)
+                            .background(
+                                if (pagerState.currentPage == idx) theme.primary.copy(alpha = 0.95f)
+                                else Color.White.copy(alpha = 0.28f)
+                            )
+                        )
+                    }
+                }
+            }
+        }
+    }
+object AI_HEART_ADAPT{
+    var showAIHeart = mutableStateOf(true)
+
+}
+
+private enum class HrTrend { UP, DOWN, STEADY }
+
+private data class HrZoneRange(
+    val zone: Int,
+    val min: Int,
+    val max: Int
+)
+
+private data class AdjustedHrZones(
+    val adjustedMaxHr: Int,
+    val ranges: List<HrZoneRange>
+)
+
+private fun buildAdjustedHrZones(
+    age: Int?,
+    weightKg: Double?,
+    experienceYears: Float
+): AdjustedHrZones {
+    val baseMaxHr = if ((age ?: 0) > 0) 220 - (age ?: 0) else 190
+    val weightAdjustment = when {
+        weightKg == null -> 0
+        weightKg < 55.0 -> 2
+        weightKg > 100.0 -> -5
+        weightKg > 85.0 -> -2
+        else -> 0
+    }
+    val experienceAdjustment = when {
+        experienceYears < 0.5f -> -4
+        experienceYears < 2f -> -2
+        experienceYears > 5f -> 2
+        else -> 0
+    }
+    val adjustedMaxHr = (baseMaxHr + weightAdjustment + experienceAdjustment).coerceIn(150, 205)
+    val ranges = listOf(
+        HrZoneRange(1, (adjustedMaxHr * 0.50f).roundToInt(), (adjustedMaxHr * 0.60f).roundToInt()),
+        HrZoneRange(2, (adjustedMaxHr * 0.60f).roundToInt(), (adjustedMaxHr * 0.70f).roundToInt()),
+        HrZoneRange(3, (adjustedMaxHr * 0.70f).roundToInt(), (adjustedMaxHr * 0.80f).roundToInt()),
+        HrZoneRange(4, (adjustedMaxHr * 0.80f).roundToInt(), (adjustedMaxHr * 0.90f).roundToInt()),
+        HrZoneRange(5, (adjustedMaxHr * 0.90f).roundToInt(), adjustedMaxHr)
+    )
+    return AdjustedHrZones(adjustedMaxHr = adjustedMaxHr, ranges = ranges)
+}
+
+private fun heartRateZone(bpm: Int, zones: AdjustedHrZones): Int {
+    if (bpm <= 0) return 1
+    return zones.ranges.firstOrNull { range ->
+        bpm >= range.min && (range.zone == 5 || bpm <= range.max)
+    }?.zone ?: 5
 }
 
 @Composable
@@ -2766,10 +3446,6 @@ private fun pressedScale(pressed: Boolean): Float {
 }
 
 @Composable
-private fun isInactive(): Boolean =
-    ConnectedWorkout.currentMode.value == WorkoutMode.INACTIVE
-
-@Composable
 private fun RowScope.SegmentedButtonInternal(
     text: String,
     isSelected: Boolean,
@@ -2780,12 +3456,11 @@ private fun RowScope.SegmentedButtonInternal(
     val haptics = LocalHapticFeedback.current
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
-    val inactive = isInactive()
 
     val scale = pressedScale(isPressed)
-    val bgBrush = segmentContainerBrush(isSelected && inactive, isPressed && inactive, themeColors)
-    val border = segmentBorderBrush(isSelected && inactive, isPressed && inactive, themeColors)
-    val labelColor = segmentTextColor(isSelected && inactive, isPressed && inactive)
+    val bgBrush = segmentContainerBrush(isSelected, isPressed, themeColors)
+    val border = segmentBorderBrush(isSelected, isPressed, themeColors)
+    val labelColor = segmentTextColor(isSelected, isPressed)
 
     Box(
         modifier = Modifier
@@ -2798,12 +3473,10 @@ private fun RowScope.SegmentedButtonInternal(
             .clickable(
                 interactionSource = interactionSource,
                 indication = null,
-                enabled = inactive,
+                enabled = true,
                 onClick = {
-                    if (inactive) {
-                        onClick()
-                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                    }
+                    onClick()
+                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                 }
             )
             .padding(horizontal = 12.dp),
@@ -2811,7 +3484,7 @@ private fun RowScope.SegmentedButtonInternal(
     ) {
         Text(
             text = text,
-            fontWeight = if (isSelected && inactive) FontWeight.Bold else FontWeight.Medium,
+            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
             color = labelColor
         )
     }
@@ -2980,33 +3653,6 @@ fun NumberStepper(
 }
 
 
-
-// The specific list of exercises that trigger the Barbell UI
-val barbellVisualExercises = setOf(
-    "Barbell Bench Press",
-    "Incline Barbell Press",
-    "Barbell Back Squat",
-    "Front Squat",
-    "Deadlifts",
-    "Sumo Deadlifts",
-    "Romanian Deadlifts",
-    "Overhead Press (Barbell)",
-    "Push Press",
-    "Bent-Over Rows",
-    "Pendlay Rows",
-    "Good Mornings",
-    "Hip Thrusts",
-    "Barbell Curls",
-    "Barbell Shrugs"
-)
-
-
-
-
-
-
-
-
 @Composable
 fun NumberStepperWeights(
     label: String,
@@ -3021,12 +3667,22 @@ fun NumberStepperWeights(
 
     // Check if the current workout is in the barbell list
     val useBarbellVisual = remember(workoutName) {
-        barbellVisualExercises.contains(workoutName)
+        ConnectedWorkout.barbellVisualExercises.contains(workoutName)
+    }
+    val useEzBarVisual = remember(workoutName) {
+        ConnectedWorkout.ezBarVisualExercises.contains(workoutName)
     }
 
     if (ConnectedWorkout.currentMode.value == WorkoutMode.INACTIVE) {
         if (useBarbellVisual) {
             BarbellStyleInput(
+                label = label,
+                value = value,
+                onValueChange = onValueChange,
+                theme = theme
+            )
+        } else if (useEzBarVisual) {
+            EzBarStyleInput(
                 label = label,
                 value = value,
                 onValueChange = onValueChange,
@@ -3054,7 +3710,7 @@ private fun BarbellStyleInput(
     theme: ColorSchemeAppTheme
 ) {
     val haptics = LocalHapticFeedback.current
-    val sidePlates = remember(value) { calculateSidePlates(value) }
+    val sidePlates = remember(value) { calculateSidePlates(value, ConnectedWorkout.BAR_WEIGHT) }
     val barColor = Color.LightGray
 
     Column(
@@ -3154,7 +3810,7 @@ private fun BarbellStyleInput(
                         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                     },
                     onRemove = {
-                        val newValue = (value - (config.weightKg * 2)).coerceAtLeast(BAR_WEIGHT)
+                        val newValue = (value - (config.weightKg * 2)).coerceAtLeast(ConnectedWorkout.BAR_WEIGHT)
                         onValueChange(newValue)
                         haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                     },
@@ -3168,13 +3824,164 @@ private fun BarbellStyleInput(
         // Reset
         OutlinedButton(
             onClick = {
-                onValueChange(BAR_WEIGHT)
+                onValueChange(ConnectedWorkout.BAR_WEIGHT)
                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)
             },
             colors = ButtonDefaults.outlinedButtonColors(contentColor = theme.primary),
             border = BorderStroke(1.dp, theme.primary.copy(alpha = 0.5f))
         ) {
-            Text("Reset to Empty Bar (${BAR_WEIGHT.toInt()}kg)")
+            Text("Reset to Empty Bar (${ConnectedWorkout.BAR_WEIGHT.toInt()}kg)")
+        }
+    }
+}
+
+@Composable
+private fun EzBarStyleInput(
+    label: String,
+    value: Double,
+    onValueChange: (Double) -> Unit,
+    theme: ColorSchemeAppTheme
+) {
+    val haptics = LocalHapticFeedback.current
+    val sidePlates = remember(value) { calculateSidePlates(value, ConnectedWorkout.EZ_BAR_WEIGHT) }
+    val barColor = Color.LightGray
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        // Header
+        Text(
+            text = label.uppercase(),
+            style = MaterialTheme.typography.labelMedium,
+            color = theme.primary.copy(alpha = 0.95f)
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = "${String.format("%.1f", value)} kg",
+            style = MaterialTheme.typography.displaySmall.copy(fontWeight = FontWeight.Bold),
+            color = theme.primary
+        )
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // EZ Bar Visual
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(100.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            // Zigzag Shaft
+            Canvas(
+                modifier = Modifier
+                    .fillMaxWidth(0.85f)
+                    .height(30.dp)
+            ) {
+                val w = size.width
+                val h = size.height
+                val midY = h / 2
+                val zigzagW = w * 0.4f
+                val startX = (w - zigzagW) / 2
+                val endX = startX + zigzagW
+                val amplitude = 8.dp.toPx()
+
+                val path = Path().apply {
+                    moveTo(0f, midY)
+                    lineTo(startX, midY)
+                    // EZ Zigzag
+                    lineTo(startX + zigzagW * 0.25f, midY - amplitude)
+                    lineTo(startX + zigzagW * 0.5f, midY + amplitude)
+                    lineTo(startX + zigzagW * 0.75f, midY - amplitude)
+                    lineTo(endX, midY)
+                    lineTo(w, midY)
+                }
+
+                drawPath(
+                    path = path,
+                    color = barColor,
+                    style = Stroke(width = 8.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
+                )
+            }
+
+            // Plates
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                // Left Side
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(2.dp, Alignment.End),
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    sidePlates.reversed().forEach { config -> PlateVisual(config) }
+                    Box(Modifier.size(width = 8.dp, height = 25.dp).background(barColor.copy(alpha=0.8f)))
+                    Spacer(Modifier.width(10.dp))
+                }
+
+                // Center Gap (EZ bar curves are in the center)
+                Spacer(modifier = Modifier.width(60.dp))
+
+                // Right Side
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(2.dp, Alignment.Start),
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Spacer(Modifier.width(10.dp))
+                    Box(Modifier.size(width = 8.dp, height = 25.dp).background(barColor.copy(alpha=0.8f)))
+                    sidePlates.forEach { config -> PlateVisual(config) }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // Controls
+        Text(
+            text = "Add/Remove Pair",
+            style = MaterialTheme.typography.bodySmall,
+            color = theme.secondary
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier.horizontalScroll(rememberScrollState())
+        ) {
+            standardPlates.forEach { config ->
+                PlateControlColumn(
+                    config = config,
+                    onAdd = {
+                        onValueChange(value + (config.weightKg * 2))
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                    },
+                    onRemove = {
+                        val newValue = (value - (config.weightKg * 2)).coerceAtLeast(ConnectedWorkout.EZ_BAR_WEIGHT)
+                        onValueChange(newValue)
+                        haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    },
+                    theme = theme
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Reset
+        OutlinedButton(
+            onClick = {
+                onValueChange(ConnectedWorkout.EZ_BAR_WEIGHT)
+                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+            },
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = theme.primary),
+            border = BorderStroke(1.dp, theme.primary.copy(alpha = 0.5f))
+        ) {
+            Text("Reset to Empty EZ Bar (${ConnectedWorkout.EZ_BAR_WEIGHT.toInt()}kg)")
         }
     }
 }
@@ -3460,7 +4267,7 @@ private fun SetDetailTextField(
 
 
 
-private data class Particle(
+data class Particle(
     val color: Color,
     val velocity: Offset,
     val size: Float,
@@ -3468,22 +4275,25 @@ private data class Particle(
     val type: ParticleType
 )
 
-private enum class ParticleType { CIRCLE, SQUARE, SHARD }
-private enum class ParticlePalette { CRIMSON, GOLDEN }
+data class WorkoutCompletionSummary(
+    val workingWeight: Double,
+    val totalVolume: Double,
+    val intensityScore: Int,
+    val sets: Int,
+    val reps: Int,
+    val durationMillis: Long
+)
 
-data class PrFlags(
-    val strengthPr: Boolean = false,
-    val volumePr: Boolean = false,
-    val repsPr: Boolean = false,
-    val setsPr: Boolean = false
-) {
-    val any get() = strengthPr || volumePr || repsPr || setsPr
-}
+ enum class ParticleType { CIRCLE, SQUARE, SHARD }
+ enum class ParticlePalette { CRIMSON, GOLDEN }
 
 @Composable
 fun GoalCompletionAnimation(
     onAnimationFinished: () -> Unit,
+    onFinishAnimation: () -> Unit,
+    summary: WorkoutCompletionSummary,
     prFlags: PrFlags,
+    estimatedRpe: Int
 ) {
     val context = LocalContext.current
     val appearanceOptions by AppearanceOptionsManagerAppTheme
@@ -3510,6 +4320,8 @@ fun GoalCompletionAnimation(
     val prPulse = remember { Animatable(1f) }
     val prTextAlpha = remember { Animatable(0f) }
     val prTextScale = remember { Animatable(0.9f) }
+    var showFinishButton by remember { mutableStateOf(false) }
+    var showSummaryScreen by remember { mutableStateOf(false) }
 
     var particles by remember { mutableStateOf(emptyList<Particle>()) }
 
@@ -3529,6 +4341,7 @@ fun GoalCompletionAnimation(
                     animationSpec = tween(durationMillis = 2000, easing = LinearEasing)
                 )
                 onAnimationFinished()
+                showFinishButton = true
             }
             launch {
                 lightBurst.animateTo(1f, tween(100, easing = FastOutSlowInEasing))
@@ -3622,205 +4435,397 @@ fun GoalCompletionAnimation(
         }
     }
 
-    Box(
+    val finishButtonAlpha by animateFloatAsState(
+        targetValue = if (showFinishButton) 1f else 0f,
+        animationSpec = tween(durationMillis = 350, easing = FastOutSlowInEasing),
+        label = "goal_completion_finish_button_alpha"
+    )
+
+    AnimatedContent(
+        targetState = showSummaryScreen,
         modifier = Modifier.fillMaxSize(),
-        contentAlignment = Alignment.Center
-    ) {
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            val time = animationTime.value * 2.5f
-
-            if (lightBurst.value > 0f) {
-                drawCircle(
-                    color = theme.primary.copy(alpha = lightBurst.value * 0.5f),
-                    radius = size.maxDimension * lightBurst.value,
-                    center = center
-                )
-            }
-
-            if (prFlags.any && prFlash.value > 0f) {
-                drawRect(
-                    color = theme.secondary.copy(alpha = 0.18f * prFlash.value),
-                    size = size
-                )
-            }
-
-            if (prFlags.any && prShockwave.value > 0f) {
-                val t = prShockwave.value
-                val r = size.maxDimension * (0.15f + 0.95f * t)
-                val a = (1f - t).coerceIn(0f, 1f)
-                drawCircle(
-                    color = theme.primary.copy(alpha = 0.55f * a),
-                    radius = r,
-                    center = center,
-                    style = Stroke(width = (10.dp.toPx() * (1f - t)).coerceAtLeast(1f))
-                )
-            }
-
-            if (time > 0f) {
-                particles.forEach { particle ->
-                    val gravity = 2000f * density
-                    val x = center.x + (particle.velocity.x * density * time)
-                    val y = center.y + (particle.velocity.y * density * time) + (0.5f * gravity * time * time)
-                    val particleAlpha = (1f - (time / 2.0f)).coerceIn(0f, 1f)
-
-                    if (particleAlpha > 0f) {
-                        rotate(degrees = particle.rotationSpeed * time * 100f, pivot = Offset(x, y)) {
-                            when (particle.type) {
-                                ParticleType.CIRCLE -> drawCircle(
-                                    color = particle.color,
-                                    center = Offset(x, y),
-                                    radius = particle.size * density * particleAlpha,
-                                    alpha = particleAlpha
-                                )
-                                ParticleType.SQUARE -> drawRect(
-                                    color = particle.color,
-                                    topLeft = Offset(x - particle.size, y - particle.size),
-                                    size = Size(particle.size * 2, particle.size * 2),
-                                    alpha = particleAlpha
-                                )
-                                ParticleType.SHARD -> drawLine(
-                                    color = particle.color,
-                                    start = Offset(x, y),
-                                    end = Offset(x + particle.velocity.x * 0.05f, y + particle.velocity.y * 0.05f),
-                                    strokeWidth = particle.size * density * 0.5f,
-                                    alpha = particleAlpha
-                                )
-                            }
-                        }
-                    }
+        transitionSpec = {
+            (fadeIn(animationSpec = tween(320)) + scaleIn(initialScale = 0.96f, animationSpec = tween(320))) togetherWith
+                (fadeOut(animationSpec = tween(220)) + scaleOut(targetScale = 1.02f, animationSpec = tween(220)))
+        },
+        label = "goal_completion_stage"
+    ) { isSummaryVisible ->
+        if (isSummaryVisible) {
+            WorkoutCompletionSummaryScreen(
+                summary = summary,
+                estimatedRpe = estimatedRpe,
+                primaryColor = theme.primary,
+                secondaryColor = theme.secondary,
+                backgroundColor = theme.background,
+                onContinue = {
+                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    onFinishAnimation()
                 }
-            }
-        }
-
-        Box(
-            contentAlignment = Alignment.Center,
-            modifier = Modifier.offset(y = (-60).dp)
-        ) {
-            Canvas(
-                modifier = Modifier
-                    .size(200.dp)
-                    .graphicsLayer {
-                        val pulse = prPulse.value
-                        scaleX = iconScale.value * pulse
-                        scaleY = iconScale.value * pulse
-                        rotationZ = iconRotation.value
-                    }
-            ) {
-                val w = size.width
-                val h = size.height
-                val centerX = w / 2
-                val centerY = h / 2
-
-                if (ornamentProgress.value > 0f) {
-                    val ornamentCount = 8 + (sets * 2).coerceAtMost(24)
-                    val maxRadius = (w * 0.4f) + (reps * 2f * density).coerceAtMost(w * 0.3f)
-                    val baseRadius = w * 0.25f
-
-                    rotate(degrees = animationTime.value * 20f) {
-                        for (i in 0 until ornamentCount) {
-                            val angle = (2 * PI / ornamentCount) * i
-                            val currentRadius = baseRadius + (maxRadius - baseRadius) * ornamentProgress.value
-
-                            val startX = centerX + cos(angle).toFloat() * baseRadius
-                            val startY = centerY + sin(angle).toFloat() * baseRadius
-                            val endX = centerX + cos(angle).toFloat() * currentRadius
-                            val endY = centerY + sin(angle).toFloat() * currentRadius
-
-                            val spikePath = Path().apply {
-                                moveTo(startX, startY)
-                                lineTo(endX, endY)
-                                lineTo(
-                                    centerX + cos(angle + 0.1).toFloat() * (baseRadius + 10f),
-                                    centerY + sin(angle + 0.1).toFloat() * (baseRadius + 10f)
-                                )
-                                close()
-                            }
-
-                            val spikeBrush = if (prFlags.any) {
-                                Brush.linearGradient(listOf(Color(0xFFFFF8E1), Color(0xFFFFD700), Color(0xFFFFB300)))
-                            } else {
-                                Brush.linearGradient(listOf(Color(0xFFDC143C), Color(0xFF8B0000)))
-                            }
-
-                            drawPath(path = spikePath, brush = spikeBrush)
-
-                            drawCircle(
-                                color = if (prFlags.any) Color(0xFFFFD700) else Color(0xFFFF1744),
-                                radius = 3.dp.toPx() * ornamentProgress.value,
-                                center = Offset(endX, endY),
-                                alpha = ornamentProgress.value
-                            )
-                        }
-                    }
-                }
-
-                val crownPath = Path().apply {
-                    val cw = w * 0.6f
-                    val ch = h * 0.6f
-                    val ox = (w - cw) / 2
-                    val oy = (h - ch) / 2 + (h * 0.1f)
-
-                    moveTo(ox + cw * 0.2f, oy + ch * 0.7f)
-                    lineTo(ox + cw * 0.8f, oy + ch * 0.7f)
-                    lineTo(ox + cw * 0.9f, oy + ch * 0.3f)
-                    lineTo(ox + cw * 0.65f, oy + ch * 0.5f)
-                    lineTo(ox + cw * 0.5f, oy + ch * 0.15f)
-                    lineTo(ox + cw * 0.35f, oy + ch * 0.5f)
-                    lineTo(ox + cw * 0.1f, oy + ch * 0.3f)
-                    close()
-                }
-
-                val crownBrush = if (prFlags.any) {
-                    Brush.linearGradient(listOf(Color(0xFFFFF8E1), Color(0xFFFFD700), Color(0xFFFFB300)))
-                } else {
-                    Brush.linearGradient(listOf(Color(0xFFD50000), Color(0xFFDC143C), Color(0xFFB71C1C)))
-                }
-
-                drawPath(path = crownPath, brush = crownBrush)
-
-                drawPath(
-                    path = crownPath,
-                    style = Stroke(width = 4.dp.toPx(), join = StrokeJoin.Round),
-                    color = if (prFlags.any) Color(0xFFFFF8E1) else Color(0xFFFF8A80)
-                )
-            }
-        }
-
-        Text(
-            text = styledText,
-            modifier = Modifier
-                .offset(y = 60.dp)
-                .graphicsLayer {
-                    val pulse = prPulse.value
-                    scaleX = textScale.value * pulse
-                    scaleY = textScale.value * pulse
-                    alpha = textAlpha.value
-                },
-            textAlign = TextAlign.Center,
-            lineHeight = 50.sp,
-            style = TextStyle(
-                fontSize = 52.sp,
-                fontWeight = FontWeight.Black,
             )
-        )
+        } else {
+            Box(modifier = Modifier.fillMaxSize()) {
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    val time = animationTime.value * 2.5f
 
-        if (prFlags.any) {
-            Text(
-                text = prLabel,
-                modifier = Modifier
-                    .offset(y = 140.dp)
-                    .graphicsLayer {
-                        alpha = prTextAlpha.value
-                        scaleX = prTextScale.value * prPulse.value
-                        scaleY = prTextScale.value * prPulse.value
+                    if (lightBurst.value > 0f) {
+                        drawCircle(
+                            color = theme.primary.copy(alpha = lightBurst.value * 0.5f),
+                            radius = size.maxDimension * lightBurst.value,
+                            center = center
+                        )
+                    }
+
+                    if (prFlags.any && prFlash.value > 0f) {
+                        drawRect(
+                            color = theme.secondary.copy(alpha = 0.18f * prFlash.value),
+                            size = size
+                        )
+                    }
+
+                    if (prFlags.any && prShockwave.value > 0f) {
+                        val t = prShockwave.value
+                        val r = size.maxDimension * (0.15f + 0.95f * t)
+                        val a = (1f - t).coerceIn(0f, 1f)
+                        drawCircle(
+                            color = theme.primary.copy(alpha = 0.55f * a),
+                            radius = r,
+                            center = center,
+                            style = Stroke(width = (10.dp.toPx() * (1f - t)).coerceAtLeast(1f))
+                        )
+                    }
+
+                    if (time > 0f) {
+                        particles.forEach { particle ->
+                            val gravity = 2000f * density
+                            val x = center.x + (particle.velocity.x * density * time)
+                            val y = center.y + (particle.velocity.y * density * time) + (0.5f * gravity * time * time)
+                            val particleAlpha = (1f - (time / 2.0f)).coerceIn(0f, 1f)
+
+                            if (particleAlpha > 0f) {
+                                rotate(degrees = particle.rotationSpeed * time * 100f, pivot = Offset(x, y)) {
+                                    when (particle.type) {
+                                        ParticleType.CIRCLE -> drawCircle(
+                                            color = particle.color,
+                                            center = Offset(x, y),
+                                            radius = particle.size * density * particleAlpha,
+                                            alpha = particleAlpha
+                                        )
+                                        ParticleType.SQUARE -> drawRect(
+                                            color = particle.color,
+                                            topLeft = Offset(x - particle.size, y - particle.size),
+                                            size = Size(particle.size * 2, particle.size * 2),
+                                            alpha = particleAlpha
+                                        )
+                                        ParticleType.SHARD -> drawLine(
+                                            color = particle.color,
+                                            start = Offset(x, y),
+                                            end = Offset(x + particle.velocity.x * 0.05f, y + particle.velocity.y * 0.05f),
+                                            strokeWidth = particle.size * density * 0.5f,
+                                            alpha = particleAlpha
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .offset(y = (-60).dp)
+                ) {
+                    Canvas(
+                        modifier = Modifier
+                            .size(200.dp)
+                            .graphicsLayer {
+                                val pulse = prPulse.value
+                                scaleX = iconScale.value * pulse
+                                scaleY = iconScale.value * pulse
+                                rotationZ = iconRotation.value
+                            }
+                    ) {
+                        val w = size.width
+                        val h = size.height
+                        val centerX = w / 2
+                        val centerY = h / 2
+
+                        if (ornamentProgress.value > 0f) {
+                            val ornamentCount = 8 + (sets * 2).coerceAtMost(24)
+                            val maxRadius = (w * 0.4f) + (reps * 2f * density).coerceAtMost(w * 0.3f)
+                            val baseRadius = w * 0.25f
+
+                            rotate(degrees = animationTime.value * 20f) {
+                                for (i in 0 until ornamentCount) {
+                                    val angle = (2 * PI / ornamentCount) * i
+                                    val currentRadius = baseRadius + (maxRadius - baseRadius) * ornamentProgress.value
+
+                                    val startX = centerX + cos(angle).toFloat() * baseRadius
+                                    val startY = centerY + sin(angle).toFloat() * baseRadius
+                                    val endX = centerX + cos(angle).toFloat() * currentRadius
+                                    val endY = centerY + sin(angle).toFloat() * currentRadius
+
+                                    val spikePath = Path().apply {
+                                        moveTo(startX, startY)
+                                        lineTo(endX, endY)
+                                        lineTo(
+                                            centerX + cos(angle + 0.1).toFloat() * (baseRadius + 10f),
+                                            centerY + sin(angle + 0.1).toFloat() * (baseRadius + 10f)
+                                        )
+                                        close()
+                                    }
+
+                                    val spikeBrush = if (prFlags.any) {
+                                        Brush.linearGradient(listOf(Color(0xFFFFF8E1), Color(0xFFFFD700), Color(0xFFFFB300)))
+                                    } else {
+                                        Brush.linearGradient(listOf(Color(0xFFDC143C), Color(0xFF8B0000)))
+                                    }
+
+                                    drawPath(path = spikePath, brush = spikeBrush)
+
+                                    drawCircle(
+                                        color = if (prFlags.any) Color(0xFFFFD700) else Color(0xFFFF1744),
+                                        radius = 3.dp.toPx() * ornamentProgress.value,
+                                        center = Offset(endX, endY),
+                                        alpha = ornamentProgress.value
+                                    )
+                                }
+                            }
+                        }
+
+                        val crownPath = Path().apply {
+                            val cw = w * 0.6f
+                            val ch = h * 0.6f
+                            val ox = (w - cw) / 2
+                            val oy = (h - ch) / 2 + (h * 0.1f)
+
+                            moveTo(ox + cw * 0.2f, oy + ch * 0.7f)
+                            lineTo(ox + cw * 0.8f, oy + ch * 0.7f)
+                            lineTo(ox + cw * 0.9f, oy + ch * 0.3f)
+                            lineTo(ox + cw * 0.65f, oy + ch * 0.5f)
+                            lineTo(ox + cw * 0.5f, oy + ch * 0.15f)
+                            lineTo(ox + cw * 0.35f, oy + ch * 0.5f)
+                            lineTo(ox + cw * 0.1f, oy + ch * 0.3f)
+                            close()
+                        }
+
+                        val crownBrush = if (prFlags.any) {
+                            Brush.linearGradient(listOf(Color(0xFFFFF8E1), Color(0xFFFFD700), Color(0xFFFFB300)))
+                        } else {
+                            Brush.linearGradient(listOf(Color(0xFFD50000), Color(0xFFDC143C), Color(0xFFB71C1C)))
+                        }
+
+                        drawPath(path = crownPath, brush = crownBrush)
+
+                        drawPath(
+                            path = crownPath,
+                            style = Stroke(width = 4.dp.toPx(), join = StrokeJoin.Round),
+                            color = if (prFlags.any) Color(0xFFFFF8E1) else Color(0xFFFF8A80)
+                        )
+                    }
+                }
+
+                Text(
+                    text = styledText,
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .offset(y = 60.dp)
+                        .graphicsLayer {
+                            val pulse = prPulse.value
+                            scaleX = textScale.value * pulse
+                            scaleY = textScale.value * pulse
+                            alpha = textAlpha.value
+                        },
+                    textAlign = TextAlign.Center,
+                    lineHeight = 50.sp,
+                    style = TextStyle(
+                        fontSize = 52.sp,
+                        fontWeight = FontWeight.Black,
+                    )
+                )
+
+                if (prFlags.any) {
+                    Text(
+                        text = prLabel,
+                        modifier = Modifier
+                            .align(Alignment.Center)
+                            .offset(y = 140.dp)
+                            .graphicsLayer {
+                                alpha = prTextAlpha.value
+                                scaleX = prTextScale.value * prPulse.value
+                                scaleY = prTextScale.value * prPulse.value
+                            },
+                        textAlign = TextAlign.Center,
+                        style = TextStyle(
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Black,
+                            letterSpacing = 1.sp,
+                        ),
+                        color = Color(0xFFFFD700)
+                    )
+                }
+
+                Button(
+                    onClick = {
+                        haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        showSummaryScreen = true
                     },
-                textAlign = TextAlign.Center,
-                style = TextStyle(
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Black,
-                    letterSpacing = 1.sp,
-                ),
-                color = Color(0xFFFFD700)
+                    shape = RoundedCornerShape(28.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = theme.primary,
+                        contentColor = theme.background
+                    ),
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(horizontal = 24.dp, vertical = 32.dp)
+                        .fillMaxWidth()
+                        .height(58.dp)
+                        .graphicsLayer {
+                            alpha = finishButtonAlpha
+                            translationY = (1f - finishButtonAlpha) * 48f
+                        },
+                    enabled = showFinishButton
+                ) {
+                    Text(
+                        text = "View Summary",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun WorkoutCompletionSummaryScreen(
+    summary: WorkoutCompletionSummary,
+    estimatedRpe: Int,
+    primaryColor: Color,
+    secondaryColor: Color,
+    backgroundColor: Color,
+    onContinue: () -> Unit
+) {
+    val weightText = if (summary.workingWeight > 0.0) {
+        "${summary.workingWeight.roundToInt()} kg"
+    } else {
+        "Bodyweight"
+    }
+    val volumeText = if (summary.totalVolume > 0.0) {
+        "${summary.totalVolume.roundToInt()} kg"
+    } else {
+        "${summary.reps} reps"
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(
+                        backgroundColor.copy(alpha = 0.98f),
+                        secondaryColor.copy(alpha = 0.14f),
+                        primaryColor.copy(alpha = 0.18f)
+                    )
+                )
+            )
+            .padding(horizontal = 24.dp, vertical = 28.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(top = 48.dp, bottom = 88.dp),
+            verticalArrangement = Arrangement.spacedBy(18.dp)
+        ) {
+            Text(
+                text = "SESSION SUMMARY",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Black,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                text = "Volume, intensity, and load at a glance.",
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f)
+            )
+
+            SummaryStatCard(
+                title = "Volume",
+                value = volumeText,
+                subtitle = "${summary.sets} sets / ${summary.reps} reps",
+                accent = primaryColor
+            )
+            SummaryStatCard(
+                title = "Intensity",
+                value = "${summary.intensityScore}/10",
+                subtitle = "Estimated session RPE $estimatedRpe/10",
+                accent = secondaryColor
+            )
+            SummaryStatCard(
+                title = "Weight",
+                value = weightText,
+                subtitle = formatElapsedHms(summary.durationMillis),
+                accent = lerp(primaryColor, secondaryColor, 0.45f)
+            )
+        }
+
+        Button(
+            onClick = onContinue,
+            shape = RoundedCornerShape(28.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = primaryColor,
+                contentColor = backgroundColor
+            ),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .height(58.dp)
+        ) {
+            Text(
+                text = "Continue",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+        }
+    }
+}
+
+@Composable
+private fun SummaryStatCard(
+    title: String,
+    value: String,
+    subtitle: String,
+    accent: Color
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = accent.copy(alpha = 0.12f)
+        ),
+        border = BorderStroke(1.dp, accent.copy(alpha = 0.22f))
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Text(
+                text = title.uppercase(),
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold,
+                color = accent
+            )
+            Text(
+                text = value,
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.Black,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f)
             )
         }
     }
@@ -3870,10 +4875,57 @@ private fun generateParticles(
 
 
 
-object ConnectedWorkout{
+object ConnectedWorkout {
+    private const val SESSION_PREFS = "connected_workout_session"
+    private const val KEY_WORKOUT = "workout"
+    private const val KEY_GOAL_TYPE = "goal_type"
+    private const val KEY_GOAL_REPS = "goal_reps"
+    private const val KEY_GOAL_SETS = "goal_sets"
+    private const val KEY_CURRENT_REPS = "current_reps"
+    private const val KEY_CURRENT_SETS = "current_sets"
+    private const val KEY_CURRENT_TIME = "current_time"
+    private const val KEY_GOAL_TIME = "goal_time"
+    private const val KEY_GOAL_DISTANCE = "goal_distance"
+    private const val KEY_CURRENT_DISTANCE = "current_distance"
+    private const val KEY_CURRENT_WEIGHT = "current_weight"
+    private const val KEY_REST_TIME = "rest_time"
+    private const val KEY_REST_REMAINING = "rest_remaining"
+    private const val KEY_MODE = "mode"
+    private const val KEY_IS_BODYWEIGHT = "is_bodyweight"
+
+    data class SetTimingMetrics(
+        val intensityScore: Int,
+        val fatigueScore: Int,
+        val averageRestSeconds: Int,
+        val intervalsMillis: List<Long>
+    )
+
     enum class WorkoutMode { INACTIVE, ACTIVE, RESTING }
     var currentMode = mutableStateOf(WorkoutMode.INACTIVE)
     var restTimeRemaining = mutableLongStateOf(0L)
+
+    val barbellVisualExercises = setOf(
+        "Barbell Bench Press",
+        "Incline Barbell Press",
+        "Barbell Back Squat",
+        "Front Squat",
+        "Deadlifts",
+        "Sumo Deadlifts",
+        "Romanian Deadlifts",
+        "Overhead Press (Barbell)",
+        "Push Press",
+        "Bent-Over Rows",
+        "Pendlay Rows",
+        "Good Mornings",
+        "Hip Thrusts"
+    )
+
+    val ezBarVisualExercises = setOf(
+        "Barbell Curls",
+        "Barbell Shrugs",
+        "EZ Bar Curls",
+        "EZ Bar Shrugs"
+    )
 
     var workout = mutableStateOf("")
     var GoalReps = mutableIntStateOf(0)
@@ -3885,6 +4937,8 @@ object ConnectedWorkout{
     var GoalDistance = mutableStateOf(0.0)
     var currentDistance = mutableStateOf(0.0)
     var CurrentWeight = mutableStateOf(0.0)
+    val setCompletionTimestamps = mutableStateListOf<Long>()
+    var isBodyweight = mutableStateOf(false)
     var GoalType = "Reps"
     val workoutGoalTypeMap = mutableMapOf<String, String>()
     var selectedWorkout: MutableState<String> = mutableStateOf("")
@@ -3893,6 +4947,307 @@ object ConnectedWorkout{
     var healthConnectEnabled = mutableStateOf(false)
     var interMinute = mutableIntStateOf(0)
     var interSecond = mutableIntStateOf(0)
+
+    val BAR_WEIGHT = 20.0
+    val EZ_BAR_WEIGHT = 10.0
+
+    fun recordSetCompletionTimestamp(timestampMillis: Long = System.currentTimeMillis()) {
+        val lastTimestamp = setCompletionTimestamps.lastOrNull()
+        if (lastTimestamp == null || timestampMillis > lastTimestamp) {
+            setCompletionTimestamps.add(timestampMillis)
+        }
+    }
+
+    fun clearSetTimingData() {
+        setCompletionTimestamps.clear()
+    }
+
+    fun saveSnapshot(context: Context) {
+        val prefs = context.getSharedPreferences(SESSION_PREFS, Context.MODE_PRIVATE)
+        prefs.edit()
+            .putString(KEY_WORKOUT, workout.value)
+            .putString(KEY_GOAL_TYPE, GoalType)
+            .putInt(KEY_GOAL_REPS, GoalReps.intValue)
+            .putInt(KEY_GOAL_SETS, GoalSets.intValue)
+            .putInt(KEY_CURRENT_REPS, CurrentReps.intValue)
+            .putInt(KEY_CURRENT_SETS, CurrentSets.intValue)
+            .putLong(KEY_CURRENT_TIME, CurrentTime.value)
+            .putLong(KEY_GOAL_TIME, GoalTime.value)
+            .putFloat(KEY_GOAL_DISTANCE, GoalDistance.value.toFloat())
+            .putFloat(KEY_CURRENT_DISTANCE, currentDistance.value.toFloat())
+            .putFloat(KEY_CURRENT_WEIGHT, CurrentWeight.value.toFloat())
+            .putLong(KEY_REST_TIME, restTime.longValue)
+            .putLong(KEY_REST_REMAINING, restTimeRemaining.longValue)
+            .putString(KEY_MODE, currentMode.value.name)
+            .putBoolean(KEY_IS_BODYWEIGHT, isBodyweight.value)
+            .apply()
+    }
+
+    fun restoreSnapshot(context: Context): Boolean {
+        val prefs = context.getSharedPreferences(SESSION_PREFS, Context.MODE_PRIVATE)
+        if (!prefs.contains(KEY_MODE)) return false
+        val restoredMode = runCatching {
+            WorkoutMode.valueOf(prefs.getString(KEY_MODE, WorkoutMode.INACTIVE.name) ?: WorkoutMode.INACTIVE.name)
+        }.getOrDefault(WorkoutMode.INACTIVE)
+
+        workout.value = prefs.getString(KEY_WORKOUT, "").orEmpty()
+        GoalType = prefs.getString(KEY_GOAL_TYPE, "Reps") ?: "Reps"
+        GoalReps.intValue = prefs.getInt(KEY_GOAL_REPS, 0)
+        GoalSets.intValue = prefs.getInt(KEY_GOAL_SETS, 0)
+        CurrentReps.intValue = prefs.getInt(KEY_CURRENT_REPS, 0)
+        CurrentSets.intValue = prefs.getInt(KEY_CURRENT_SETS, 0)
+        CurrentTime.value = prefs.getLong(KEY_CURRENT_TIME, 0L)
+        GoalTime.value = prefs.getLong(KEY_GOAL_TIME, 0L)
+        GoalDistance.value = prefs.getFloat(KEY_GOAL_DISTANCE, 0f).toDouble()
+        currentDistance.value = prefs.getFloat(KEY_CURRENT_DISTANCE, 0f).toDouble()
+        CurrentWeight.value = prefs.getFloat(KEY_CURRENT_WEIGHT, 0f).toDouble()
+        restTime.longValue = prefs.getLong(KEY_REST_TIME, 60_000L)
+        restTimeRemaining.longValue = prefs.getLong(KEY_REST_REMAINING, 0L)
+        isBodyweight.value = prefs.getBoolean(KEY_IS_BODYWEIGHT, false)
+        currentMode.value = restoredMode
+
+        return hasSessionSnapshot() || currentMode.value != WorkoutMode.INACTIVE
+    }
+
+    fun clearSnapshot(context: Context) {
+        context.getSharedPreferences(SESSION_PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .clear()
+            .apply()
+    }
+
+    fun forceEndSession(context: Context) {
+        clearSetTimingData()
+        WorkoutForegroundService.stop(context)
+        currentMode.value = WorkoutMode.INACTIVE
+        restTimeRemaining.longValue = 0L
+
+        interHour.intValue = 0
+        interMinute.intValue = 0
+        interSecond.intValue = 0
+        CurrentTime.value = 0L
+        GoalTime.value = 0L
+
+        CurrentSets.intValue = 0
+        CurrentReps.intValue = 0
+        GoalSets.intValue = 0
+        GoalReps.intValue = 0
+
+        CurrentWeight.value = 0.0
+        currentDistance.value = 0.0
+        GoalDistance.value = 0.0
+        workout.value = ""
+        GoalType = "Reps"
+        isBodyweight.value = false
+        clearSnapshot(context)
+    }
+
+    fun hasSessionSnapshot(): Boolean {
+        if (GoalSets.intValue > 0 || GoalReps.intValue > 0) return true
+        if (GoalTime.value > 0L || GoalDistance.value > 0.0) return true
+        if (CurrentSets.intValue > 0 || CurrentReps.intValue > 0) return true
+        if (CurrentTime.value > 0L || currentDistance.value > 0.0) return true
+        return false
+    }
+
+    fun deriveSetTimingMetrics(): SetTimingMetrics {
+        if (setCompletionTimestamps.size < 2) {
+            val fallbackRestSeconds = (restTime.longValue / 1000L).coerceAtLeast(1L).toInt()
+            return SetTimingMetrics(
+                intensityScore = 5,
+                fatigueScore = 5,
+                averageRestSeconds = fallbackRestSeconds,
+                intervalsMillis = emptyList()
+            )
+        }
+
+        val intervals = setCompletionTimestamps
+            .zipWithNext { previous, current -> (current - previous).coerceAtLeast(1L) }
+            .filter { it > 0L }
+
+        if (intervals.isEmpty()) {
+            return SetTimingMetrics(
+                intensityScore = 5,
+                fatigueScore = 5,
+                averageRestSeconds = 60,
+                intervalsMillis = emptyList()
+            )
+        }
+
+        val averageIntervalMillis = intervals.average()
+        val firstInterval = intervals.first().toDouble()
+        val lastInterval = intervals.last().toDouble()
+        val fatigueTrend = ((lastInterval - firstInterval) / firstInterval).coerceIn(-1.0, 2.0)
+
+        val variance = intervals
+            .map { (it - averageIntervalMillis) * (it - averageIntervalMillis) }
+            .average()
+        val standardDeviation = kotlin.math.sqrt(variance)
+        val variability = (standardDeviation / averageIntervalMillis).coerceIn(0.0, 1.0)
+        val density = ((180000.0 - averageIntervalMillis) / 150000.0).coerceIn(0.0, 1.0)
+
+        val intensityScore = (4.0 + density * 6.0).roundToInt().coerceIn(1, 10)
+        val fatigueScore = (3.0 + (fatigueTrend * 3.0) + (variability * 2.0) + (density * 2.0))
+            .roundToInt()
+            .coerceIn(1, 10)
+
+        return SetTimingMetrics(
+            intensityScore = intensityScore,
+            fatigueScore = fatigueScore,
+            averageRestSeconds = (averageIntervalMillis / 1000.0).roundToInt().coerceAtLeast(1),
+            intervalsMillis = intervals
+        )
+    }
+
+    private data class SessionLoadProfile(
+        val volumeUnits: Double,
+        val loadUnits: Double,
+        val hrStrain: Double,
+        val densityPerMinute: Double
+    )
+
+    private fun estimateSessionLoadProfile(
+        timingMetrics: SetTimingMetrics,
+        avgHeartRate: Int?,
+        maxHeartRate: Int?
+    ): SessionLoadProfile {
+        val sets = CurrentSets.intValue.coerceAtLeast(0)
+        val reps = CurrentReps.intValue.coerceAtLeast(0)
+        val weight = CurrentWeight.value.coerceAtLeast(0.0)
+        val distance = currentDistance.value.coerceAtLeast(0.0)
+        val durationMinutes = (CurrentTime.value / 60000.0).coerceAtLeast(0.0)
+
+        val tonnageUnits = (sets * reps * weight) / 1000.0
+        val enduranceUnits = distance * 2.4
+        val durationUnits = durationMinutes / 30.0
+        val fallbackUnits = if (tonnageUnits == 0.0 && enduranceUnits == 0.0) {
+            (durationMinutes / 40.0).coerceAtLeast(0.6)
+        } else {
+            0.0
+        }
+        val volumeUnits = (tonnageUnits + enduranceUnits + durationUnits + fallbackUnits).coerceAtLeast(0.2)
+
+        val avgHrValue = avgHeartRate ?: 0
+        val maxHrValue = maxHeartRate ?: 0
+        val avgHrLoad = if (avgHrValue > 0) {
+            ((avgHrValue.toDouble() - 95.0) / 70.0).coerceIn(0.0, 1.3)
+        } else {
+            0.0
+        }
+        val peakHrLoad = if (maxHrValue > 0) {
+            ((maxHrValue.toDouble() - 130.0) / 65.0).coerceIn(0.0, 1.3)
+        } else {
+            0.0
+        }
+        val hrStrain = (avgHrLoad * 0.65) + (peakHrLoad * 0.35)
+
+        val densityMultiplier = when {
+            timingMetrics.averageRestSeconds <= 75 -> 1.12
+            timingMetrics.averageRestSeconds <= 120 -> 1.05
+            else -> 0.95
+        }
+        val timingMultiplier = 1.0 +
+            ((timingMetrics.intensityScore - 5).coerceIn(-4, 5) * 0.07) +
+            ((timingMetrics.fatigueScore - 5).coerceIn(-4, 5) * 0.05)
+
+        val loadUnits = volumeUnits * (1.0 + (hrStrain * 0.38)) * timingMultiplier * densityMultiplier
+        val densityPerMinute = loadUnits / durationMinutes.coerceAtLeast(12.0)
+
+        return SessionLoadProfile(
+            volumeUnits = volumeUnits,
+            loadUnits = loadUnits,
+            hrStrain = hrStrain,
+            densityPerMinute = densityPerMinute
+        )
+    }
+
+    fun estimateRPE(
+        timingMetrics: SetTimingMetrics = deriveSetTimingMetrics(),
+        avgHeartRate: Int? = null,
+        maxHeartRate: Int? = null
+    ): Int {
+        val sets = CurrentSets.intValue
+        val reps = CurrentReps.intValue
+        val timeMillis = CurrentTime.value
+        val timeMinutes = timeMillis / 60000.0
+
+        if (sets == 0 && reps == 0 && currentDistance.value == 0.0) return 0
+
+        val sessionProfile = estimateSessionLoadProfile(timingMetrics, avgHeartRate, maxHeartRate)
+        var baseRPE = 6.0
+
+        if (GoalType == "Distance") {
+            val km = currentDistance.value
+            if (km > 0 && timeMinutes > 0) {
+                val pace = timeMinutes / km
+                val paceFactor = (7.0 - pace).coerceIn(-1.5, 2.5)
+                baseRPE += paceFactor
+                if (km > 5) baseRPE += 0.5
+                if (km > 10) baseRPE += 1.0
+            }
+        } else {
+            if (sets > 0) {
+                val repsPerSet = reps.toDouble() / sets
+                baseRPE += (sets - 3).coerceAtLeast(0) * 0.4
+                if (repsPerSet > 12) baseRPE += 0.5
+                if (repsPerSet > 20) baseRPE += 1.0
+            }
+        }
+
+        baseRPE += (timingMetrics.intensityScore - 5) * 0.22
+        baseRPE += (timingMetrics.fatigueScore - 5) * 0.18
+        baseRPE += (sessionProfile.densityPerMinute - 0.35).coerceIn(-0.5, 2.5) * 1.2
+        baseRPE += (sessionProfile.volumeUnits / 10.0).coerceIn(0.0, 1.8) * 0.7
+        baseRPE += sessionProfile.hrStrain * 1.4
+
+        if (timeMinutes > 30) baseRPE += 0.5
+        if (timeMinutes > 60) baseRPE += 1.0
+
+        return baseRPE.roundToInt().coerceIn(1, 10)
+    }
+
+    fun estimateFatigueLevel(
+        rpe: Int,
+        timingMetrics: SetTimingMetrics = deriveSetTimingMetrics(),
+        avgHeartRate: Int? = null,
+        maxHeartRate: Int? = null
+    ): Int {
+        val sessionProfile = estimateSessionLoadProfile(timingMetrics, avgHeartRate, maxHeartRate)
+        val durationMinutes = (CurrentTime.value / 60000.0).coerceAtLeast(0.0)
+
+        var fatigue = 2.2 + (rpe * 0.52)
+        fatigue += (timingMetrics.fatigueScore - 5) * 0.38
+        fatigue += sessionProfile.hrStrain * 1.8
+        fatigue += (sessionProfile.loadUnits / 10.0).coerceIn(0.0, 2.2)
+
+        if (durationMinutes > 60.0) fatigue += 0.6
+        if (durationMinutes > 90.0) fatigue += 0.6
+
+        return fatigue.roundToInt().coerceIn(1, 10)
+    }
+
+    fun calculateSystemicDrain(
+        rpe: Int,
+        timingMetrics: SetTimingMetrics = deriveSetTimingMetrics(),
+        avgHeartRate: Int? = null,
+        maxHeartRate: Int? = null
+    ): Float {
+        val sessionProfile = estimateSessionLoadProfile(timingMetrics, avgHeartRate, maxHeartRate)
+        val compoundMultiplier = if (barbellVisualExercises.any { workout.value.contains(it, true) }) 1.4 else 1.0
+        val intensityMultiplier = 1.0 + (rpe.toDouble() / 10.0).pow(1.35)
+        val timingLoadMultiplier = 1.0 + ((timingMetrics.intensityScore + timingMetrics.fatigueScore) / 20.0) * 0.22
+
+        val baseDrain = (sessionProfile.loadUnits * 7.8) + (sessionProfile.volumeUnits * 2.8)
+
+        return (baseDrain * intensityMultiplier * compoundMultiplier * timingLoadMultiplier)
+            .toFloat()
+            .coerceIn(0f, 100f)
+    }
+
+    fun inferEnvironment(): String {
+        val hour = java.time.LocalTime.now().hour
+        return if (hour in 11..16) "Possible Heat" else "Standard"
+    }
 }
 data class PlateConfig(
     val weightKg: Double,
@@ -3912,11 +5267,9 @@ val standardPlates = listOf(
 // Grey/White
 )
 
-val BAR_WEIGHT = 20.0
-
 // Helper to determine which plates are on one side based on total weight
-fun calculateSidePlates(totalWeight: Double): List<PlateConfig> {
-    var remainingWeightPerSide = ((totalWeight - BAR_WEIGHT).coerceAtLeast(0.0)) / 2.0
+fun calculateSidePlates(totalWeight: Double, barWeight: Double = ConnectedWorkout.BAR_WEIGHT): List<PlateConfig> {
+    var remainingWeightPerSide = ((totalWeight - barWeight).coerceAtLeast(0.0)) / 2.0
     val plates = mutableListOf<PlateConfig>()
 
     // Greedy algorithm: fit biggest plates first
@@ -4165,70 +5518,4 @@ private data class ParticleData(
     val wobbleMagnitudeBase: Float,
     val wobbleMagnitudeExtra: Float
 )
-data class PrResult(
-    val isStrengthPr: Boolean,
-    val isVolumePr: Boolean,
-    val prevBestE1rm: Float?,
-    val prevBestVolume: Float?
-)
 
-private fun epley1RM(weight: Float, reps: Int): Float {
-    if (weight <= 0f || reps <= 0) return 0f
-    return weight * (1f + reps / 30f)
-}
-
-fun checkPrForExercise(
-    allWorkouts: List<Workout>,
-    exerciseName: String,
-    newWeight: Float,
-    newReps: Int,
-    newSets: Int
-): PrResult {
-    // Guard against garbage input
-    if (newWeight <= 0f || newReps <= 0 || newSets <= 0) {
-        return PrResult(
-            isStrengthPr = false,
-            isVolumePr = false,
-            prevBestE1rm = null,
-            prevBestVolume = null
-        )
-    }
-
-    val newE1rm = epley1RM(newWeight, newReps)
-    val newVolume = newWeight * newReps * newSets
-
-    val previous = allWorkouts
-        .asSequence()
-        .filter { it.name == exerciseName }
-        .mapNotNull { w ->
-            val weight = w.weight?.toFloat()
-            val reps = w.reps
-            val sets = w.sets
-
-            // Skip invalid or incomplete entries
-            if (weight == null || weight <= 0f || reps!! <= 0 || sets!! <= 0) {
-                null
-            } else {
-                Triple(weight, reps, sets)
-            }
-        }
-        .toList()
-
-    val bestPrevE1rm = previous.maxOfOrNull { (weight, reps, _) ->
-        epley1RM(weight, reps)
-    }
-
-    val bestPrevVolume = previous.maxOfOrNull { (weight, reps, sets) ->
-        weight * reps * sets
-    }
-
-    val isStrengthPr = bestPrevE1rm == null || newE1rm > bestPrevE1rm
-    val isVolumePr = bestPrevVolume == null || newVolume > bestPrevVolume
-
-    return PrResult(
-        isStrengthPr = isStrengthPr,
-        isVolumePr = isVolumePr,
-        prevBestE1rm = bestPrevE1rm,
-        prevBestVolume = bestPrevVolume
-    )
-}

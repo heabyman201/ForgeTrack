@@ -4,6 +4,8 @@ import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -12,6 +14,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.sample
 import kotlinx.coroutines.launch
 
 // app-wear/presentation/HrViewModel.kt
@@ -30,6 +33,7 @@ class HrViewModel(
 
     private val _inExercise = MutableStateFlow(false)
     val inExercise: StateFlow<Boolean> = _inExercise.asStateFlow()
+    private var streamJob: Job? = null
 
     init {
         // forward BPM to phone, throttled
@@ -39,20 +43,36 @@ class HrViewModel(
     fun start() {
         if (_inExercise.value) return
         viewModelScope.launch {
-            runCatching { repo.startHrExercise() }
-                .onSuccess {
-                    _inExercise.value = true
-                    repo.heartRateStream().collect { _bpm.value = it }
+            val started = runCatching { repo.startHrExercise() }.getOrDefault(false)
+            if (!started) {
+                _inExercise.value = false
+                return@launch
+            }
+            _inExercise.value = true
+            streamJob?.cancel()
+            streamJob = launch {
+                runCatching {
+                    repo.heartRateStream()
+                        .filterNotNull()
+                        .conflate()
+                        .sample(1500)
+                        .distinctUntilChanged()
+                        .collect { value -> _bpm.value = value }
+                }.onFailure {
+                    _inExercise.value = false
                 }
-                .onFailure { _inExercise.value = false }
+            }
         }
     }
 
     fun stop() {
         if (!_inExercise.value) return
         viewModelScope.launch {
+            streamJob?.cancel()
+            streamJob = null
             repo.endExercise()
             _inExercise.value = false
+            _bpm.value = null
         }
     }
 
@@ -60,9 +80,10 @@ class HrViewModel(
     private fun forwardBpmToPhone() {
         _bpm
             .filterNotNull()
+            .conflate()
             .distinctUntilChanged()
-            .debounce(800) // ~1 update per ~0.8s; tweak as you like
-            .onEach { viewModelScope.launch { runCatching { sync.sendBpm(it) } } }
+            .debounce(2000)
+            .onEach { runCatching { sync.sendBpm(it) } }
             .launchIn(viewModelScope)
     }
 }

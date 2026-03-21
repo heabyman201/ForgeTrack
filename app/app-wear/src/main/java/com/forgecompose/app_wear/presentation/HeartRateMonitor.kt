@@ -1,8 +1,6 @@
 package com.forgecompose.app_wear.presentation
 
-import android.Manifest
 import android.content.Context
-import android.content.pm.PackageManager
 import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
@@ -32,10 +30,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.core.content.ContextCompat
+import com.forgecompose.app_wear.presentation.theme.hasHeartRatePermission
 import androidx.wear.compose.material.Icon
 import androidx.wear.compose.material.MaterialTheme
 import androidx.wear.compose.material.Text
+import com.forgecompose.app_wear.presentation.theme.requiredSensorPermissions
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 
@@ -50,16 +49,17 @@ fun HeartRateMonitor(
     var caloriesBurnt by remember { mutableFloatStateOf(0f) }
     var hasPermission by remember { mutableStateOf(false) }
 
+    val requiredPermissions = remember { requiredSensorPermissions() }
     val permissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission(),
-        onResult = { hasPermission = it }
+        contract = ActivityResultContracts.RequestMultiplePermissions(),
+        onResult = { results -> hasPermission = hasHeartRatePermission(results) }
     )
 
     LaunchedEffect(Unit) {
-        if (ContextCompat.checkSelfPermission(context, Manifest.permission.BODY_SENSORS) == PackageManager.PERMISSION_GRANTED) {
+        if (hasHeartRatePermission(context)) {
             hasPermission = true
         } else {
-            permissionLauncher.launch(Manifest.permission.BODY_SENSORS)
+            permissionLauncher.launch(requiredPermissions.toTypedArray())
         }
     }
 

@@ -1,6 +1,8 @@
 // app-wear/src/main/java/com/example/app_wear/passive/PassiveDataReceiver.kt
 package com.forgecompose.app_wear.presentation
 
+import android.content.Intent
+import android.os.Build
 import android.util.Log
 import androidx.health.services.client.PassiveListenerService
 import androidx.health.services.client.data.DataPointContainer
@@ -25,10 +27,25 @@ class PassiveDataReceiver : PassiveListenerService() {
     override fun onNewDataPointsReceived(container: DataPointContainer) {
         val bpm = container.getData(DataType.HEART_RATE_BPM).lastOrNull()?.value?.toInt()
         if (bpm != null && bpm > 0) {
+            HrMonitorRuntime.bpm.value = bpm
             scope.launch {
                 runCatching { sync.sendBpm(bpm) }
                     .onSuccess { Log.d("PassiveHR", "Forwarded passive bpm=$bpm") }
                     .onFailure { Log.e("PassiveHR", "sendBpm failed", it) }
+            }
+            if (!HrMonitorRuntime.running.value && !HrMonitorService.isExplicitStopRequested(this)) {
+                runCatching {
+                    val intent = Intent(this, HrMonitorService::class.java).apply {
+                        action = HrMonitorService.ACTION_FORCE_START
+                    }
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        startForegroundService(intent)
+                    } else {
+                        startService(intent)
+                    }
+                }.onFailure {
+                    Log.e("PassiveHR", "Failed to re-arm active HR monitoring", it)
+                }
             }
         }
     }

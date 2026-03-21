@@ -1,5 +1,15 @@
 package com.forgecompose.workouttracker
 
+import com.forgecompose.workouttracker.*
+import com.forgecompose.workouttracker.ai.*
+import com.forgecompose.workouttracker.analytics.*
+import com.forgecompose.workouttracker.badges.*
+import com.forgecompose.workouttracker.health.*
+import com.forgecompose.workouttracker.muscle.*
+import com.forgecompose.workouttracker.profile.*
+import com.forgecompose.workouttracker.ui.components.*
+import com.forgecompose.workouttracker.workout.*
+
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Intent
@@ -43,8 +53,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
@@ -92,8 +105,8 @@ import com.forgecompose.workouttracker.ConnectedWorkout.GoalType
 import com.forgecompose.workouttracker.ConnectedWorkout.WorkoutMode
 import com.forgecompose.workouttracker.ConnectedWorkout.workout
 import com.forgecompose.workouttracker.GoalSelectionScreen.blurScreen
-import com.forgecompose.workouttracker.blurAnim.intensity
-import com.forgecompose.workouttracker.blurAnim.length
+import com.forgecompose.workouttracker.ui.components.blurAnim.intensity
+import com.forgecompose.workouttracker.ui.components.blurAnim.length
 import com.forgecompose.workouttracker.ui.theme.WorkoutTrackerTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -102,6 +115,7 @@ import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlin.math.sin
+import java.text.Normalizer
 
 @SuppressLint("UnrememberedMutableState")
 @OptIn(ExperimentalMaterial3Api::class)
@@ -109,6 +123,7 @@ import kotlin.math.sin
 fun GoalScreen(navController: NavController, viewModel: WorkoutListViewModel) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
+    val prefsManager = remember { UserPreferencesManager(ctx) }
 
     val appearanceOptions by AppearanceOptionsManagerAppTheme
         .flow(ctx)
@@ -119,6 +134,13 @@ fun GoalScreen(navController: NavController, viewModel: WorkoutListViewModel) {
     var selectedGoalType by remember(workoutState) {
         mutableStateOf(ConnectedWorkout.workoutGoalTypeMap[workoutState] ?: "Time")
     }
+
+    val currentPreset = remember(workoutState) {
+        val targetKey = workoutNameKey(workoutState)
+        workoutPresets.firstOrNull { workoutNameKey(it.name) == targetKey }
+    }
+    val isBodyweightCategory = currentPreset?.category == "Bodyweight"
+    var isBodyweightActive by ConnectedWorkout.isBodyweight
 
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
@@ -132,11 +154,19 @@ fun GoalScreen(navController: NavController, viewModel: WorkoutListViewModel) {
     }.collectAsState(initial = null)
 
     LaunchedEffect(last) {
-        if (ConnectedWorkout.currentMode.value == WorkoutMode.INACTIVE && last != null) {
-            last?.weightKg?.let { CurrentWeight.value = it.toDouble() }
-            last?.goalSets?.let { GoalSets.intValue = it }
-            last?.goalTimeMillis?.let { GoalTime.value = it }
-
+        if (ConnectedWorkout.currentMode.value == WorkoutMode.INACTIVE) {
+            if (last != null) {
+                last?.weightKg?.let { CurrentWeight.value = it.toDouble() }
+                last?.goalSets?.let { GoalSets.intValue = it }
+                last?.goalTimeMillis?.let { GoalTime.value = it }
+            } else {
+                // If no previous data, default to bar weight for barbell/ez-bar exercises
+                if (ConnectedWorkout.barbellVisualExercises.contains(workout.value)) {
+                    CurrentWeight.value = ConnectedWorkout.BAR_WEIGHT
+                } else if (ConnectedWorkout.ezBarVisualExercises.contains(workout.value)) {
+                    CurrentWeight.value = ConnectedWorkout.EZ_BAR_WEIGHT
+                }
+            }
         }
     }
 
@@ -219,9 +249,6 @@ fun GoalScreen(navController: NavController, viewModel: WorkoutListViewModel) {
         showIntro = false
         if (ConnectedWorkout.currentMode.value == WorkoutMode.ACTIVE) navController.navigate("WorkoutScreen")
         else if (ConnectedWorkout.currentMode.value == WorkoutMode.RESTING) navController.navigate("RestScreen")
-
-        GoalReps.intValue = 0; GoalSets.intValue = 0; GoalTime.value = 0
-        GoalDistance.value = 0.0; CurrentReps.intValue = 0; CurrentSets.intValue = 0; CurrentTime.value = 0
     }
 
 
@@ -306,7 +333,28 @@ fun GoalScreen(navController: NavController, viewModel: WorkoutListViewModel) {
                         Column(verticalArrangement = Arrangement.spacedBy(32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                             when (targetType) {
                                 "Reps" -> {
-                                    WeightSelector()
+                                    if (isBodyweightCategory) {
+                                        BodyWeightToggle(
+                                            isActive = isBodyweightActive,
+                                            onChanged = { active ->
+                                                isBodyweightActive = active
+                                                if (active) {
+                                                    val userWeight = prefsManager.getWeight().toDoubleOrNull() ?: 0.0
+                                                    CurrentWeight.value = userWeight
+                                                }
+                                            },
+                                            theme = theme
+                                        )
+                                    }
+                                    if (!isBodyweightActive || !isBodyweightCategory) {
+                                        WeightSelector()
+                                    } else {
+                                        Text(
+                                            text = "Body Weight: ${CurrentWeight.value} kg",
+                                            style = MaterialTheme.typography.titleMedium,
+                                            color = Color.White.copy(alpha = 0.7f)
+                                        )
+                                    }
                                     Box(modifier = animatedDividerModifier)
                                     RepSelector()
                                     Box(modifier = animatedDividerModifier)
@@ -317,7 +365,28 @@ fun GoalScreen(navController: NavController, viewModel: WorkoutListViewModel) {
                                     DistanceSelector(label = "Distance", value = GoalDistance.value, onValueChange = { GoalDistance.value = it })
                                 }
                                 else -> {
-                                    WeightSelector()
+                                    if (isBodyweightCategory) {
+                                        BodyWeightToggle(
+                                            isActive = isBodyweightActive,
+                                            onChanged = { active ->
+                                                isBodyweightActive = active
+                                                if (active) {
+                                                    val userWeight = prefsManager.getWeight().toDoubleOrNull() ?: 0.0
+                                                    CurrentWeight.value = userWeight
+                                                }
+                                            },
+                                            theme = theme
+                                        )
+                                    }
+                                    if (!isBodyweightActive || !isBodyweightCategory) {
+                                        WeightSelector()
+                                    } else {
+                                        Text(
+                                            text = "Body Weight: ${CurrentWeight.value} kg",
+                                            style = MaterialTheme.typography.titleMedium,
+                                            color = Color.White.copy(alpha = 0.7f)
+                                        )
+                                    }
                                     Box(modifier = animatedDividerModifier)
                                     TimerSelector(navController)
                                 }
@@ -330,7 +399,8 @@ fun GoalScreen(navController: NavController, viewModel: WorkoutListViewModel) {
                     Button(
                         onClick = {
                             when (selectedGoalType) {
-                                "Reps" -> if (repsPerSet != 0 && GoalSets.intValue != 0) {
+
+                                "Reps" -> if (repsPerSet != 0 && GoalSets.intValue != 0 && GoalReps.intValue != 0) {
                                     if (ConnectedWorkout.currentMode.value == WorkoutMode.INACTIVE) GoalReps.intValue = totalGoalReps
                                     scope.launch {
                                         val roundedWeight = CurrentWeight.value.roundToInt()
@@ -342,9 +412,22 @@ fun GoalScreen(navController: NavController, viewModel: WorkoutListViewModel) {
                                             goalSets = GoalSets.intValue,
                                             goalTimeMillis = null
                                         )
+//                                        try {
+//                                            WorkoutConfigSync.sendToWatch(
+//                                                context = ctx,
+//                                                workoutName = workout.value,
+//                                                goalType = selectedGoalType,
+//                                                goalSets = GoalSets.intValue,
+//                                                goalReps = GoalReps.intValue,
+//                                                goalTimeMs = GoalTime.value,
+//                                                goalDistance = GoalDistance.value,
+//                                                currentWeight = CurrentWeight.value
+//                                            )
+//                                        } catch (_: Exception) {
+//                                        }
+                                        ConnectedWorkout.currentMode.value = WorkoutMode.ACTIVE
+                                        navController.navigate("WorkoutScreen")
                                     }
-                                    navController.navigate("WorkoutScreen")
-                                    ConnectedWorkout.currentMode.value = WorkoutMode.ACTIVE
                                 }
                                 "Time" -> if (GoalTime.value != 0L) {
                                     scope.launch {
@@ -357,16 +440,42 @@ fun GoalScreen(navController: NavController, viewModel: WorkoutListViewModel) {
                                             goalSets = null,
                                             goalTimeMillis = GoalTime.value
                                         )
+//                                        try {
+//                                            WorkoutConfigSync.sendToWatch(
+//                                                context = ctx,
+//                                                workoutName = workout.value,
+//                                                goalType = selectedGoalType,
+//                                                goalSets = GoalSets.intValue,
+//                                                goalReps = GoalReps.intValue,
+//                                                goalTimeMs = GoalTime.value,
+//                                                goalDistance = GoalDistance.value,
+//                                                currentWeight = CurrentWeight.value
+//                                            )
+//                                        } catch (_: Exception) {
+//                                        }
+                                        ConnectedWorkout.currentMode.value = WorkoutMode.ACTIVE
+                                        navController.navigate("WorkoutScreen")
                                     }
-                                    navController.navigate("WorkoutScreen")
-                                    ConnectedWorkout.currentMode.value = WorkoutMode.ACTIVE
                                 }
                                 "Distance" -> if (GoalDistance.value != 0.0) {
                                     scope.launch {
                                         PresetStateRepo.upsert(ctx, workout.value, CurrentWeight.value.toFloat(), null, null, null)
+                                        try {
+                                            WorkoutConfigSync.sendToWatch(
+                                                context = ctx,
+                                                workoutName = workout.value,
+                                                goalType = selectedGoalType,
+                                                goalSets = GoalSets.intValue,
+                                                goalReps = GoalReps.intValue,
+                                                goalTimeMs = GoalTime.value,
+                                                goalDistance = GoalDistance.value,
+                                                currentWeight = CurrentWeight.value
+                                            )
+                                        } catch (_: Exception) {
+                                        }
+                                        ConnectedWorkout.currentMode.value = WorkoutMode.ACTIVE
+                                        navController.navigate("WorkoutScreen")
                                     }
-                                    navController.navigate("WorkoutScreen")
-                                    ConnectedWorkout.currentMode.value = WorkoutMode.ACTIVE
                                 }
                             }
                         },
@@ -612,4 +721,44 @@ fun RestTimeSelectorDialog(
 
 object GoalSelectionScreen {
     var blurScreen = mutableStateOf(false)
+}
+
+private fun workoutNameKey(raw: String): String {
+    val normalized = Normalizer.normalize(raw, Normalizer.Form.NFKC)
+        .replace(Regex("[\\u2010-\\u2015]"), "-")
+        .replace(Regex("\\s+"), " ")
+        .trim()
+    return normalized.lowercase()
+}
+
+@Composable
+fun BodyWeightToggle(
+    isActive: Boolean,
+    onChanged: (Boolean) -> Unit,
+    theme: ColorSchemeAppTheme
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(
+            text = "Use Body Weight",
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.SemiBold,
+            color = Color.White
+        )
+        Switch(
+            checked = isActive,
+            onCheckedChange = onChanged,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = theme.primary,
+                checkedTrackColor = theme.secondary.copy(alpha = 0.5f),
+                uncheckedThumbColor = Color.Gray,
+                uncheckedTrackColor = Color.DarkGray
+            )
+        )
+    }
 }

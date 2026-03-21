@@ -115,6 +115,30 @@ object WorkoutDataSync { // Removed Capability Listener (simplified for reliabil
         }
     }
 
+    fun sendWorkoutState(context: Context, payload: String) {
+        val bytes = payload.toByteArray(Charsets.UTF_8)
+        scope.launch {
+            repeat(3) { attempt ->
+                val nodes = getConnectedNodes(context)
+                if (nodes.isNotEmpty()) {
+                    nodes.forEach { node ->
+                        try {
+                            Wearable.getMessageClient(context)
+                                .sendMessage(node.id, WORKOUT_STATE_PATH, bytes)
+                                .await()
+                            Log.d(TAG, "Sent workout state to ${node.displayName} (attempt=${attempt + 1})")
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Failed to send workout state to ${node.displayName}", e)
+                        }
+                    }
+                    return@launch
+                }
+                delay(500)
+            }
+            Log.w(TAG, "No connected nodes found; workout state was not delivered")
+        }
+    }
+
 
 }
 

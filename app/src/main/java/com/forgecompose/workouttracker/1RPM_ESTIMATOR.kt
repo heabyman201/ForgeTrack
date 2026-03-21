@@ -1,5 +1,15 @@
 package com.forgecompose.workouttracker
 
+import com.forgecompose.workouttracker.*
+import com.forgecompose.workouttracker.ai.*
+import com.forgecompose.workouttracker.analytics.*
+import com.forgecompose.workouttracker.badges.*
+import com.forgecompose.workouttracker.health.*
+import com.forgecompose.workouttracker.muscle.*
+import com.forgecompose.workouttracker.profile.*
+import com.forgecompose.workouttracker.ui.components.*
+import com.forgecompose.workouttracker.workout.*
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box

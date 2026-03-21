@@ -23,6 +23,7 @@
     <application
         android:name=".MyApplication"
         android:allowBackup="true"
+        android:usesCleartextTraffic="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
         android:icon="@mipmap/ic_launcher"
@@ -77,6 +78,11 @@
             android:foregroundServiceType="dataSync" />
 
         <service
+            android:name=".MemoryMonitorForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
+        <service
             android:name=".HrDataListenerService"
             android:exported="false">
             <intent-filter>
@@ -92,6 +98,10 @@
                 <data
                     android:host="*"
                     android:pathPrefix="/workout_state"
+                    android:scheme="wear" />
+                <data
+                    android:host="*"
+                    android:pathPrefix="/workout_config_request"
                     android:scheme="wear" />
             </intent-filter>
         </service>

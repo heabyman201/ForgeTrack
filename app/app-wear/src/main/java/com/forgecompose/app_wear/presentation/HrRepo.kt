@@ -6,7 +6,7 @@ import androidx.health.services.client.HealthServices
 import androidx.health.services.client.data.Availability
 import androidx.health.services.client.data.DataType
 import androidx.health.services.client.data.ExerciseConfig
-import androidx.health.services.client.data.ExerciseEndReason
+import androidx.health.services.client.data.ExerciseTrackedStatus
 import androidx.health.services.client.data.ExerciseLapSummary
 import androidx.health.services.client.data.ExerciseType
 import androidx.health.services.client.data.ExerciseUpdate
@@ -41,6 +41,17 @@ class HrRepository(private val context: Context) {
         return true
     }
 
+    suspend fun ensureHrExerciseStarted(): Boolean {
+        val info = exerciseClient.getCurrentExerciseInfoAsync().await()
+        return when (info.exerciseTrackedStatus) {
+            ExerciseTrackedStatus.OWNED_EXERCISE_IN_PROGRESS -> true
+            ExerciseTrackedStatus.NO_EXERCISE_IN_PROGRESS -> startHrExercise()
+            ExerciseTrackedStatus.OTHER_APP_IN_PROGRESS ->
+                throw IllegalStateException("Another app owns the current exercise session")
+            else -> startHrExercise()
+        }
+    }
+
     /** Ends the current exercise (if any) without throwing. */
     suspend fun endExercise() {
         runCatching { exerciseClient.endExerciseAsync().await() }
@@ -58,6 +69,15 @@ class HrRepository(private val context: Context) {
             }
 
             override fun onExerciseUpdateReceived(update: ExerciseUpdate) {
+                val state = update.exerciseStateInfo.state
+                if (state.isEnded || state.isEnding) {
+                    close(
+                        ExerciseSessionEndedException(
+                            "Exercise session ended: ${update.exerciseStateInfo.endReason}"
+                        )
+                    )
+                    return
+                }
                 val bpm = update.latestMetrics
                     .getData(DataType.HEART_RATE_BPM)
                     .lastOrNull()
@@ -67,7 +87,6 @@ class HrRepository(private val context: Context) {
             }
 
             override fun onLapSummaryReceived(lapSummary: ExerciseLapSummary) = Unit
-            fun onExerciseEnded(exerciseEndReason: ExerciseEndReason) = Unit
             override fun onAvailabilityChanged(
                 dataType: DataType<*, *>,
                 availability: Availability
@@ -90,3 +109,5 @@ class HrRepository(private val context: Context) {
 
 
 }
+
+private class ExerciseSessionEndedException(message: String) : IllegalStateException(message)

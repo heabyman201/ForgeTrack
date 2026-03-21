@@ -1,5 +1,15 @@
 package com.forgecompose.workouttracker
 
+import com.forgecompose.workouttracker.*
+import com.forgecompose.workouttracker.ai.*
+import com.forgecompose.workouttracker.analytics.*
+import com.forgecompose.workouttracker.badges.*
+import com.forgecompose.workouttracker.health.*
+import com.forgecompose.workouttracker.muscle.*
+import com.forgecompose.workouttracker.profile.*
+import com.forgecompose.workouttracker.ui.components.*
+import com.forgecompose.workouttracker.workout.*
+
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
@@ -159,8 +169,8 @@ fun ExerciseAnalyticsScreen(
     var showStartDatePicker by remember { mutableStateOf(false) }
     var showEndDatePicker by remember { mutableStateOf(false) }
 
-    val context = LocalContext.current
-    val performanceOptions by PerformanceOptionsManager.flow(context)
+    val screenContext = LocalContext.current
+    val performanceOptions by PerformanceOptionsManager.flow(screenContext)
         .collectAsState(initial = PerformanceOptions.Defaults)
 
     val movingEffectsEnabled = performanceOptions.movingGradientAndParticles
@@ -278,7 +288,7 @@ fun ExerciseAnalyticsScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             item {
-                AnalysisInsightsCard(data = filteredData)
+                AnalysisInsightsCard(exerciseName = exerciseName, data = filteredData)
             }
             item {
                 DateRangeSelector(
@@ -355,7 +365,8 @@ fun ExerciseAnalyticsScreen(
 }
 
 @Composable
- fun AnalysisInsightsCard(data: List<Workout>) {
+ fun AnalysisInsightsCard(exerciseName: String, data: List<Workout>) {
+    val screenContext = LocalContext.current
     if (data.size < 3) {
         GlassCard {
             Column(
@@ -425,6 +436,34 @@ fun ExerciseAnalyticsScreen(
         }
     }.trim().ifEmpty { "Keep logging to reveal more patterns." }
 
+    val aiEnabled = dynamicModel.personaConfig.value.enabled
+    val fitnessContext = "You are a fitness analyst. Analyze the user's progress for $exerciseName. " +
+            "Current status: $headline. Strength change: ${strengthChange.roundToInt()}%, Volume change: ${volumeChange.roundToInt()}%, Training frequency: ${String.format(Locale.US, "%.1f", avgGap)} days."
+    
+    val aiState = useGeminiAdviceGenerator(contextPrompt = fitnessContext)
+    
+    LaunchedEffect(strengthChange, volumeChange, avgGap, exerciseName) {
+        if (aiEnabled && data.size >= 3) {
+            GeminiAdaptiveMemoryStore.recordWorkoutTrendSnapshot(
+                screenContext,
+                snapshot = WorkoutTrendSnapshot(
+                    workoutName = exerciseName,
+                    source = "analytics",
+                    capturedAtEpochMs = System.currentTimeMillis(),
+                    phase = headline,
+                    strengthChangePct = strengthChange,
+                    volumeChangePct = volumeChange,
+                    avgGapDays = avgGap
+                )
+            )
+            aiState.generateBatch(
+                "Exercise: $exerciseName",
+                "Strength change: ${strengthChange.roundToInt()}%",
+                "Volume change: ${volumeChange.roundToInt()}%"
+            )
+        }
+    }
+
     GlassCard {
         Column(
             Modifier
@@ -470,11 +509,21 @@ fun ExerciseAnalyticsScreen(
                     .padding(12.dp)
                     .fillMaxWidth()
             ) {
-                Text(
-                    text = summary,
-                    style = MaterialTheme.typography.bodyMedium.copy(fontStyle = androidx.compose.ui.text.font.FontStyle.Italic),
-                    color = Color.White.copy(alpha = 0.7f)
-                )
+                Column {
+                    if (aiEnabled && aiState.isLoading && !aiState.hasAdvice) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp).align(Alignment.CenterHorizontally),
+                            strokeWidth = 2.dp,
+                            color = Color.White.copy(alpha = 0.5f)
+                        )
+                    } else {
+                        Text(
+                            text = if (aiEnabled && aiState.hasAdvice) aiState.currentAdvice else summary,
+                            style = MaterialTheme.typography.bodyMedium.copy(fontStyle = androidx.compose.ui.text.font.FontStyle.Italic),
+                            color = Color.White.copy(alpha = 0.7f)
+                        )
+                    }
+                }
             }
         }
     }
@@ -532,29 +581,29 @@ private fun DateRangeSelector(
     }
 }
 
-@Composable
-private fun InfoChip(label: String, icon: ImageVector, modifier: Modifier = Modifier) {
-    Row(
-        modifier = modifier
-            .clip(RoundedCornerShape(999.dp))
-            .background(Color.White.copy(alpha = 0.05f))
-            .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(999.dp))
-            .padding(horizontal = 12.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)
-    ) {
-        Icon(
-            icon,
-            contentDescription = null,
-            tint = Color.White.copy(alpha = 0.7f),
-            modifier = Modifier.size(20.dp)
-        )
-        Text(
-            label,
-            color = Color.White.copy(alpha = 0.9f),
-            maxLines = 1,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.weight(1f, fill = false)
-        )
-    }
-}
+//@Composable
+//private fun InfoChip(label: String, icon: ImageVector, modifier: Modifier = Modifier) {
+//    Row(
+//        modifier = modifier
+//            .clip(RoundedCornerShape(999.dp))
+//            .background(Color.White.copy(alpha = 0.05f))
+//            .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(999.dp))
+//            .padding(horizontal = 12.dp, vertical = 8.dp),
+//        verticalAlignment = Alignment.CenterVertically,
+//        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)
+//    ) {
+//        Icon(
+//            icon,
+//            contentDescription = null,
+//            tint = Color.White.copy(alpha = 0.7f),
+//            modifier = Modifier.size(20.dp)
+//        )
+//        Text(
+//            label,
+//            color = Color.White.copy(alpha = 0.9f),
+//            maxLines = 1,
+//            textAlign = TextAlign.Center,
+//            modifier = Modifier.weight(1f, fill = false)
+//        )
+//    }
+//}

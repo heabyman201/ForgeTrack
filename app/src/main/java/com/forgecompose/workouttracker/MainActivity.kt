@@ -1,5 +1,15 @@
 package com.forgecompose.workouttracker
 
+import com.forgecompose.workouttracker.*
+import com.forgecompose.workouttracker.ai.*
+import com.forgecompose.workouttracker.analytics.*
+import com.forgecompose.workouttracker.badges.*
+import com.forgecompose.workouttracker.health.*
+import com.forgecompose.workouttracker.muscle.*
+import com.forgecompose.workouttracker.profile.*
+import com.forgecompose.workouttracker.ui.components.*
+import com.forgecompose.workouttracker.workout.*
+
 
 
 import android.Manifest
@@ -83,8 +93,10 @@ import androidx.compose.runtime.Stable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -123,6 +135,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.util.lerp
 import androidx.compose.ui.zIndex
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.runtime.DisposableEffect
 import androidx.core.content.ContextCompat
 import androidx.core.content.ContextCompat.startActivity
 import androidx.core.view.WindowCompat
@@ -135,10 +151,11 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.forgecompose.workouttracker.ConnectedWorkout.workout
-import com.forgecompose.workouttracker.PersonaPrefs.readPersona
-import com.forgecompose.workouttracker.blurAnim.intensity
-import com.forgecompose.workouttracker.blurAnim.length
+import com.forgecompose.workouttracker.ai.PersonaPrefs.readPersona
+import com.forgecompose.workouttracker.ui.components.blurAnim.intensity
+import com.forgecompose.workouttracker.ui.components.blurAnim.length
 import com.forgecompose.workouttracker.ui.theme.WorkoutTrackerTheme
+import com.google.common.math.IntMath.pow
 import com.google.firebase.analytics.ktx.analytics
 import com.google.firebase.analytics.ktx.logEvent
 import com.google.firebase.crashlytics.crashlytics
@@ -157,6 +174,7 @@ import java.time.LocalTime
 import kotlin.collections.emptyList
 import kotlin.math.PI
 import kotlin.math.max
+import kotlin.math.pow
 import kotlin.math.roundToInt
 import kotlin.system.exitProcess
 
@@ -192,7 +210,7 @@ class MainActivity : ComponentActivity() {
 
     private val badgeViewModel: BadgeViewModel by viewModels {
         BadgeViewModelFactory(
-            badgeStorage = InMemoryBadgeStorage()
+            badgeStorage = PersistentBadgeStorage(applicationContext)
         )
     }
 
@@ -205,6 +223,7 @@ class MainActivity : ComponentActivity() {
             finish()
             return
         }
+//
 
         enableEdgeToEdge(
             statusBarStyle = SystemBarStyle.auto(
@@ -301,8 +320,21 @@ class MainActivity : ComponentActivity() {
 fun MainScreen(viewModel: WorkoutListViewModel, viewModel2: MainScreenViewModel,badgeViewModel: BadgeViewModel, initialRoute: String? = null) {
     val navController = rememberNavController()
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val onboardingManager = remember { OnboardingManager(context) }
     val userPreferencesManager = remember { UserPreferencesManager(context) }
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                badgeViewModel.checkPendingNotifications()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
 
     val slideSpec = spring<IntOffset>(
         dampingRatio = Spring.DampingRatioNoBouncy,
@@ -333,6 +365,15 @@ fun MainScreen(viewModel: WorkoutListViewModel, viewModel2: MainScreenViewModel,
     val totalWorkouts = remember(uiState) {
         allWorkouts.size
     }
+
+    val unlockQueue = remember { mutableStateListOf<BadgeUiState>() }
+
+    LaunchedEffect(badgeViewModel) {
+        badgeViewModel.newUnlockEvent.collect { badge ->
+            unlockQueue.add(badge)
+        }
+    }
+
 
     LaunchedEffect(initialRoute) {
         if (initialRoute == "workout_selection") {
@@ -418,6 +459,9 @@ fun MainScreen(viewModel: WorkoutListViewModel, viewModel2: MainScreenViewModel,
             }
             composable("Survey") {
                 RecommendationSurveyScreen(navController = navController)
+            }
+            composable("RepPredictor"){
+                RepPredictorScreen(navController = navController)
             }
             composable(
                 route = "WorkoutSelector",
@@ -651,6 +695,40 @@ fun MainScreen(viewModel: WorkoutListViewModel, viewModel2: MainScreenViewModel,
 
                 PerformanceOptionsScreen(navController = navController)
             }
+            composable("MemoryMonitor",
+                enterTransition = {
+                    if (initialState.destination.route == "Settings") {
+                        slideInHorizontally(
+                            animationSpec = tween(200, easing = LinearEasing),
+                            initialOffsetX = { it }
+                        )
+                    } else {
+                        fadeIn(animationSpec = fadeInSpec) +
+                                scaleIn(
+                                    initialScale = 0.92f,
+                                    animationSpec = spring(dampingRatio = 0.78f, stiffness = 300f),
+                                    transformOrigin = TransformOrigin.Center
+                                )
+                    }
+                },
+                exitTransition = {
+                    if (targetState.destination.route == "Settings") {
+                        slideOutHorizontally(
+                            animationSpec = tween(200, easing = LinearEasing),
+                            targetOffsetX = { it }
+                        )
+                    } else {
+                        fadeOut(animationSpec = fadeOutSpec) +
+                                scaleOut(
+                                    targetScale = 1.04f,
+                                    animationSpec = tween(800, easing = LinearEasing),
+                                    transformOrigin = TransformOrigin.Center
+                                )
+                    }
+                },
+            ) {
+                MemoryMonitorScreen(navController = navController)
+            }
             composable("AppearanceScreen",
                 enterTransition = {
 
@@ -771,6 +849,19 @@ fun MainScreen(viewModel: WorkoutListViewModel, viewModel2: MainScreenViewModel,
 
         }
 
+        if (unlockQueue.isNotEmpty()) {
+            val firstBadge = unlockQueue.first()
+            key(firstBadge.id) {
+                BadgeUnlockAnimation(
+                    badgeTitle = firstBadge.title,
+                    onAnimationFinished = {
+                        badgeViewModel.onNotificationShown(firstBadge.id)
+                        unlockQueue.removeAt(0)
+                    }
+                )
+            }
+        }
+
     }
 }
 
@@ -829,6 +920,7 @@ fun WorkoutListScreen(
     val performanceOptions by PerformanceOptionsManager.flow(context).collectAsState(initial = PerformanceOptions.Defaults)
     val movingEffectsEnabled = performanceOptions.movingGradientAndParticles
     val blurEnabled = performanceOptions.blurEnabled
+    val maxSuggestions = performanceOptions.maxSuggestions
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val latestName by viewModel2.latestWorkoutName.collectAsStateWithLifecycle()
     val haptics = LocalHapticFeedback.current
@@ -869,15 +961,12 @@ fun WorkoutListScreen(
     }
     val workoutPremadeRandom = remember { workoutPresets.shuffled().take(3).map { it.name } }
     fun NavController.openWorkout(id: Long) { navigate("${Routes.DetailedWorkout}/$id") }
-    val fitnessContext = "You are a fitness coach. The user provides their weight, last workout, and weight of the workout(Weights are in kg). Give them advice on what to do next. Call them by their name., Max 20 words"
+    val aiEnabled = dynamicModel.personaConfig.value.enabled
     val prefsManager = remember { UserPreferencesManager(context) }
     val userWeight = remember { prefsManager.getWeight() }
-    val userAge = remember { prefsManager.getAge() }
-    val userHeight = remember { prefsManager.getHeight() }
     val userExperience = remember { prefsManager.getExperience() }
     val userName = remember { prefsManager.getName() }
-    var userPreferredStyle = remember { prefsManager.getPreferredStyle() }
-    val userImportantMuscles = remember { prefsManager.getImportantMuscles() }
+    val userPreferredStyle = remember { prefsManager.getPreferredStyle() }
 
     val (personalRecords, recentWorkouts) = remember(uiState) {
         if (uiState is WorkoutListUiState.Success) {
@@ -889,12 +978,122 @@ fun WorkoutListScreen(
             emptyList<PersonalRecord>() to emptyList<Workout>()
         }
     }
-    fun setPrefStyle() {
-        when (userPreferredStyle) {
-            "Weights" -> { userPreferredStyle = "Weights" }
-            "Cardio" -> { userPreferredStyle = "Cardio" }
-            "Both" -> { userPreferredStyle = "Weights and cardio" }
+    val allWorkouts = remember(uiState) {
+        (uiState as? WorkoutListUiState.Success)?.workouts.orEmpty()
+    }
+    val latestWorkout = latestName ?: recentWorkouts.firstOrNull()
+    val previousSameWorkout = remember(latestWorkout, allWorkouts) {
+        latestWorkout?.let { workout ->
+            allWorkouts
+                .asSequence()
+                .filter { it.id != workout.id && it.name == workout.name }
+                .sortedByDescending { it.date }
+                .firstOrNull()
         }
+    }
+    val latestWorkoutName = latestWorkout?.name?.trim().orEmpty()
+    val latestWeight = latestWorkout?.weight ?: 0.0
+    val previousWeight = previousSameWorkout?.weight ?: 0.0
+    val latestReps = latestWorkout?.reps ?: 0
+    val previousReps = previousSameWorkout?.reps ?: 0
+    val latestRpe = latestWorkout?.sessionRpe ?: latestWorkout?.rpe ?: 0
+    val latestFatigue = latestWorkout?.fatigueLevel ?: 0
+    val workoutDirection = remember(
+        latestWorkoutName,
+        previousSameWorkout?.id,
+        latestWeight,
+        previousWeight,
+        latestReps,
+        previousReps,
+        latestRpe,
+        latestFatigue
+    ) {
+        when {
+            latestWorkoutName.isBlank() -> "baseline"
+            previousSameWorkout == null -> "baseline"
+            latestFatigue >= 7 || latestRpe >= 8 -> "back_off"
+            latestWeight > previousWeight || latestReps > previousReps -> "load_up"
+            latestWeight < previousWeight || latestReps < previousReps -> "back_off"
+            else -> "maintain"
+        }
+    }
+    val preferredStyleLabel = remember(userPreferredStyle) {
+        when (userPreferredStyle) {
+            "Both" -> "weights and cardio"
+            else -> userPreferredStyle.lowercase()
+        }
+    }
+    val fitnessContext = remember(
+        latestWorkoutName,
+        workoutDirection,
+        userName,
+        userExperience,
+        userPreferredStyle,
+        userWeight
+    ) {
+        buildString {
+            append("You are the home-screen fitness coach. ")
+            append("Speak like a real person in natural language, not like a robot. ")
+            append("Mention the workout name directly. ")
+            append("Keep the response conversational, short, and easy to read. ")
+            append("Return 7 distinct coaching lines, each one sentence, each under 12 words. ")
+            append("Do not add a preamble, disclaimer, or markdown. ")
+            append("Do not contradict yourself inside the same batch. ")
+            append("Follow the latest trend and learned memory for this workout over generic progression advice. ")
+            append("If the latest trend is load_up, only recommend harder work when the current stats still look clean. ")
+            append("If fatigue rises, RPE climbs, reps fall, intensity drops, or recovery looks worse, back off instead of forcing heavier load. ")
+            append("If the latest trend is back_off or deload, do not recommend adding weight. ")
+            append("If the latest trend is maintain, keep the advice steady and avoid sudden direction changes. ")
+            append("Workout name: ")
+            append(latestWorkoutName.ifBlank { "latest workout" })
+            append(". ")
+            append("Workout direction: ")
+            append(workoutDirection)
+            append(". ")
+            append("Athlete: ")
+            append(userName.ifBlank { "User" })
+            append(", experience ")
+            append(userExperience.ifBlank { "unknown" })
+            append(", prefers ")
+            append(preferredStyleLabel)
+            append(", bodyweight ")
+            append(userWeight.ifBlank { "-" })
+            append(" kg.")
+        }
+    }
+    val homeAdviceState = useGeminiAdviceGenerator(contextPrompt = fitnessContext)
+    val homeAdviceFallback = remember(latestWorkout, previousSameWorkout) {
+        when {
+            latestWorkout == null -> "Log your next session to get a quick AI cue."
+            previousSameWorkout != null && (latestWorkout.weight ?: 0.0) > (previousSameWorkout.weight ?: 0.0) ->
+                "Last session improved. Keep momentum but stay crisp."
+            previousSameWorkout != null && (latestWorkout.weight ?: 0.0) < (previousSameWorkout.weight ?: 0.0) ->
+                "Ease back in and clean up form before pushing load."
+            else -> "Use your last workout to guide your next move."
+        }
+    }
+    LaunchedEffect(aiEnabled, latestWorkout?.id, latestWorkout?.date, previousSameWorkout?.id) {
+        val workout = latestWorkout ?: return@LaunchedEffect
+        if (!aiEnabled) return@LaunchedEffect
+
+        val durationMinutes = ((workout.durationMillis ?: 0L) / 60_000L).coerceAtLeast(0L)
+        val directionLine = when (workoutDirection) {
+            "load_up" -> "The latest trend still supports progression."
+            "back_off" -> "The latest trend says to ease off or deload."
+            "maintain" -> "The latest trend says to hold steady."
+            else -> "Treat this as a baseline session."
+        }
+        val comparisonLine = previousSameWorkout?.let { previous ->
+            val weightDelta = ((workout.weight ?: 0.0) - (previous.weight ?: 0.0))
+            val repsDelta = (workout.reps ?: 0) - (previous.reps ?: 0)
+            "Previous same workout: ${previous.weight ?: 0.0} kg, ${previous.reps ?: 0} reps. Delta: ${String.format("%.1f", weightDelta)} kg, ${repsDelta} reps."
+        } ?: "No previous matching workout yet."
+
+        homeAdviceState.generateBatch(
+            "Workout: ${workout.name}. Speak naturally and mention the workout name once. Do not sound robotic.",
+            "Latest performance: ${workout.weight ?: 0.0} kg, ${workout.sets ?: 0} sets, ${workout.reps ?: 0} reps, ${workout.distance ?: 0.0} km, ${durationMinutes} min, RPE ${workout.sessionRpe ?: workout.rpe ?: 0}, fatigue ${workout.fatigueLevel ?: 0}.",
+            "Profile: ${userExperience.ifBlank { "unknown experience" }}, prefers $preferredStyleLabel, bodyweight ${userWeight.ifBlank { "-" }} kg. $comparisonLine $directionLine. Do not reverse the advice direction unless the data clearly changes."
+        )
     }
     val scope = rememberCoroutineScope()
     val usageTracker = remember { PresetUsageTracker(context) }
@@ -1015,18 +1214,22 @@ fun WorkoutListScreen(
                                 colors = CardDefaults.cardColors(containerColor = surface.copy(alpha = 0.3f))
                             ) {
                                 Column(verticalArrangement = Arrangement.Center) {
-                                    val time = formatTime(latestName?.durationMillis?.toLong() ?: 0)
+                                    val workoutForCard = latestWorkout
+                                    val time = formatTime(workoutForCard?.durationMillis ?: 0L)
                                     AdviceSectionUser(
-                                        advice = "advice",
+                                        advice = homeAdviceState.currentAdvice.ifBlank { homeAdviceFallback },
+                                        isAdviceLoading = aiEnabled && homeAdviceState.isLoading && !homeAdviceState.hasAdvice,
                                         modifier = Modifier.fillMaxSize(),
-                                        lastWorkoutName = latestName?.name ?: "No workouts yet.",
-                                        extraLines = if (latestName?.name in cardioExerciseNames) {
-                                            listOf("Distance : ${latestName?.distance} Km", "Time : $time")
+                                        lastWorkoutName = workoutForCard?.name ?: "No workouts yet.",
+                                        extraLines = if (workoutForCard?.name in cardioExerciseNames) {
+                                            listOf("Distance: ${workoutForCard?.distance ?: 0.0} km", "Time: $time")
                                         } else {
-                                            listOf("Weight : ${latestName?.weight ?: "0"} Kg", "Time : $time")
-                                        },
-                                        navController = navController,
-                                        viewModel = viewModel
+                                            listOf(
+                                                "Weight: ${workoutForCard?.weight ?: 0.0} kg",
+                                                "Sets/Reps: ${workoutForCard?.sets ?: 0} x ${workoutForCard?.reps ?: 0}",
+                                                "Time: $time"
+                                            )
+                                        }
                                     )
                                 }
                             }
@@ -1055,9 +1258,9 @@ fun WorkoutListScreen(
                             val topPresets: List<Pair<String, UsageStat>> by remember(usageMap, workoutPremadeRandom, favoritePresets) {
                                 derivedStateOf {
                                     val favoritesList = favoritePresets.map { it to (usageMap[it] ?: UsageStat(0, 0L)) }
-                                    val remainingSlots = 3 - favoritesList.size
+                                    val remainingSlots = maxSuggestions - favoritesList.size
                                     if (remainingSlots <= 0) {
-                                        favoritesList.take(3)
+                                        favoritesList.take(maxSuggestions)
                                     } else {
                                         val now = System.currentTimeMillis()
                                         val maxCount = (usageMap.values.maxOfOrNull { it.count } ?: 1).coerceAtLeast(1)
@@ -1081,7 +1284,7 @@ fun WorkoutListScreen(
                                             .map { it.key to it.value }
                                         val combined = favoritesList + suggested
                                         if (combined.isEmpty()) {
-                                            workoutPremadeRandom.take(3).map { it to UsageStat(0, 0L) }
+                                            workoutPremadeRandom.take(maxSuggestions).map { it to UsageStat(0, 0L) }
                                         } else {
                                             combined
                                         }
@@ -1231,7 +1434,13 @@ fun WorkoutListScreen(
                                     .background(brush = dividerBrush)
                             )
                             if (stages.after600ms && currentState.workouts.isNotEmpty()) {
-                                WeightHistoryGraph(workouts = currentState.workouts.take(2))
+                                val WRs = if (
+                                    maxSuggestions <= 3
+                                ) 2 else 1
+                                WeightHistoryGraph(
+                                    recentWorkouts = currentState.workouts.take(WRs),
+                                    allWorkouts = currentState.workouts
+                                )
                             }
                         }
                         is WorkoutListUiState.Error -> {

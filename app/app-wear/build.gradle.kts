@@ -3,7 +3,6 @@ plugins {
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     id("com.google.devtools.ksp")
-
     id("com.google.firebase.firebase-perf")
     id("com.google.firebase.crashlytics")
     alias(libs.plugins.google.gms.google.services)
@@ -14,7 +13,7 @@ android {
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.example.app_wear"
+        applicationId = "com.forgecompose.workouttracker"
         minSdk = 30
         targetSdk = 36
         versionCode = 1
@@ -77,6 +76,7 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-guava:1.8.1")
     // Data Layer sync to phone
     implementation("com.google.android.gms:play-services-wearable:19.0.0")
+    implementation("com.google.android.gms:play-services-auth:21.4.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.10.2")
     // Coroutines
     implementation("androidx.compose.material:material-icons-extended:1.7.8")

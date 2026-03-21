@@ -1,5 +1,15 @@
 package com.forgecompose.workouttracker
 
+import com.forgecompose.workouttracker.*
+import com.forgecompose.workouttracker.ai.*
+import com.forgecompose.workouttracker.analytics.*
+import com.forgecompose.workouttracker.badges.*
+import com.forgecompose.workouttracker.health.*
+import com.forgecompose.workouttracker.muscle.*
+import com.forgecompose.workouttracker.profile.*
+import com.forgecompose.workouttracker.ui.components.*
+import com.forgecompose.workouttracker.workout.*
+
 import android.app.Application
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -78,6 +88,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import androidx.lifecycle.AndroidViewModel
@@ -87,8 +98,8 @@ import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
-import com.forgecompose.workouttracker.blurAnim.intensity
-import com.forgecompose.workouttracker.blurAnim.length
+import com.forgecompose.workouttracker.ui.components.blurAnim.intensity
+import com.forgecompose.workouttracker.ui.components.blurAnim.length
 import com.google.firebase.crashlytics.ktx.crashlytics
 import com.google.firebase.ktx.Firebase
 import kotlinx.coroutines.CoroutineScope
@@ -113,7 +124,9 @@ data class PerformanceOptions(
     val taskbarAnimations: Boolean,
     val movingGradientAndParticles: Boolean,
     val blurLengthMs: Long,
-    val navEffects: Boolean
+    val navEffects: Boolean,
+    val showBodyHeatmap: Boolean,
+    val maxSuggestions: Int
 ) {
     companion object {
         val Defaults = PerformanceOptions(
@@ -121,7 +134,9 @@ data class PerformanceOptions(
             taskbarAnimations = true,
             movingGradientAndParticles = true,
             blurLengthMs = 700L,
-            navEffects = true
+            navEffects = true,
+            showBodyHeatmap = true,
+            3
         )
     }
 }
@@ -133,6 +148,9 @@ object PerformanceOptionsManager {
     private val keyBlurLengthMs = longPreferencesKey("blurLengthMs")
 
     private val keyNavEffects = booleanPreferencesKey("navEffects")
+
+    private val keyMaxSuggestions = intPreferencesKey("maxSuggestions")
+    private val keyShowBodyHeatmap = booleanPreferencesKey("showBodyHeatmap")
 
     private val saved = MutableStateFlow(PerformanceOptions.Defaults)
     val current: StateFlow<PerformanceOptions> = saved
@@ -156,7 +174,10 @@ object PerformanceOptionsManager {
                         taskbarAnimations = p[keyTaskbarAnimations] ?: PerformanceOptions.Defaults.taskbarAnimations,
                         movingGradientAndParticles = p[keyMovingGradientParticles] ?: PerformanceOptions.Defaults.movingGradientAndParticles,
                         blurLengthMs = p[keyBlurLengthMs] ?: PerformanceOptions.Defaults.blurLengthMs,
-                        navEffects = p[keyNavEffects] ?: PerformanceOptions.Defaults.navEffects
+                        navEffects = p[keyNavEffects] ?: PerformanceOptions.Defaults.navEffects,
+                        showBodyHeatmap = p[keyShowBodyHeatmap] ?: PerformanceOptions.Defaults.showBodyHeatmap,
+                        maxSuggestions = p[keyMaxSuggestions] ?: PerformanceOptions.Defaults.maxSuggestions
+
                     )
                 }
                 .collectLatest { saved.value = it }
@@ -169,7 +190,8 @@ object PerformanceOptionsManager {
                     blurEnabled = s.blurEnabled && allow,
                     taskbarAnimations = s.taskbarAnimations && allow,
                     movingGradientAndParticles = s.movingGradientAndParticles && allow,
-                    navEffects = s.navEffects && allow
+                    navEffects = s.navEffects && allow,
+                    maxSuggestions = s.maxSuggestions
                 )
             }.distinctUntilChanged().collect { _effective.value = it }
         }
@@ -218,6 +240,8 @@ object PerformanceOptionsManager {
             p[keyMovingGradientParticles] = v.movingGradientAndParticles
             p[keyBlurLengthMs] = v.blurLengthMs
             p[keyNavEffects] = v.navEffects
+            p[keyShowBodyHeatmap] = v.showBodyHeatmap
+            p[keyMaxSuggestions] = v.maxSuggestions
         }
         saved.value = v
     }
@@ -237,6 +261,10 @@ object PerformanceOptionsManager {
         saved.value = saved.value.copy(movingGradientAndParticles = enabled)
     }
 
+    suspend fun setMaxSuggestions(context: Context, max: Int) {
+        context.perfDataStore.edit { it[keyMaxSuggestions] = max }
+    }
+
     suspend fun setBlurLengthMs(context: Context, ms: Long) {
         context.perfDataStore.edit { it[keyBlurLengthMs] = ms }
         saved.value = saved.value.copy(blurLengthMs = ms)
@@ -244,6 +272,11 @@ object PerformanceOptionsManager {
     suspend fun setNavEffectsOn(context: Context, enabled: Boolean){
         context.perfDataStore.edit { it[keyNavEffects] = enabled }
         saved.value = saved.value.copy(navEffects = enabled)
+    }
+
+    suspend fun setShowBodyHeatmap(context: Context, enabled: Boolean) {
+        context.perfDataStore.edit { it[keyShowBodyHeatmap] = enabled }
+        saved.value = saved.value.copy(showBodyHeatmap = enabled)
     }
 }
 
@@ -275,11 +308,17 @@ class PerformanceOptionsViewModel(app: Application) : AndroidViewModel(app) {
     fun setMovingGradientAndParticles(b: Boolean) = viewModelScope.launch(Dispatchers.IO) {
         PerformanceOptionsManager.setMovingGradientAndParticles(ctx, b)
     }
+    fun setMaxSuggestions(max: Int) = viewModelScope.launch(Dispatchers.IO) {
+        PerformanceOptionsManager.setMaxSuggestions(ctx, max)
+    }
     fun setBlurLengthMs(ms: Long) = viewModelScope.launch(Dispatchers.IO) {
         PerformanceOptionsManager.setBlurLengthMs(ctx, ms.coerceIn(300L, 1200L))
     }
     fun setNavEffectsOn(b: Boolean) = viewModelScope.launch(Dispatchers.IO) {
         PerformanceOptionsManager.setNavEffectsOn(ctx, b)
+    }
+    fun setShowBodyHeatmap(b: Boolean) = viewModelScope.launch(Dispatchers.IO) {
+        PerformanceOptionsManager.setShowBodyHeatmap(ctx, b)
     }
 
 }
@@ -419,6 +458,20 @@ fun PerformanceOptionsScreen(
                                 b -> vm.setNavEffectsOn(b)
                         }
                     }
+
+                }
+                item {
+                    SettingsSectionCardHealth(title = "Homescreen", theme = theme) {
+                        MaxSuggestionsRow(
+                            true,
+                            saved.maxSuggestions,
+                            onChange = {
+                               max -> vm.setMaxSuggestions(max)
+                            },
+                            theme = theme
+
+                        )
+                    }
                 }
                 item {
                     val context = LocalContext.current
@@ -440,7 +493,52 @@ fun PerformanceOptionsScreen(
         }
     }
 }
-
+@Composable
+private fun MaxSuggestionsRow(
+    enabled: Boolean,
+    currentMax: Int,
+    onChange: (Int) -> Unit,
+    theme: ColorSchemeAppTheme
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Max Suggestions and Favourites",
+                style = MaterialTheme.typography.bodyLarge,
+                color = Color.White.copy(alpha = 0.9f)
+            )
+            Text(
+                text = "$currentMax",
+                style = MaterialTheme.typography.labelLarge,
+                color = Color.White.copy(alpha = 0.75f)
+            )
+        }
+        Slider(
+            value = currentMax.toFloat().coerceIn(1f, 4f),
+            onValueChange = { v -> onChange(v.toInt()) },
+            valueRange = 1f..4f,
+            steps = 1/2,
+            enabled = enabled,
+            colors = SliderDefaults.colors(
+                activeTrackColor = theme.primary,
+                inactiveTrackColor = theme.secondary,
+                thumbColor = Color.White
+            ),
+            modifier = Modifier.fillMaxWidth()
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text("Less Suggestions", fontSize = 12.sp, color = Color.White.copy(alpha = 0.6f))
+            Text("More Suggestions", fontSize = 12.sp, color = Color.White.copy(alpha = 0.6f))
+        }
+    }
+}
 @Composable
 private fun BlurLengthRow(
     enabled: Boolean,

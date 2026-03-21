@@ -30,8 +30,8 @@ android {
         buildFeatures { buildConfig = true }
         minSdk = 31
         targetSdk = 36
-        versionCode = 6
-        versionName = "1.06"
+        versionCode = 7
+        versionName = "1.07"
         buildConfigField("String", "API_KEY", "\"$apiKey\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk {
@@ -60,6 +60,7 @@ android {
     }
     buildFeatures {
         compose = true
+        mlModelBinding = true
     }
 }
 
@@ -85,11 +86,21 @@ dependencies {
     implementation(libs.androidx.foundation)
 
     implementation("com.google.android.gms:play-services-auth:21.4.0")
-
+    implementation("androidx.credentials:credentials:1.3.0")
+    implementation("androidx.credentials:credentials-play-services-auth:1.3.0")
+    implementation("com.google.android.libraries.identity.googleid:googleid:1.1.1")
+    implementation("org.tensorflow:tensorflow-lite:2.17.0")
+    implementation("org.tensorflow:tensorflow-lite-support:0.5.0")
+    implementation("org.tensorflow:tensorflow-lite-metadata:0.5.0")
     "baselineProfile"(project(":app:baselineprofile2"))
     implementation("com.github.Kyant0:AndroidLiquidGlass:1.0.0-alpha15")
-    implementation("com.google.mediapipe:tasks-genai:0.10.29")
-    implementation("com.google.android.gms:play-services-tflite-java:16.4.0")
+    implementation("com.google.mediapipe:tasks-genai:0.10.29") {
+        exclude(group = "com.google.ai.edge.litert", module = "litert-api")
+    }
+
+    implementation("com.google.android.gms:play-services-tflite-java:16.4.0") {
+        exclude(group = "org.tensorflow", module = "tensorflow-lite-api")
+    }
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
@@ -140,6 +151,8 @@ dependencies {
 
 
     testImplementation(libs.junit)
+    testImplementation("io.mockk:mockk:1.13.13")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
 

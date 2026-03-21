@@ -20,6 +20,7 @@ import androidx.room.RoomDatabase
 import androidx.room.TypeConverter
 import androidx.room.TypeConverters
 import androidx.room.Update
+import com.google.firebase.Timestamp
 import com.google.firebase.firestore.ktx.firestore
 import com.google.firebase.ktx.Firebase
 import kotlinx.coroutines.Dispatchers
@@ -417,20 +418,38 @@ class WorkoutListViewModel(
             }
         }
     }
-    fun saveToFirestore(name: String, status: WorkoutStatus, durationMillis: Long? = null
-                        ,weight: Double?,sets: Int?,reps: Int?,distance: Double?,notes: String?) {
+    fun saveToFirestore(
+        name: String,
+        status: WorkoutStatus,
+        durationMillis: Long? = null,
+        weight: Double?,
+        sets: Int?,
+        reps: Int?,
+        distance: Double?,
+        notes: String?,
+        goalWeight: Double? = null,
+        goalReps: Int? = null,
+        goalSets: Int? = null
+    ) {
         val db = Firebase.firestore
+        val now = System.currentTimeMillis()
         db.collection("workouts")
             .add(
                 hashMapOf(
                     "name" to name,
-                    "status" to status,
+                    "status" to status.name,
+                    "date" to Timestamp.now(),
+                    "startTime" to now,
+                    "endTime" to now,
                     "durationMillis" to durationMillis,
                     "weight" to weight,
                     "sets" to sets,
                     "reps" to reps,
                     "distance" to distance,
-                    "notes" to notes
+                    "notes" to notes,
+                    "goalWeight" to goalWeight,
+                    "goalReps" to goalReps,
+                    "goalSets" to goalSets
                 )
 
             )

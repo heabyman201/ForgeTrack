@@ -1,4 +1,3 @@
-
 package com.forgecompose.app_wear.presentation
 
 import android.content.Context
@@ -6,6 +5,7 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -34,7 +34,9 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import com.google.android.gms.wearable.Wearable
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.tasks.await
+import com.forgecompose.app_wear.presentation.theme.WorkoutTrackerTheme
 
 suspend fun isWatchConnected(context: Context): Boolean {
     val nodes = Wearable.getNodeClient(context).connectedNodes.await()
@@ -57,14 +59,14 @@ fun HrScreenPro(
     val ctx = LocalContext.current
     var connected by remember { mutableStateOf<Boolean?>(null) }
 
-    LaunchedEffect(Unit) {
-        while (connected == null || connected == false) {
+    LaunchedEffect(inExercise) {
+        while (isActive) {
             connected = isWatchConnected(ctx)
-            delay(5000)
+            delay(if (inExercise) 30000L else 60000L)
         }
     }
 
-    CrimsonWearTheme {
+    WorkoutTrackerTheme {
         // Subtle dark gradient background
         Box(
             Modifier
@@ -83,19 +85,22 @@ fun HrScreenPro(
             ) {
                 // Top status row: connection + sensor state
                 TopStatusRow(connectedToPhone, sensorAvailable)
-                Text(
+                androidx.wear.compose.material.Text(
                     text = when (connected) {
                         true -> "Watch connected"
                         false -> "No watch connected"
                         null -> "Checking..."
-                    }
+                    },
+                    color = Color.White.copy(alpha = 0.7f),
+                    style = androidx.wear.compose.material.MaterialTheme.typography.caption2
                 )
                 // Middle: Gauge + BPM + sparkline
                 CenterCard(
                     bpm = bpm,
                     avg = avgBpm,
                     min = minBpm,
-                    max = maxBpm
+                    max = maxBpm,
+                    inExercise = inExercise
                 )
 
                 // Bottom controls
@@ -136,6 +141,7 @@ private fun StatusPill(label: String, dot: Color) {
         Modifier
             .clip(RoundedCornerShape(50))
             .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.5f))
+            .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(50))
             .padding(horizontal = 8.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -146,21 +152,24 @@ private fun StatusPill(label: String, dot: Color) {
                 .background(dot)
         )
         Spacer(Modifier.width(6.dp))
-        Text(label, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        androidx.wear.compose.material.Text(label, style = androidx.wear.compose.material.MaterialTheme.typography.caption2, color = Color.White.copy(alpha = 0.9f))
     }
 }
 
 @Composable
-private fun CenterCard(bpm: Int?, avg: Int?, min: Int?, max: Int?) {
-    Card(
+private fun CenterCard(bpm: Int?, avg: Int?, min: Int?, max: Int?, inExercise: Boolean) {
+    androidx.wear.compose.material.Card(
+        onClick = {},
         modifier = Modifier
             .fillMaxWidth()
-
-            .padding(vertical = 6.dp),
+            .padding(vertical = 6.dp)
+            .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f), RoundedCornerShape(18.dp)),
         shape = RoundedCornerShape(18.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.85f)
-        )
+        backgroundPainter = androidx.wear.compose.material.CardDefaults.cardBackgroundPainter(
+            startBackgroundColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+            endBackgroundColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+        ),
+        contentPadding = PaddingValues(0.dp)
     ) {
         Column(
             Modifier
@@ -170,19 +179,19 @@ private fun CenterCard(bpm: Int?, avg: Int?, min: Int?, max: Int?) {
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             // BPM big + pulsing heart + zone chip
-            BigBpmHeader(bpm)
+            BigBpmHeader(bpm, inExercise)
 
             // Mini stats row
             StatsRow(avg = avg, min = min, max = max)
 
             // Tiny sparkline at the bottom
-            EcgSparkline(bpm = bpm)
+            EcgSparkline(bpm = bpm, animate = inExercise && bpm != null)
         }
     }
 }
 
 @Composable
-private fun BigBpmHeader(bpm: Int?) {
+private fun BigBpmHeader(bpm: Int?, inExercise: Boolean) {
     val zone = zoneFor(bpm)
     val zoneColor by animateColorAsState(zone.color, label = "zoneColor")
 
@@ -191,19 +200,19 @@ private fun BigBpmHeader(bpm: Int?) {
         horizontalArrangement = Arrangement.Center,
         modifier = Modifier.fillMaxWidth()
     ) {
-        PulseHeart(bpm = bpm, color = zoneColor)
+        PulseHeart(bpm = bpm, color = zoneColor, animate = inExercise && bpm != null)
         Spacer(Modifier.width(8.dp))
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(
+            androidx.wear.compose.material.Text(
                 text = bpm?.toString() ?: "—",
-                color = MaterialTheme.colorScheme.onSurface,
-                style = MaterialTheme.typography.headlineLarge,
+                color = Color.White,
+                style = androidx.wear.compose.material.MaterialTheme.typography.title1.copy(fontFeatureSettings = "tnum"),
                 fontWeight = FontWeight.Bold
             )
-            Text(
+            androidx.wear.compose.material.Text(
                 text = "bpm",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                style = MaterialTheme.typography.labelLarge
+                color = Color.White.copy(alpha = 0.7f),
+                style = androidx.wear.compose.material.MaterialTheme.typography.caption2
             )
             Spacer(Modifier.height(4.dp))
             ZoneChip(zone.label, zoneColor)
@@ -222,7 +231,7 @@ private fun ZoneChip(text: String, color: Color) {
     ) {
         Box(Modifier.size(6.dp).clip(CircleShape).background(color))
         Spacer(Modifier.width(6.dp))
-        Text(text, color = color, style = MaterialTheme.typography.labelLarge)
+        androidx.wear.compose.material.Text(text, color = color, style = androidx.wear.compose.material.MaterialTheme.typography.caption2)
     }
 }
 
@@ -241,27 +250,31 @@ private fun StatsRow(avg: Int?, min: Int?, max: Int?) {
 @Composable
 private fun StatItem(label: String, v: Int?) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(label, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelMedium)
-        Text(v?.toString() ?: "—", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
+        androidx.wear.compose.material.Text(label, color = Color.White.copy(alpha = 0.6f), style = androidx.wear.compose.material.MaterialTheme.typography.caption2)
+        androidx.wear.compose.material.Text(v?.toString() ?: "—", color = Color.White, fontWeight = FontWeight.SemiBold, style = androidx.wear.compose.material.MaterialTheme.typography.body2.copy(fontFeatureSettings = "tnum"))
     }
 }
 
 @Composable
-private fun EcgSparkline(bpm: Int?) {
+private fun EcgSparkline(bpm: Int?, animate: Boolean) {
     val cyclesPerSecond = ((bpm ?: 72) / 60f).coerceIn(0.6f, 3f)
-    val anim = rememberInfiniteTransition(label = "ecgPhase")
-    val phase by anim.animateFloat(
-        0f, 1f,
-        animationSpec = infiniteRepeatable(
-            tween(durationMillis = (1000f / cyclesPerSecond).toInt().coerceAtLeast(120), easing = LinearEasing)
-        ),
-        label = "phase"
-    )
+    val phase = if (animate) {
+        val anim = rememberInfiniteTransition(label = "ecgPhase")
+        anim.animateFloat(
+            0f, 1f,
+            animationSpec = infiniteRepeatable(
+                tween(durationMillis = (1000f / cyclesPerSecond).toInt().coerceAtLeast(120), easing = LinearEasing)
+            ),
+            label = "phase"
+        ).value
+    } else {
+        0f
+    }
 
     // Crimson accents
-    val crimson = MaterialTheme.colorScheme.primary                  // #B71C1C
-    val crimsonLight = MaterialTheme.colorScheme.secondary           // #EF5350
-    val crimsonDark = MaterialTheme.colorScheme.error                // #7F0000 (mapped)
+    val crimson = Color(0xFFDC143C)                  // #DC143C
+    val crimsonLight = Color(0xFFFF4D6D)           // Light Crimson
+    val crimsonDark = Color(0xFF8B0000)                // Dark Crimson
     val lineBrush = Brush.horizontalGradient(listOf(crimsonDark, crimson, crimsonLight))
 
     Box(
@@ -269,7 +282,8 @@ private fun EcgSparkline(bpm: Int?) {
             .fillMaxWidth()
             .height(36.dp)
             .clip(RoundedCornerShape(12.dp))
-            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.55f))
+            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.35f))
+            .border(0.5.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(12.dp))
     ) {
         Canvas(Modifier.fillMaxSize().padding(horizontal = 8.dp, vertical = 6.dp)) {
             val w = size.width
@@ -282,7 +296,7 @@ private fun EcgSparkline(bpm: Int?) {
 
             // baseline (dim crimson)
             drawLine(
-                color = crimson.copy(alpha = 0.18f),
+                color = crimson.copy(alpha = 0.3f),
                 start = Offset(0f, base),
                 end = Offset(w, base),
                 strokeWidth = 2f
@@ -299,7 +313,7 @@ private fun EcgSparkline(bpm: Int?) {
             // 1) Soft glow underlay
             drawPath(
                 path = path,
-                color = crimson.copy(alpha = 0.25f),
+                color = crimson.copy(alpha = 0.4f),
                 style = Stroke(width = 8f) // fat + translucent
             )
             // 2) Crisp colored line on top
@@ -338,39 +352,49 @@ private fun BottomControls(inExercise: Boolean, onStart: () -> Unit, onStop: () 
                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                 onStart()
             },
-            enabled = !inExercise
-        ) { Text("Start") }
+            enabled = !inExercise,
+            colors = androidx.wear.compose.material.ButtonDefaults.primaryButtonColors(
+                backgroundColor = androidx.wear.compose.material.MaterialTheme.colors.primary.copy(alpha = 0.8f)
+            )
+        ) { androidx.wear.compose.material.Text("Start", style = androidx.wear.compose.material.MaterialTheme.typography.button, color = Color.White) }
 
         Button(
             onClick = {
                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                 onStop()
             },
-            enabled = inExercise
-        ) { Text("Stop") }
+            enabled = inExercise,
+            colors = androidx.wear.compose.material.ButtonDefaults.secondaryButtonColors(
+                backgroundColor = androidx.wear.compose.material.MaterialTheme.colors.surface.copy(alpha = 0.6f)
+            )
+        ) { androidx.wear.compose.material.Text("Stop", style = androidx.wear.compose.material.MaterialTheme.typography.button, color = Color.White) }
     }
 }
 
 @Composable
-private fun PulseHeart(bpm: Int?, color: Color) {
+private fun PulseHeart(bpm: Int?, color: Color, animate: Boolean) {
     // Pulse period tracks BPM (fallback 72)
     val b = (bpm ?: 72).coerceIn(36, 200)
     val beatMs = (60_000f / b).roundToInt().coerceAtLeast(220)
-    val infinite = rememberInfiniteTransition(label = "pulse")
-    val scale by infinite.animateFloat(
-        initialValue = 0.9f,
-        targetValue = 1.1f,
-        animationSpec = infiniteRepeatable(
-            keyframes {
-                durationMillis = beatMs
-                1.1f at (beatMs * 0.12f).roundToInt()
-                0.9f at (beatMs * 0.40f).roundToInt()
-                1.05f at (beatMs * 0.70f).roundToInt()
-            },
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "pulseScale"
-    )
+    val scale = if (animate) {
+        val infinite = rememberInfiniteTransition(label = "pulse")
+        infinite.animateFloat(
+            initialValue = 0.9f,
+            targetValue = 1.1f,
+            animationSpec = infiniteRepeatable(
+                keyframes {
+                    durationMillis = beatMs
+                    1.1f at (beatMs * 0.12f).roundToInt()
+                    0.9f at (beatMs * 0.40f).roundToInt()
+                    1.05f at (beatMs * 0.70f).roundToInt()
+                },
+                repeatMode = RepeatMode.Restart
+            ),
+            label = "pulseScale"
+        ).value
+    } else {
+        1f
+    }
 
     val size = (34 * scale).dp
     Box(
@@ -383,7 +407,8 @@ private fun PulseHeart(bpm: Int?, color: Color) {
         Icon(
             imageVector = Icons.Rounded.Favorite,
             contentDescription = null,
-            tint = color
+            tint = color,
+            modifier = Modifier.size(24.dp)
         )
     }
 }

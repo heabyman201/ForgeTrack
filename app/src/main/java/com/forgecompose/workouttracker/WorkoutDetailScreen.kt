@@ -1,5 +1,15 @@
 package com.forgecompose.workouttracker
 
+import com.forgecompose.workouttracker.*
+import com.forgecompose.workouttracker.ai.*
+import com.forgecompose.workouttracker.analytics.*
+import com.forgecompose.workouttracker.badges.*
+import com.forgecompose.workouttracker.health.*
+import com.forgecompose.workouttracker.muscle.*
+import com.forgecompose.workouttracker.profile.*
+import com.forgecompose.workouttracker.ui.components.*
+import com.forgecompose.workouttracker.workout.*
+
 import android.graphics.RenderEffect
 import android.graphics.Shader
 import android.os.Build
@@ -10,16 +20,21 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -28,8 +43,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Analytics
 import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FitnessCenter
 import androidx.compose.material.icons.filled.Lightbulb
+import androidx.compose.material3.Button
 import androidx.compose.material3.Divider
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -37,6 +55,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextField
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -64,12 +83,15 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
-import com.forgecompose.workouttracker.blurAnim.length
+import com.forgecompose.workouttracker.ui.components.blurAnim.length
 import com.google.firebase.crashlytics.ktx.crashlytics
 import com.google.firebase.ktx.Firebase
 import kotlinx.coroutines.delay
@@ -84,7 +106,7 @@ import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.random.Random
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun WorkoutDetailScreen(
     navController: NavController,
@@ -100,8 +122,8 @@ fun WorkoutDetailScreen(
     val cardPad = if (widthDp >= 400) 20.dp else 16.dp
     val titleStyle = if (widthDp >= 400) MaterialTheme.typography.displaySmall else MaterialTheme.typography.headlineMedium
 
-    val context = LocalContext.current
-    val performanceOptions by PerformanceOptionsManager.flow(context)
+    val screenContext = LocalContext.current
+    val performanceOptions by PerformanceOptionsManager.flow(screenContext)
         .collectAsState(initial = PerformanceOptions.Defaults)
 
     val movingEffectsEnabled = performanceOptions.movingGradientAndParticles
@@ -120,6 +142,7 @@ fun WorkoutDetailScreen(
                     animationClock += deltaTime
                 }
                 lastFrameTime = currentTime
+                delay(42)
             }
         }
     }
@@ -199,6 +222,9 @@ fun WorkoutDetailScreen(
     val selectedWorkout by remember(selectedId, allWorkouts) {
         derivedStateOf { allWorkouts.firstOrNull { it.id == selectedId } }
     }
+    val minuteHrPoints by remember(selectedWorkout?.heartRateTimeline) {
+        derivedStateOf { parseMinuteHrTimeline(selectedWorkout?.heartRateTimeline) }
+    }
 
     val dateFormat = remember { SimpleDateFormat("EEEE, MMM dd, yyyy", Locale.getDefault()) }
     val timeFormat = remember { SimpleDateFormat("hh:mm a", Locale.getDefault()) }
@@ -246,14 +272,55 @@ fun WorkoutDetailScreen(
         derivedStateOf { if (selectedWorkout == null) 0 else computeStreak(selectedWorkout!!.date, allWorkouts) }
     }
 
-    val chartSeriesSig by remember(allWorkouts) {
-        derivedStateOf {
-            allWorkouts.fold(1L) { acc, w ->
-                acc * 31 + w.id + w.date + (w.durationMillis ?: 0L) + (w.weight?.toLong() ?: 0L)
-            }
+    val aiEnabled = dynamicModel.personaConfig.value.enabled
+    val detailAdviceState = useGeminiAdviceGenerator(
+        contextPrompt = "You are a performance coach. Summarize this workout quality, compare with previous similar sessions, and give practical next-step advice."
+    )
+
+    LaunchedEffect(selectedWorkout?.id) {
+        val workout = selectedWorkout ?: return@LaunchedEffect
+        if (!aiEnabled) return@LaunchedEffect
+
+        val currentRpe = workout.sessionRpe ?: workout.rpe ?: 0
+        val currentFatigue = workout.fatigueLevel ?: 0
+        val previousWeight = previousSame?.weight ?: 0.0
+        val currentWeight = workout.weight ?: 0.0
+        val detailPhase = when {
+            currentFatigue >= 8 || currentRpe >= 9 -> "Deload Window"
+            previousWeight > 0.0 && currentWeight > previousWeight * 1.02 && currentFatigue <= 6 -> "Peaking"
+            previousWeight > 0.0 && currentWeight < previousWeight * 0.97 -> "Cooling Down"
+            currentFatigue >= 6 -> "Recovering"
+            else -> "Maintenance"
         }
+
+        val previousSummary = previousSame?.let {
+            "Previous same exercise: ${it.sets ?: 0} sets, ${it.reps ?: 0} reps, ${it.weight ?: 0.0} kg, duration ${formatDuration(it.durationMillis)}."
+        } ?: "No previous matching session found."
+
+        GeminiAdaptiveMemoryStore.recordWorkoutTrendSnapshot(
+            screenContext,
+            snapshot = WorkoutTrendSnapshot(
+                workoutName = workout.name,
+                source = "detail",
+                capturedAtEpochMs = System.currentTimeMillis(),
+                phase = detailPhase,
+                rpe = currentRpe,
+                fatigue = currentFatigue,
+                weight = workout.weight,
+                sets = workout.sets,
+                reps = workout.reps
+            )
+        )
+
+        detailAdviceState.generateBatchWithLimit(
+            "Workout: ${workout.name} on ${dateFormat.format(Date(workout.date))}. Duration ${formatDuration(workout.durationMillis)}.",
+            "Current metrics: sets ${workout.sets ?: 0}, reps ${workout.reps ?: 0}, weight ${workout.weight ?: 0.0}, distance ${workout.distance ?: 0.0}, RPE $currentRpe, fatigue $currentFatigue.",
+            "Trend context: phase $detailPhase, week count $thisWeekCount, streak ${streak}d. $previousSummary",
+            100
+        )
     }
-    val cachedAllWorkouts = remember(chartSeriesSig) { allWorkouts.toList() }
+
+    val cachedAllWorkouts = remember(allWorkouts) { allWorkouts.toList() }
 
     LaunchedEffect(Unit) {
         taskbarOverride.shouldOverrideVisiblity.value = false
@@ -261,17 +328,22 @@ fun WorkoutDetailScreen(
     }
 
     val cardioExerciseNames = remember {
-        listOf(
+        setOf(
             "Running (Treadmill)", "Stair Climber", "Elliptical Trainer",
             "Rowing Machine", "Stationary Bike","Swimming"
-        )
+        ).map { it.lowercase() }.toSet()
     }
     val presetByName = remember(workoutPresets) { workoutPresets.associateBy { it.name.trim().lowercase() } }
 
     val isCardioName = remember(presetByName) {
         { name: String? ->
-            val p = presetByName[name?.trim()?.lowercase()] ?: false
-            if (p is WorkoutPreset) p.category.equals("Cardio", ignoreCase = true) else false
+            val key = name?.trim()?.lowercase().orEmpty()
+            if (key.isBlank()) {
+                false
+            } else {
+                val presetCardio = presetByName[key]?.category.equals("Cardio", ignoreCase = true)
+                presetCardio || key in cardioExerciseNames
+            }
         }
     }
 
@@ -291,7 +363,8 @@ fun WorkoutDetailScreen(
                         selectedWorkout?.name ?: "Workout Summary",
                         style = MaterialTheme.typography.headlineMedium,
                         fontWeight = FontWeight.Bold,
-                        maxLines = 1
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
                     )
                 },
                 navigationIcon = {
@@ -302,16 +375,13 @@ fun WorkoutDetailScreen(
                 actions = {
                     selectedWorkout?.let { workout ->
                         IconButton(onClick = {
-                            val intent = ExerciseAnalyticsActivity.newIntent(
-                                context = context,
-                                exerciseName = workout.name
+                                val intent = ExerciseAnalyticsActivity.newIntent(
+                                screenContext,
+                                workout.name
                             )
-                            context.startActivity(intent)
+                            screenContext.startActivity(intent)
                         }) {
-                            Icon(
-                                imageVector = Icons.Default.Analytics,
-                                contentDescription = "View Analytics"
-                            )
+                            Icon(Icons.Default.Analytics, contentDescription = "View Analytics")
                         }
                     }
                 },
@@ -323,331 +393,64 @@ fun WorkoutDetailScreen(
                 )
             )
         },
-        containerColor = Color.Transparent,
-        modifier = Modifier.fillMaxSize()
+        containerColor = Color.Transparent
     ) { padding ->
-        Box(modifier = Modifier
-            .fillMaxSize()
-            .graphicsLayer {
-                compositingStrategy = CompositingStrategy.Offscreen
-                clip = true
-                val radiusPx = blurIntro.toPx()
-                renderEffect = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && radiusPx.isFinite() && radiusPx > 0.5f) {
-                    RenderEffect.createBlurEffect(radiusPx, radiusPx, Shader.TileMode.CLAMP).asComposeRenderEffect()
+        AnimatedBackdrop(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding),
+            introBrush = introBrush,
+            introAlpha = 1f - introProgress,
+            enableWaves = movingEffectsEnabled,
+            enableAnimation = movingEffectsEnabled
+        )
+        when (uiState) {
+            is WorkoutListUiState.Loading -> LoadingBlock(padding)
+            is WorkoutListUiState.Error -> ErrorBlock(padding)
+            is WorkoutListUiState.Success -> {
+                if (selectedWorkout == null) {
+                    MissingBlock(padding)
                 } else {
-                    null
-                }
-            }
-        ) {
-            AnimatedBackdrop(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding),
-                introBrush = introBrush,
-                introAlpha = 1f - introProgress,
-                enableWaves = movingEffectsEnabled,
-                enableAnimation = movingEffectsEnabled
-            )
-            when (uiState) {
-                is WorkoutListUiState.Loading -> LoadingBlock(padding)
-                is WorkoutListUiState.Error -> ErrorBlock(padding)
-                is WorkoutListUiState.Success -> {
-                    if (selectedWorkout == null) {
-                        MissingBlock(padding)
-                    } else {
-                        if (isTwoPane) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .padding(padding)
-                                    .padding(horizontal = contentHPad),
-                                horizontalArrangement = Arrangement.spacedBy(16.dp)
-                            ) {
-                                val leftState = rememberLazyListState()
-                                val rightState = rememberLazyListState()
-                                LazyColumn(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .fillMaxHeight(),
-                                    state = leftState,
-                                    verticalArrangement = Arrangement.spacedBy(16.dp),
-                                    contentPadding = PaddingValues(bottom = 100.dp)
-                                ) {
-                                    item {
-                                        AnimatedVisibility(visible = stages.after200ms, enter = fadeIn()) {
-                                            GlassCard {
-                                                Column(
-                                                    Modifier.padding(cardPad),
-                                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                                                ) {
-                                                    Text(
-                                                        text = selectedWorkout!!.name,
-                                                        style = titleStyle,
-                                                        fontWeight = FontWeight.Bold,
-                                                        textAlign = TextAlign.Center,
-                                                        modifier = Modifier.fillMaxWidth(),
-                                                        color = Color.White,
-                                                        maxLines = 1
-                                                    )
-                                                    StatusChip(selectedWorkout!!.status)
-                                                    InfoChip(
-                                                        label = dateFormat.format(Date(selectedWorkout!!.date)),
-                                                        icon = Icons.Filled.DateRange
-                                                    )
-                                                    if (selectedWorkout!!.name in cardioExerciseNames) {
-                                                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                                            InfoChip(
-                                                                label = selectedWorkout!!.distance?.let { "$it km" } ?: "No Distance Recorded",
-                                                                icon = Icons.Filled.FitnessCenter
-                                                            )
-                                                        }
-                                                    } else {
-                                                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                                            InfoChip(
-                                                                label = selectedWorkout!!.sets?.let { "$it Sets" } ?: "No Sets Recorded",
-                                                                icon = Icons.Filled.FitnessCenter
-                                                            )
-                                                            InfoChip(
-                                                                label = selectedWorkout!!.reps?.let { "$it Reps" } ?: "No Reps Recorded",
-                                                                icon = Icons.Filled.FitnessCenter
-                                                            )
-                                                            InfoChip(
-                                                                label = selectedWorkout!!.weight?.let { "$it Kg" } ?: "No Weight Recorded",
-                                                                icon = Icons.Filled.FitnessCenter
-                                                            )
-                                                        }
-                                                    }
-                                                }
-                                            }
-
-                                        }
-                                    }
-                                    item {
-                                        GlassCard {
-                                            AnalysisInsightsCard(
-                                                data = allWorkouts
-                                            )
-                                        }
-
-                                    }
-                                    item {
-                                        AnimatedVisibility(visible = stages.afterFirstFrame, enter = fadeIn()) {
-                                            GlassCard {
-                                                Column(Modifier.padding(cardPad)) {
-                                                    SectionTitle("Timing")
-                                                    val dur = formatDuration(selectedWorkout!!.durationMillis)
-                                                    val start = timeFormat.format(Date(selectedWorkout!!.startTime))
-                                                    val end = selectedWorkout!!.endTime?.let { timeFormat.format(Date(it)) } ?: "--"
-                                                    Row(
-                                                        Modifier.fillMaxWidth(),
-                                                        horizontalArrangement = Arrangement.SpaceAround
-                                                    ) {
-                                                        LabeledStat("Duration", dur)
-                                                        LabeledStat("Start", start)
-                                                        LabeledStat("End", end)
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                    item {
-                                        AnimatedVisibility(visible = stages.after600ms, enter = fadeIn()) {
-                                            GlassCard {
-                                                Column(Modifier.padding(cardPad)) {
-                                                    SectionTitle("Highlights")
-                                                    Row(
-                                                        Modifier.fillMaxWidth(),
-                                                        horizontalArrangement = Arrangement.SpaceAround
-                                                    ) {
-                                                        LabeledStat("This Week", thisWeekCount.toString())
-                                                        LabeledStat("Streak", "${streak}d")
-                                                        LabeledStat(
-                                                            "Last Time",
-                                                            previousSame?.let { fmtAgo(it.date, selectedWorkout!!.date) } ?: "--"
-                                                        )
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                                LazyColumn(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .fillMaxHeight(),
-                                    state = rightState,
-                                    verticalArrangement = Arrangement.spacedBy(16.dp),
-                                    contentPadding = PaddingValues(bottom = 100.dp)
-                                ) {
-                                    if (cachedAllWorkouts.isNotEmpty()) {
-                                        item {
-                                            AnimatedVisibility(visible = stages.after700ms, enter = fadeIn()) {
-                                                GlassCard {
-                                                    Column(Modifier.padding(cardPad)) {
-                                                        SectionTitle("Progression")
-                                                        key(selectedWorkout!!.name, chartSeriesSig) {
-                                                            ExerciseWeightProgressionGraph(
-                                                                exerciseName = selectedWorkout!!.name,
-                                                                workouts = cachedAllWorkouts
-                                                            )
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                        item {
-                                            AnimatedVisibility(visible = stages.after400ms, enter = fadeIn()) {
-                                                GlassCard {
-                                                    Column(Modifier.padding(cardPad)) {
-                                                        SectionTitle("Sets Progression")
-                                                        key(selectedWorkout!!.name, chartSeriesSig) {
-                                                            ExerciseSetProgressionGraph(
-                                                                exerciseName = selectedWorkout!!.name,
-                                                                workouts = cachedAllWorkouts
-                                                            )
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                        item {
-                                            AnimatedVisibility(visible = stages.after800ms, enter = fadeIn()) {
-                                                GlassCard {
-                                                    Column(Modifier.padding(cardPad)) {
-                                                        SectionTitle("Reps Progression")
-                                                        key(selectedWorkout!!.name, chartSeriesSig) {
-                                                            ExerciseRepProgressionGraph(
-                                                                exerciseName = selectedWorkout!!.name,
-                                                                workouts = cachedAllWorkouts
-                                                            )
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                    if (sameNameWorkouts.size > 1) {
-                                        item {
-                                            AnimatedVisibility(visible = stages.after400ms, enter = fadeIn()) {
-                                                GlassCard {
-                                                    Column(Modifier.padding(cardPad)) {
-                                                        SectionTitle("Recent Sessions")
-                                                        val recentSessions = remember(sameNameWorkouts) {
-                                                            sameNameWorkouts.takeLast(5).asReversed()
-                                                        }
-                                                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                                            recentSessions.forEach { w ->
-                                                                SessionHistoryRow(w)
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                    item {
-                                        val haptics = LocalHapticFeedback.current
-                                        Box(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(top = 8.dp)
-                                                .clip(RoundedCornerShape(20.dp))
-                                                .background(Color(0xFF4A0000).copy(alpha = 0.2f))
-                                                .clickable {
-                                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                    viewModel.deleteWorkout(selectedWorkout!!)
-                                                    navController.navigateUp()
-                                                }
-                                                .padding(vertical = 16.dp),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Text(
-                                                "Delete Workout",
-                                                color = MaterialTheme.colorScheme.error,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        } else {
-                            val listState = rememberLazyListState()
+                    if (isTwoPane) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(padding)
+                                .padding(horizontal = contentHPad),
+                            horizontalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            val leftState = rememberLazyListState()
+                            val rightState = rememberLazyListState()
                             LazyColumn(
                                 modifier = Modifier
-                                    .fillMaxSize()
-                                    .padding(padding)
-                                    .padding(horizontal = contentHPad),
-                                state = listState,
+                                    .weight(1f)
+                                    .fillMaxHeight(),
+                                state = leftState,
                                 verticalArrangement = Arrangement.spacedBy(16.dp),
                                 contentPadding = PaddingValues(bottom = 100.dp)
                             ) {
                                 item {
                                     AnimatedVisibility(visible = stages.after200ms, enter = fadeIn()) {
                                         GlassCard {
-                                            Column(
-                                                Modifier.padding(cardPad),
-                                                horizontalAlignment = Alignment.CenterHorizontally,
-                                                verticalArrangement = Arrangement.spacedBy(8.dp)
-                                            ) {
-                                                Text(
-                                                    text = selectedWorkout!!.name,
-                                                    style = titleStyle,
-                                                    fontWeight = FontWeight.Bold,
-                                                    textAlign = TextAlign.Center,
-                                                    modifier = Modifier.fillMaxWidth(),
-                                                    color = Color.White,
-                                                    maxLines = 1
-                                                )
-                                                StatusChip(selectedWorkout!!.status)
-                                                InfoChip(
-                                                    label = dateFormat.format(Date(selectedWorkout!!.date)),
-                                                    icon = Icons.Filled.DateRange
-                                                )
-                                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                                    InfoChip(
-                                                        label = selectedWorkout!!.sets?.let { "$it Sets" } ?: "No Sets",
-                                                        icon = Icons.Filled.FitnessCenter
-                                                    )
-                                                    InfoChip(
-                                                        label = selectedWorkout!!.reps?.let { "$it Reps" } ?: "No Reps",
-                                                        icon = Icons.Filled.FitnessCenter
-                                                    )
-                                                }
-                                                InfoChip(
-                                                    label = selectedWorkout!!.weight?.let { "$it kg" } ?: "Bodyweight",
-                                                    icon = Icons.Filled.FitnessCenter
-                                                )
-                                            }
+                                            WorkoutOverviewCard(
+                                                workout = selectedWorkout!!,
+                                                dateLabel = dateFormat.format(Date(selectedWorkout!!.date)),
+                                                cardPad = cardPad,
+                                                titleStyle = titleStyle,
+                                                isCardio = isCardioName(selectedWorkout!!.name)
+                                            )
                                         }
+
                                     }
                                 }
-                                if (selectedWorkout!!.notes != null && selectedWorkout!!.notes!!.isNotBlank()) {
-                                    item {
-                                        AnimatedVisibility(
-                                            visible = stages.after800ms,
-                                            enter = fadeIn()
-                                        ) {
-                                            GlassCard {
-                                                Row(
-                                                    Modifier.padding(cardPad),
-                                                    horizontalArrangement = Arrangement.Center
-                                                ) {
-                                                    Icon(
-                                                        imageVector = Icons.Filled.Lightbulb,
-                                                        contentDescription = "Notes",
-                                                        tint = Color.Yellow
-                                                    )
-                                                    Text(
-                                                        text = "Notes : ${selectedWorkout!!.notes}",
-                                                        color = Color.White,
-                                                        style = MaterialTheme.typography.bodyLarge,
-                                                        fontWeight = FontWeight.Bold
-                                                    )
-                                                }
-                                            }
-                                        }
+                                item {
+                                    GlassCard {
+                                        AnalysisInsightsCard(
+                                            exerciseName = selectedWorkout!!.name,
+                                            data = sameNameWorkouts
+                                        )
                                     }
+
                                 }
                                 item {
                                     AnimatedVisibility(visible = stages.afterFirstFrame, enter = fadeIn()) {
@@ -657,14 +460,14 @@ fun WorkoutDetailScreen(
                                                 val dur = formatDuration(selectedWorkout!!.durationMillis)
                                                 val start = timeFormat.format(Date(selectedWorkout!!.startTime))
                                                 val end = selectedWorkout!!.endTime?.let { timeFormat.format(Date(it)) } ?: "--"
-                                                Row(
-                                                    Modifier.fillMaxWidth(),
-                                                    horizontalArrangement = Arrangement.SpaceAround
-                                                ) {
-                                                    LabeledStat("Duration", dur)
-                                                    LabeledStat("Start", start)
-                                                    LabeledStat("End", end)
-                                                }
+                                                DetailStatRow(
+                                                    firstLabel = "Duration",
+                                                    firstValue = dur,
+                                                    secondLabel = "Start",
+                                                    secondValue = start,
+                                                    thirdLabel = "End",
+                                                    thirdValue = end
+                                                )
                                             }
                                         }
                                     }
@@ -674,15 +477,48 @@ fun WorkoutDetailScreen(
                                         GlassCard {
                                             Column(Modifier.padding(cardPad)) {
                                                 SectionTitle("Highlights")
-                                                Row(
-                                                    Modifier.fillMaxWidth(),
-                                                    horizontalArrangement = Arrangement.SpaceAround
-                                                ) {
-                                                    LabeledStat("This Week", thisWeekCount.toString())
-                                                    LabeledStat("Streak", "${streak}d")
-                                                    LabeledStat(
-                                                        "Last Time",
-                                                        previousSame?.let { fmtAgo(it.date, selectedWorkout!!.date) } ?: "--"
+                                                DetailStatRow(
+                                                    firstLabel = "This Week",
+                                                    firstValue = thisWeekCount.toString(),
+                                                    secondLabel = "Streak",
+                                                    secondValue = "${streak}d",
+                                                    thirdLabel = "Last Time",
+                                                    thirdValue = previousSame?.let { fmtAgo(it.date, selectedWorkout!!.date) } ?: "--"
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                                item {
+                                    AnimatedVisibility(visible = stages.after600ms, enter = fadeIn()) {
+                                        GlassCard {
+                                            DetailedAdviceCard(
+                                                advice = detailAdviceState.currentAdvice,
+                                                isLoading = detailAdviceState.isLoading
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                            LazyColumn(
+                                modifier = Modifier
+                                    .weight(1f)
+                                .fillMaxHeight(),
+                                state = rightState,
+                                verticalArrangement = Arrangement.spacedBy(16.dp),
+                                contentPadding = PaddingValues(bottom = 100.dp)
+                            ) {
+                                if (minuteHrPoints.isNotEmpty()) {
+                                    item {
+                                        AnimatedVisibility(visible = stages.after400ms, enter = fadeIn()) {
+                                            GlassCard {
+                                                Column(Modifier.padding(cardPad)) {
+                                                    SectionTitle("Heart Rate Timeline")
+                                                    MinuteHeartRateZoneGraph(
+                                                        points = minuteHrPoints,
+                                                        modifier = Modifier
+                                                            .fillMaxWidth()
+                                                            .height(220.dp)
                                                     )
                                                 }
                                             }
@@ -690,18 +526,130 @@ fun WorkoutDetailScreen(
                                     }
                                 }
 
-                                if (sameNameWorkouts.size > 1) {
+                                if (cachedAllWorkouts.isNotEmpty()) {
                                     item {
                                         AnimatedVisibility(visible = stages.after400ms, enter = fadeIn()) {
                                             GlassCard {
                                                 Column(Modifier.padding(cardPad)) {
-                                                    SectionTitle("Recent Sessions")
-                                                    val recentSessions = remember(sameNameWorkouts) {
-                                                        sameNameWorkouts.takeLast(5).asReversed()
+                                                    SectionTitle("Average HR Progression")
+                                                    key(selectedWorkout!!.name) {
+                                                        ExerciseAverageHrProgressionGraph(
+                                                            exerciseName = selectedWorkout!!.name,
+                                                            workouts = cachedAllWorkouts
+                                                        )
                                                     }
-                                                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                                        recentSessions.forEach { w ->
-                                                            SessionHistoryRow(w)
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(padding)
+                                .padding(horizontal = contentHPad),
+                            verticalArrangement = Arrangement.spacedBy(16.dp),
+                            contentPadding = PaddingValues(bottom = 100.dp)
+                        ) {
+                            item {
+                                AnimatedVisibility(visible = stages.after200ms, enter = fadeIn()) {
+                                    GlassCard {
+                                        WorkoutOverviewCard(
+                                            workout = selectedWorkout!!,
+                                            dateLabel = dateFormat.format(Date(selectedWorkout!!.date)),
+                                            cardPad = cardPad,
+                                            titleStyle = titleStyle,
+                                            isCardio = isCardioName(selectedWorkout!!.name)
+                                        )
+                                    }
+                                }
+                            }
+                            item {
+                                GlassCard {
+                                    AnalysisInsightsCard(
+                                        exerciseName = selectedWorkout!!.name,
+                                        data = sameNameWorkouts
+                                    )
+                                }
+                            }
+                            if (selectedWorkout!!.notes != null) {
+
+                                item {
+                                    AnimatedVisibility(
+                                        visible = stages.after600ms,
+                                        enter = fadeIn()
+                                    ) {
+                                        val currentNotes = selectedWorkout!!.notes.orEmpty()
+                                        var tempNote by remember(currentNotes) { mutableStateOf(currentNotes) }
+                                        var editMode by remember { mutableStateOf(false) }
+                                        GlassCard {
+                                            Column(
+                                                modifier = Modifier.padding(cardPad),
+                                                verticalArrangement = Arrangement.spacedBy(14.dp)
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Column(
+                                                        modifier = Modifier.weight(1f),
+                                                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                                                    ) {
+                                                        SectionTitle("Notes")
+                                                        Text(
+                                                            text = if (editMode) "Update your workout notes" else "Captured thoughts from this session",
+                                                            style = MaterialTheme.typography.bodySmall,
+                                                            color = Color.White.copy(alpha = 0.7f)
+                                                        )
+                                                    }
+                                                    IconButton(
+                                                        onClick = {
+                                                            if (!editMode) {
+                                                                tempNote = currentNotes
+                                                            }
+                                                            editMode = !editMode
+                                                        },
+                                                    ) {
+                                                        Icon(
+                                                            Icons.Default.Edit,
+                                                            tint = Color.White,
+                                                            contentDescription = "Edit notes"
+                                                        )
+                                                    }
+                                                }
+
+                                                if (!editMode) {
+                                                    Text(
+                                                        text = currentNotes,
+                                                        style = MaterialTheme.typography.bodyMedium,
+                                                        color = Color.White.copy(alpha = 0.9f)
+                                                    )
+                                                } else {
+                                                    TextField(
+                                                        modifier = Modifier.fillMaxWidth(),
+                                                        value = tempNote,
+                                                        onValueChange = { tempNote = it },
+                                                        minLines = 4,
+                                                        textStyle = MaterialTheme.typography.bodyMedium,
+                                                        label = { Text("Workout notes") }
+                                                    )
+                                                    Row(
+                                                        modifier = Modifier.fillMaxWidth(),
+                                                        horizontalArrangement = Arrangement.End
+                                                    ) {
+                                                        Button(onClick = {
+                                                            selectedWorkout!!.notes = tempNote
+                                                            viewModel.updateWorkoutNotes(
+                                                                workoutId = selectedWorkout!!.id.toLong(),
+                                                                notes = tempNote
+                                                            )
+                                                            editMode = false
+                                                        }) {
+                                                            Text(text = "Save")
                                                         }
                                                     }
                                                 }
@@ -709,31 +657,89 @@ fun WorkoutDetailScreen(
                                         }
                                     }
                                 }
-
+                            }
+                            item {
+                                AnimatedVisibility(visible = stages.afterFirstFrame, enter = fadeIn()) {
+                                    GlassCard {
+                                        Column(Modifier.padding(cardPad)) {
+                                            SectionTitle("Timing")
+                                            val dur = formatDuration(selectedWorkout!!.durationMillis)
+                                            val start = timeFormat.format(Date(selectedWorkout!!.startTime))
+                                            val end = selectedWorkout!!.endTime?.let { timeFormat.format(Date(it)) } ?: "--"
+                                            DetailStatRow(
+                                                firstLabel = "Duration",
+                                                firstValue = dur,
+                                                secondLabel = "Start",
+                                                secondValue = start,
+                                                thirdLabel = "End",
+                                                thirdValue = end
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                            if (minuteHrPoints.isNotEmpty()) {
                                 item {
-                                    val haptics = LocalHapticFeedback.current
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(top = 8.dp)
-                                            .clip(RoundedCornerShape(20.dp))
-                                            .background(Color(0xFF4A0000).copy(alpha = 0.2f))
-                                            .clickable {
-                                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                viewModel.deleteWorkout(selectedWorkout!!)
-                                                navController.navigateUp()
+                                    AnimatedVisibility(visible = stages.after400ms, enter = fadeIn()) {
+                                        GlassCard {
+                                            Column(Modifier.padding(cardPad)) {
+                                                SectionTitle("Heart Rate Timeline")
+                                                MinuteHeartRateZoneGraph(
+                                                    points = minuteHrPoints,
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .height(220.dp)
+                                                )
                                             }
-                                            .padding(vertical = 16.dp),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Text(
-                                            "Delete Workout",
-                                            color = MaterialTheme.colorScheme.error,
-                                            fontWeight = FontWeight.Bold
+                                        }
+                                    }
+                                }
+                            }
+                            item {
+                                AnimatedVisibility(visible = stages.after600ms, enter = fadeIn()) {
+                                    GlassCard {
+                                        Column(Modifier.padding(cardPad)) {
+                                            SectionTitle("Highlights")
+                                            DetailStatRow(
+                                                firstLabel = "This Week",
+                                                firstValue = thisWeekCount.toString(),
+                                                secondLabel = "Streak",
+                                                secondValue = "${streak}d",
+                                                thirdLabel = "Last Time",
+                                                thirdValue = previousSame?.let { fmtAgo(it.date, selectedWorkout!!.date) } ?: "--"
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                            item {
+                                AnimatedVisibility(visible = stages.after600ms, enter = fadeIn()) {
+                                    GlassCard {
+                                        DetailedAdviceCard(
+                                            advice = detailAdviceState.currentAdvice,
+                                            isLoading = detailAdviceState.isLoading
                                         )
                                     }
                                 }
                             }
+                            if (cachedAllWorkouts.isNotEmpty()) {
+                                item {
+                                    AnimatedVisibility(visible = stages.after400ms, enter = fadeIn()) {
+                                        GlassCard {
+                                            Column(Modifier.padding(cardPad)) {
+                                                SectionTitle("Average HR Progression")
+                                                key(selectedWorkout!!.name) {
+                                                    ExerciseAverageHrProgressionGraph(
+                                                        exerciseName = selectedWorkout!!.name,
+                                                        workouts = cachedAllWorkouts
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
                         }
                     }
                 }
@@ -743,60 +749,262 @@ fun WorkoutDetailScreen(
 }
 
 
+
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun SessionHistoryRow(w: Workout) {
-    val dateFormat = remember { SimpleDateFormat("EEEE, MMM dd", Locale.getDefault()) }
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-        Text(dateFormat.format(Date(w.date)), color = Color.White.copy(alpha = 0.9f), style = MaterialTheme.typography.bodyLarge, maxLines = 1)
+private fun WorkoutOverviewCard(
+    workout: Workout,
+    dateLabel: String,
+    cardPad: Dp,
+    titleStyle: TextStyle,
+    isCardio: Boolean
+) {
+    Column(
+        modifier = Modifier.padding(cardPad),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
         Text(
-            formatDuration(w.durationMillis),
-            color = Color.White.copy(alpha = 0.7f),
-            style = MaterialTheme.typography.bodyLarge,
-            fontWeight = FontWeight.SemiBold,
-            maxLines = 1
+            text = workout.name,
+            style = titleStyle,
+            fontWeight = FontWeight.Bold,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth(),
+            color = Color.White,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis
         )
+        StatusChip(workout.status)
+        FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.Center,
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            InfoChip(
+                label = dateLabel,
+                icon = Icons.Filled.DateRange
+            )
+            if (isCardio) {
+                InfoChip(
+                    label = workout.distance?.let { "${"%.2f".format(Locale.getDefault(), it)} km" } ?: "No distance recorded",
+                    icon = Icons.Filled.FitnessCenter
+                )
+            } else {
+                InfoChip(
+                    label = workout.sets?.let { "$it sets" } ?: "No sets recorded",
+                    icon = Icons.Filled.FitnessCenter
+                )
+                InfoChip(
+                    label = workout.reps?.let { "$it reps" } ?: "No reps recorded",
+                    icon = Icons.Filled.FitnessCenter
+                )
+                InfoChip(
+                    label = workout.weight?.let { "${"%.1f".format(Locale.getDefault(), it)} kg" } ?: "No weight recorded",
+                    icon = Icons.Filled.FitnessCenter
+                )
+            }
+        }
     }
-    Divider(color = Color.White.copy(alpha = 0.1f), thickness = 1.dp)
 }
 
-private fun formatDuration(durationMillis: Long?): String {
-    val d = durationMillis ?: 0L
-    val h = TimeUnit.MILLISECONDS.toHours(d).toInt()
-    val m = TimeUnit.MILLISECONDS.toMinutes(d).toInt() % 60
-    val s = TimeUnit.MILLISECONDS.toSeconds(d).toInt() % 60
-    return if (h > 0) "${h}h ${m}m ${s}s" else "${m}m ${s}s"
+@Composable
+private fun DetailStatRow(
+    firstLabel: String,
+    firstValue: String,
+    secondLabel: String,
+    secondValue: String,
+    thirdLabel: String,
+    thirdValue: String
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        LabeledStat(label = firstLabel, value = firstValue, modifier = Modifier.weight(1f))
+        LabeledStat(label = secondLabel, value = secondValue, modifier = Modifier.weight(1f))
+        LabeledStat(label = thirdLabel, value = thirdValue, modifier = Modifier.weight(1f))
+    }
 }
 
-private fun fmtAgo(previous: Long, current: Long): String {
-    val diff = current - previous
+fun formatDuration(millis: Long?): String {
+    if (millis == null) return "--"
+    val minutes = TimeUnit.MILLISECONDS.toMinutes(millis)
+    val seconds = TimeUnit.MILLISECONDS.toSeconds(millis) % 60
+    return String.format("%02d:%02d", minutes, seconds)
+}
+
+fun fmtAgo(prev: Long, current: Long): String {
+    val diff = current - prev
     val days = TimeUnit.MILLISECONDS.toDays(diff)
-    val hours = TimeUnit.MILLISECONDS.toHours(diff) % 24
     return when {
-        days > 0 -> "${days}d ${hours}h"
-        else -> "${hours}h"
+        days == 0L -> "Today"
+        days == 1L -> "Yesterday"
+        days < 7L -> "$days days ago"
+        else -> "${days / 7} weeks ago"
     }
 }
 
- fun computeStreak(anchorDate: Long, workouts: List<Workout>): Int {
-    if (workouts.isEmpty()) return 0
-    val dayMillis = 86_400_000L
-
-
-    fun dayStart(t: Long): Long {
-        val cal = Calendar.getInstance().apply { timeInMillis = t }
-        cal.set(Calendar.HOUR_OF_DAY, 0)
-        cal.set(Calendar.MINUTE, 0)
-        cal.set(Calendar.SECOND, 0)
-        cal.set(Calendar.MILLISECOND, 0)
-        return cal.timeInMillis
-    }
-
-    val daysSet = workouts.map { dayStart(it.date) }.toHashSet()
+fun computeStreak(lastDate: Long, all: List<Workout>): Int {
+    val sorted = all.asSequence().map { it.date }.distinct().sortedDescending().toList()
+    if (sorted.isEmpty()) return 0
     var streak = 0
-    var cur = dayStart(anchorDate)
-    while (daysSet.contains(cur)) {
-        streak++
-        cur -= dayMillis
+    var current = lastDate
+    for (date in sorted) {
+        val diff = current - date
+        val days = TimeUnit.MILLISECONDS.toDays(diff)
+        if (days <= 1L) {
+            streak++
+            current = date
+        } else {
+            break
+        }
     }
     return streak
+}
+
+@Composable
+private fun DetailedAdviceCard(
+    advice: String,
+    isLoading: Boolean
+) {
+    Column(
+        modifier = Modifier.padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.Lightbulb,
+                contentDescription = "AI insight",
+                tint = Color(0xFFFFD54F)
+            )
+            Text(
+                text = "Detailed AI Insight",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = Color.White
+            )
+        }
+        Text(
+            text = if (isLoading) "Analyzing your progress and generating detailed advice..." else advice,
+            style = MaterialTheme.typography.bodyMedium,
+            color = Color.White.copy(alpha = 0.9f)
+        )
+    }
+}
+
+private data class MinuteHrPoint(val minute: Int, val bpm: Int)
+
+private fun parseMinuteHrTimeline(raw: String?): List<MinuteHrPoint> {
+    if (raw.isNullOrBlank()) return emptyList()
+    return raw.split(",")
+        .mapNotNull { token ->
+            val parts = token.split(":", limit = 2)
+            if (parts.size != 2) return@mapNotNull null
+            val minute = parts[0].trim().toIntOrNull() ?: return@mapNotNull null
+            val bpm = parts[1].trim().toIntOrNull() ?: return@mapNotNull null
+            if (minute <= 0 || bpm <= 0) return@mapNotNull null
+            MinuteHrPoint(minute = minute, bpm = bpm)
+        }
+        .sortedBy { it.minute }
+        .distinctBy { it.minute }
+}
+
+private fun zoneColorForBpm(bpm: Int, estimatedMaxHr: Int): Color {
+    val ratio = bpm.toFloat() / estimatedMaxHr.coerceAtLeast(1).toFloat()
+    return when {
+        ratio < 0.60f -> Color(0xFF4FC3F7) // Zone 1
+        ratio < 0.70f -> Color(0xFF66BB6A) // Zone 2
+        ratio < 0.80f -> Color(0xFFFFCA28) // Zone 3
+        ratio < 0.90f -> Color(0xFFFF8A65) // Zone 4
+        else -> Color(0xFFEF5350)          // Zone 5
+    }
+}
+
+@Composable
+private fun MinuteHeartRateZoneGraph(
+    points: List<MinuteHrPoint>,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val prefs = remember(context) { UserPreferencesManager(context) }
+    val age = remember { prefs.getAge().toIntOrNull() }
+    val estimatedMaxHr = remember(age) {
+        val safeAge = age?.takeIf { it in 10..95 }
+        if (safeAge != null) 220 - safeAge else 190
+    }
+
+    val minMinute = points.minOfOrNull { it.minute } ?: 1
+    val maxMinute = points.maxOfOrNull { it.minute } ?: 1
+    val minBpm = (points.minOfOrNull { it.bpm } ?: 60).coerceAtLeast(40)
+    val maxBpm = (points.maxOfOrNull { it.bpm } ?: 160).coerceAtLeast(minBpm + 10)
+    val bpmRange = (maxBpm - minBpm).coerceAtLeast(1)
+    val minuteRange = (maxMinute - minMinute).coerceAtLeast(1)
+
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Canvas(
+            modifier = modifier
+                .clip(RoundedCornerShape(16.dp))
+                .background(Color.White.copy(alpha = 0.05f))
+                .padding(horizontal = 10.dp, vertical = 12.dp)
+        ) {
+            val w = size.width
+            val h = size.height
+            val stepX = w / minuteRange.toFloat()
+
+            for (i in 0..4) {
+                val y = h * (i / 4f)
+                drawLine(
+                    color = Color.White.copy(alpha = 0.12f),
+                    start = Offset(0f, y),
+                    end = Offset(w, y),
+                    strokeWidth = 1.dp.toPx()
+                )
+            }
+
+            points.zipWithNext().forEach { (a, b) ->
+                val x1 = (a.minute - minMinute) * stepX
+                val x2 = (b.minute - minMinute) * stepX
+                val y1 = h - ((a.bpm - minBpm).toFloat() / bpmRange.toFloat()) * h
+                val y2 = h - ((b.bpm - minBpm).toFloat() / bpmRange.toFloat()) * h
+                val color = zoneColorForBpm((a.bpm + b.bpm) / 2, estimatedMaxHr)
+                drawLine(
+                    color = color,
+                    start = Offset(x1, y1),
+                    end = Offset(x2, y2),
+                    strokeWidth = 3.dp.toPx()
+                )
+            }
+
+            points.forEach { p ->
+                val x = (p.minute - minMinute) * stepX
+                val y = h - ((p.bpm - minBpm).toFloat() / bpmRange.toFloat()) * h
+                drawCircle(
+                    color = zoneColorForBpm(p.bpm, estimatedMaxHr),
+                    radius = 3.2.dp.toPx(),
+                    center = Offset(x, y)
+                )
+            }
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text("Min $minMinute", color = Color.White.copy(alpha = 0.75f), style = MaterialTheme.typography.labelSmall)
+            Text("Peak $maxBpm bpm", color = Color.White.copy(alpha = 0.85f), style = MaterialTheme.typography.labelSmall)
+            Text("Min $maxMinute", color = Color.White.copy(alpha = 0.75f), style = MaterialTheme.typography.labelSmall)
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text("Z1-2", color = Color(0xFF66BB6A), style = MaterialTheme.typography.labelSmall)
+            Text("Z3", color = Color(0xFFFFCA28), style = MaterialTheme.typography.labelSmall)
+            Text("Z4-5", color = Color(0xFFEF5350), style = MaterialTheme.typography.labelSmall)
+        }
+    }
 }
