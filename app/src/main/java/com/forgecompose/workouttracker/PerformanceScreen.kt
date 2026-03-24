@@ -1,14 +1,6 @@
 package com.forgecompose.workouttracker
 
-import com.forgecompose.workouttracker.*
-import com.forgecompose.workouttracker.ai.*
-import com.forgecompose.workouttracker.analytics.*
-import com.forgecompose.workouttracker.badges.*
-import com.forgecompose.workouttracker.health.*
-import com.forgecompose.workouttracker.muscle.*
-import com.forgecompose.workouttracker.profile.*
 import com.forgecompose.workouttracker.ui.components.*
-import com.forgecompose.workouttracker.workout.*
 
 import android.app.Application
 import android.content.BroadcastReceiver
@@ -163,7 +155,20 @@ object PerformanceOptionsManager {
 
     private var initJob: Job? = null
     private var initRuntime: Boolean = false
-
+    fun startEffectiveOptionsGating(context: Context){
+        CoroutineScope(Dispatchers.Default).launch {
+            combine(saved, isForeground, isScreenOn) { s, fg, scr ->
+                val allow = fg && scr
+                s.copy(
+                    blurEnabled = s.blurEnabled && allow,
+                    taskbarAnimations = s.taskbarAnimations && allow,
+                    movingGradientAndParticles = s.movingGradientAndParticles && allow,
+                    navEffects = s.navEffects && allow,
+                    maxSuggestions = s.maxSuggestions
+                )
+            }.distinctUntilChanged().collect { _effective.value = it }
+        }
+    }
     fun initialize(context: Context) {
         if (initJob != null) return
         initJob = CoroutineScope(Dispatchers.IO).launch {
@@ -183,18 +188,7 @@ object PerformanceOptionsManager {
                 .collectLatest { saved.value = it }
         }
         initializeRuntimeOverrides(context.applicationContext)
-        CoroutineScope(Dispatchers.Default).launch {
-            combine(saved, isForeground, isScreenOn) { s, fg, scr ->
-                val allow = fg && scr
-                s.copy(
-                    blurEnabled = s.blurEnabled && allow,
-                    taskbarAnimations = s.taskbarAnimations && allow,
-                    movingGradientAndParticles = s.movingGradientAndParticles && allow,
-                    navEffects = s.navEffects && allow,
-                    maxSuggestions = s.maxSuggestions
-                )
-            }.distinctUntilChanged().collect { _effective.value = it }
-        }
+        startEffectiveOptionsGating(context)
     }
 
     private fun initializeRuntimeOverrides(appCtx: Context) {
@@ -411,53 +405,12 @@ fun PerformanceOptionsScreen(
                 verticalArrangement = Arrangement.spacedBy(24.dp)
             ) {
                 item {
-                    SettingsSectionCardHealth(title = "Display & Animation", theme = theme) {
-                        PerformanceToggleRow(
-                            label = "Enable Blur",
-                            checked = saved.blurEnabled,
-                            icon = Icons.Default.BlurOn,
-                            impacts = listOf(ResourceImpact.GPU),
-                            enabled = true,
-                            theme = theme
-                        ) { b -> vm.setBlurEnabled(b) }
-
-                        Spacer(Modifier.height(6.dp))
-
-                        BlurLengthRow(
-                            enabled = saved.blurEnabled,
-                            currentMs = saved.blurLengthMs,
-                            onChange = { ms -> vm.setBlurLengthMs(ms) },
-                            theme = theme
-                        )
-
-                        PerformanceToggleRow(
-                            label = "Taskbar Animations",
-                            checked = saved.taskbarAnimations,
-                            icon = Icons.Default.Animation,
-                            impacts = listOf(ResourceImpact.GPU),
-                            enabled = true,
-                            theme = theme
-                        ) { b -> vm.setTaskbarAnimations(b) }
-
-                        PerformanceToggleRow(
-                            label = "Particles",
-                            checked = saved.movingGradientAndParticles,
-                            icon = Icons.Default.Grain,
-                            impacts = listOf(ResourceImpact.GPU, ResourceImpact.BATTERY),
-                            enabled = true,
-                            theme = theme
-                        ) { b -> vm.setMovingGradientAndParticles(b) }
-                        PerformanceToggleRow(
-                            label = "Navigation Effects",
-                            checked = saved.navEffects,
-                            icon = Icons.Default.Brush,
-                            impacts = listOf(ResourceImpact.GPU),
-                            enabled = true,
-                            theme = theme
-                        ) {
-                                b -> vm.setNavEffectsOn(b)
-                        }
-                    }
+                   PerformanceSection(
+                       vm = vm,
+                       navController = navController,
+                       theme = theme,
+                       saved = saved
+                   )
 
                 }
                 item {
@@ -517,27 +470,52 @@ private fun MaxSuggestionsRow(
                 color = Color.White.copy(alpha = 0.75f)
             )
         }
-        Slider(
-            value = currentMax.toFloat().coerceIn(1f, 4f),
-            onValueChange = { v -> onChange(v.toInt()) },
-            valueRange = 1f..4f,
-            steps = 1/2,
+        SettingProgressBar(
             enabled = enabled,
-            colors = SliderDefaults.colors(
-                activeTrackColor = theme.primary,
-                inactiveTrackColor = theme.secondary,
-                thumbColor = Color.White
-            ),
-            modifier = Modifier.fillMaxWidth()
+            currentMax = currentMax,
+            onChangeI = onChange,
+            firstText = "Less Suggestions",
+            stepSize = 1/2,
+            valueRange = 1f..4f,
+            secondText = "More Suggestions",
+            theme = theme
         )
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Text("Less Suggestions", fontSize = 12.sp, color = Color.White.copy(alpha = 0.6f))
-            Text("More Suggestions", fontSize = 12.sp, color = Color.White.copy(alpha = 0.6f))
-        }
     }
+}
+@Composable
+fun SettingProgressBar(
+    enabled: Boolean,
+    currentMax: Int,
+    onChangeI: (Int) -> Unit? = {},
+    onChangeL: (Long) -> Unit? = {},
+    firstText: String,
+    stepSize: Int,
+    valueRange: ClosedFloatingPointRange<Float>,
+    secondText: String,
+    theme: ColorSchemeAppTheme
+){
+    Slider(
+        value = currentMax.toFloat().coerceIn(1f, 4f),
+        onValueChange = { v -> onChangeI(v.toInt())
+            onChangeL(v.toLong())},
+        valueRange = valueRange,
+        steps = stepSize,
+        enabled = enabled,
+        colors = SliderDefaults.colors(
+            activeTrackColor = theme.primary,
+            inactiveTrackColor = theme.secondary,
+            thumbColor = Color.White
+        ),
+        modifier = Modifier.fillMaxWidth()
+    )
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(firstText, fontSize = 12.sp, color = Color.White.copy(alpha = 0.6f))
+        Text(secondText, fontSize = 12.sp, color = Color.White.copy(alpha = 0.6f))
+    }
+
 }
 @Composable
 private fun BlurLengthRow(
@@ -563,26 +541,16 @@ private fun BlurLengthRow(
                 color = Color.White.copy(alpha = 0.75f)
             )
         }
-        Slider(
-            value = currentMs.toFloat().coerceIn(300f, 1200f),
-            onValueChange = { v -> onChange(v.toLong()) },
-            valueRange = 300f..1200f,
-            steps = ((1200 - 300) / 50) - 1,
+        SettingProgressBar(
             enabled = enabled,
-            colors = SliderDefaults.colors(
-                activeTrackColor = theme.primary,
-                inactiveTrackColor = theme.secondary,
-                thumbColor = Color.White
-            ),
-            modifier = Modifier.fillMaxWidth()
+            currentMax = currentMs.toInt(),
+            onChangeL = onChange,
+            firstText = "Slow",
+            stepSize = 8,
+            valueRange = 300f..1200f,
+            secondText = "Fast",
+            theme = theme
         )
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Text("Faster", fontSize = 12.sp, color = Color.White.copy(alpha = 0.6f))
-            Text("Slower", fontSize = 12.sp, color = Color.White.copy(alpha = 0.6f))
-        }
     }
 }
 
@@ -632,7 +600,57 @@ private fun SettingsSectionCardHealth(
         }
     }
 }
+@Composable
+fun PerformanceSection(vm: PerformanceOptionsViewModel, navController: NavController, theme: ColorSchemeAppTheme,
+              saved: PerformanceOptions){
+    SettingsSectionCardHealth(title = "Display & Animation", theme = theme) {
+        PerformanceToggleRow(
+            label = "Enable Blur",
+            checked = saved.blurEnabled,
+            icon = Icons.Default.BlurOn,
+            impacts = listOf(ResourceImpact.GPU),
+            enabled = true,
+            theme = theme
+        ) { b -> vm.setBlurEnabled(b) }
 
+        Spacer(Modifier.height(6.dp))
+
+        BlurLengthRow(
+            enabled = saved.blurEnabled,
+            currentMs = saved.blurLengthMs,
+            onChange = { ms -> vm.setBlurLengthMs(ms) },
+            theme = theme
+        )
+
+        PerformanceToggleRow(
+            label = "Taskbar Animations",
+            checked = saved.taskbarAnimations,
+            icon = Icons.Default.Animation,
+            impacts = listOf(ResourceImpact.GPU),
+            enabled = true,
+            theme = theme
+        ) { b -> vm.setTaskbarAnimations(b) }
+
+        PerformanceToggleRow(
+            label = "Particles",
+            checked = saved.movingGradientAndParticles,
+            icon = Icons.Default.Grain,
+            impacts = listOf(ResourceImpact.GPU, ResourceImpact.BATTERY),
+            enabled = true,
+            theme = theme
+        ) { b -> vm.setMovingGradientAndParticles(b) }
+        PerformanceToggleRow(
+            label = "Navigation Effects",
+            checked = saved.navEffects,
+            icon = Icons.Default.Brush,
+            impacts = listOf(ResourceImpact.GPU),
+            enabled = true,
+            theme = theme
+        ) {
+                b -> vm.setNavEffectsOn(b)
+        }
+    }
+}
 @Composable
 private fun PerformanceToggleRow(
     label: String,

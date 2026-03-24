@@ -98,7 +98,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.google.firebase.auth.ktx.auth
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.ktx.Firebase
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -177,7 +179,8 @@ fun OnboardingScreen(
 
     LaunchedEffect(pagerState.currentPage) { h.performHapticFeedback(HapticFeedbackType.TextHandleMove) }
     val db = FirebaseFirestore.getInstance()
-    val usersRef = db.collection("userName")
+    val auth = remember { Firebase.auth }
+    val usersRef = db.collection("users")
 
 
 
@@ -256,8 +259,11 @@ fun OnboardingScreen(
                 if (!lastCan && canContinue) hapticSuccess(context)
                 lastCan = canContinue
             }
-            val data2 = mapOf("userName" to name)
-            val usersRef = db.collection("userName")
+            val data2 = mapOf(
+                "userName" to name,
+                "uid" to (auth.currentUser?.uid ?: ""),
+                "email" to (auth.currentUser?.email ?: "")
+            )
             Column(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
@@ -325,10 +331,15 @@ fun OnboardingScreen(
 
                             )
                             hapticSuccess(context)
-                            usersRef.document(name)
-                                .set(data2)
-                                .addOnSuccessListener { Log.d("Firestore", "Username saved!") }
-                                .addOnFailureListener { Log.e("Firestore", "Failed to save username", it) }
+                            val uid = auth.currentUser?.uid
+                            if (uid.isNullOrBlank()) {
+                                Log.w("Firestore", "Skipping onboarding cloud save because there is no authenticated uid")
+                            } else {
+                                usersRef.document(uid)
+                                    .set(data2)
+                                    .addOnSuccessListener { Log.d("Firestore", "Username saved!") }
+                                    .addOnFailureListener { Log.e("Firestore", "Failed to save username", it) }
+                            }
                         } else {
                             scope.launch { pagerState.animateScrollToPage(p + 1) }
                         }

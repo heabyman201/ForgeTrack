@@ -469,8 +469,9 @@ fun UserProfileScreen(
                                         .build()
 
                                     val fallbackGoogleIdOption = GetGoogleIdOption.Builder()
-                                        .setFilterByAuthorizedAccounts(true)
+                                        .setFilterByAuthorizedAccounts(false)
                                         .setServerClientId(webClientId)
+                                        .setNonce(System.currentTimeMillis().toString())
                                         .build()
                                     val fallbackRequest = GetCredentialRequest.Builder()
                                         .addCredentialOption(fallbackGoogleIdOption)
@@ -486,7 +487,8 @@ fun UserProfileScreen(
                                             }
                                             val rawCredential = result.credential
                                             if (rawCredential !is CustomCredential ||
-                                                rawCredential.type != GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL
+                                                (rawCredential.type != GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL &&
+                                                    rawCredential.type != GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_SIWG_CREDENTIAL)
                                             ) {
                                                 Log.w("ProfileScreen", "Unexpected credential type: ${rawCredential.type}")
                                                 Toast.makeText(context, "Google credential unavailable", Toast.LENGTH_SHORT).show()
@@ -510,6 +512,7 @@ fun UserProfileScreen(
                                                             Firebase.crashlytics.setUserId(it.user?.uid ?: "")
                                                         }
                                                         .addOnFailureListener {
+                                                            Log.e("ProfileScreen", "Firebase Google sign-in failed", it)
                                                             Toast.makeText(context, "Google sign-in failed", Toast.LENGTH_LONG).show()
                                                         }
                                                 }
@@ -527,9 +530,11 @@ fun UserProfileScreen(
                                                                         Firebase.crashlytics.setUserId(it.user?.uid ?: "")
                                                                     }
                                                                     .addOnFailureListener {
+                                                                        Log.e("ProfileScreen", "Existing Google account sign-in failed", it)
                                                                         Toast.makeText(context, "Unable to link Google account", Toast.LENGTH_LONG).show()
                                                                     }
                                                             } else {
+                                                                Log.e("ProfileScreen", "Anonymous Google link failed", err)
                                                                 Toast.makeText(context, "Unable to link Google account", Toast.LENGTH_LONG).show()
                                                             }
                                                         }
@@ -543,6 +548,7 @@ fun UserProfileScreen(
                                                             Toast.makeText(context, "Google account linked", Toast.LENGTH_SHORT).show()
                                                         }
                                                         .addOnFailureListener {
+                                                            Log.e("ProfileScreen", "Google account link failed", it)
                                                             Toast.makeText(context, "Unable to link Google account", Toast.LENGTH_LONG).show()
                                                         }
                                                 }

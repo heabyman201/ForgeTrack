@@ -223,7 +223,7 @@ class MainActivity : ComponentActivity() {
             finish()
             return
         }
-//
+
 
         enableEdgeToEdge(
             statusBarStyle = SystemBarStyle.auto(
@@ -257,17 +257,37 @@ class MainActivity : ComponentActivity() {
         setContent {
             WorkoutTrackerTheme {
                 val context = LocalContext.current
-
-
-                val initialRoute = remember { 
-                    intent?.getStringExtra("navigation_route") 
-                }
-
                 val notifPermissionLauncher = rememberLauncherForActivityResult(
                     contract = ActivityResultContracts.RequestPermission()
                 ) { /* no-op for now */ }
 
                 var showNotifDialog by remember { mutableStateOf(false) }
+                @Composable
+                fun checkNotificationPermission() {
+                    if (showNotifDialog) {
+                        AlertDialog(
+                            onDismissRequest = { showNotifDialog = false },
+                            title = { Text("Enable Notifications") },
+                            text = { Text("Allow notifications so we can show workout timers and progress.") },
+                            confirmButton = {
+                                TextButton(onClick = {
+                                    showNotifDialog = false
+                                    notifPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                }) { Text("Allow") }
+                            },
+                            dismissButton = {
+                                TextButton(onClick = { showNotifDialog = false }) { Text("Not now") }
+                            }
+                        )
+                    }
+
+                }
+                val initialRoute = remember { 
+                    intent?.getStringExtra("navigation_route") 
+                }
+
+
+
 
                 LaunchedEffect(Unit) {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -280,24 +300,7 @@ class MainActivity : ComponentActivity() {
                         showNotifDialog = false
                     }
                 }
-
-                if (showNotifDialog) {
-                    AlertDialog(
-                        onDismissRequest = { showNotifDialog = false },
-                        title = { Text("Enable Notifications") },
-                        text = { Text("Allow notifications so we can show workout timers and progress.") },
-                        confirmButton = {
-                            TextButton(onClick = {
-                                showNotifDialog = false
-                                notifPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                            }) { Text("Allow") }
-                        },
-                        dismissButton = {
-                            TextButton(onClick = { showNotifDialog = false }) { Text("Not now") }
-                        }
-                    )
-                }
-
+               checkNotificationPermission()
                 MainScreen(
                     viewModel = workoutListViewModel,
                     viewModel2 = mainScreenViewModel,

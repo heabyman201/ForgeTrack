@@ -549,7 +549,11 @@ fun AdviceSection(
 
 
 @Composable
-fun CountdownOverlay(countdownValue: Int, theme: ColorSchemeAppTheme) {
+fun CountdownOverlay(
+    countdownValue: Int,
+    theme: ColorSchemeAppTheme,
+    onSkip: () -> Unit
+) {
     val smallRipple = remember { Animatable(0f) }
     val bigRipple = remember { Animatable(0f) }
     val haptics = LocalHapticFeedback.current
@@ -610,139 +614,157 @@ fun CountdownOverlay(countdownValue: Int, theme: ColorSchemeAppTheme) {
         }
 
         // --- Main Animation Content ---
-        // We create the transition explicitly to avoid type ambiguity (Int vs EnterExitState)
         val transition = updateTransition(targetState = countdownValue, label = "Countdown")
 
-        transition.AnimatedContent(
-            transitionSpec = {
-                val duration = 700
-                (fadeIn(tween(duration)) + scaleIn(initialScale = 0.6f, animationSpec = tween(duration, easing = FastOutSlowInEasing)))
-                    .togetherWith(fadeOut(tween(duration)) + scaleOut(targetScale = 1.4f, animationSpec = tween(duration, easing = FastOutSlowInEasing)))
-            }
-        ) { targetCountdown ->
-            if (targetCountdown > 0) {
-                val infiniteTransition = rememberInfiniteTransition(label = "core")
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            transition.AnimatedContent(
+                transitionSpec = {
+                    val duration = 650
+                    (fadeIn(animationSpec = tween(durationMillis = duration, easing = LinearOutSlowInEasing)) +
+                        scaleIn(initialScale = 1.38f, animationSpec = tween(duration, easing = EaseOutExpo)))
+                        .togetherWith(
+                            fadeOut(animationSpec = tween(durationMillis = 350, easing = FastOutLinearInEasing)) +
+                                scaleOut(targetScale = 0.68f, animationSpec = tween(duration, easing = FastOutSlowInEasing))
+                        )
+                },
 
-                // Subtle breathing pulse
-                val pulse by infiniteTransition.animateFloat(
-                    initialValue = 0.94f,
-                    targetValue = 1.06f,
-                    animationSpec = infiniteRepeatable(
-                        animation = tween(1000, easing = FastOutSlowInEasing),
-                        repeatMode = RepeatMode.Reverse
-                    ),
-                    label = "pulse"
-                )
+            ) { targetCountdown ->
+                if (targetCountdown > 0) {
+                    val infiniteTransition = rememberInfiniteTransition(label = "countdown_pulse")
+                    val pulse by infiniteTransition.animateFloat(
+                        initialValue = 0.96f,
+                        targetValue = 1.04f,
+                        animationSpec = infiniteRepeatable(
+                            animation = tween(900, easing = FastOutSlowInEasing),
+                            repeatMode = RepeatMode.Reverse
+                        ),
+                        label = "pulse"
+                    )
 
-                // Slow, constant rotation
-                val idleRotation by infiniteTransition.animateFloat(
-                    initialValue = -3f,
-                    targetValue = 3f,
-                    animationSpec = infiniteRepeatable(
-                        animation = tween(2000, easing = LinearEasing),
-                        repeatMode = RepeatMode.Reverse
-                    ),
-                    label = "rotation"
-                )
-
-                // The fast spin transition
-                // If 'state' (the transition target) == 'targetCountdown' (this content), we are entering -> rotate to 0.
-                // If 'state' != 'targetCountdown', we are exiting -> rotate to 180.
-                val spinRotation by transition.animateFloat(
-                    transitionSpec = { tween(700, easing = FastOutSlowInEasing) },
-                    label = "spin"
-                ) { state ->
-                    if (state == targetCountdown) 0f else 180f
-                }
-
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier.graphicsLayer {
-                        // Combine idle sway with the fast spin
-                        rotationZ = idleRotation + spinRotation
-                        scaleX = pulse
-                        scaleY = pulse
+                    val shapeColor = when (targetCountdown) {
+                        3 -> theme.tertiary
+                        2 -> theme.secondary
+                        else -> theme.primary
                     }
-                ) {
-                    Canvas(modifier = Modifier.size(280.dp)) {
-                        val shapeSize = size * 0.82f
-                        val shapeTopLeft = Offset((size.width - shapeSize.width) / 2f, (size.height - shapeSize.height) / 2f)
 
-                        when (targetCountdown) {
-                            3 -> {
-                                drawIntoCanvas { c ->
-                                    // FIXED: Added .asFrameworkPaint() to access setShadowLayer
-                                    val p = Paint().asFrameworkPaint().apply {
-                                        isAntiAlias = true
-                                        setShadowLayer(35.dp.toPx(), 0f, 0f, theme.secondary.toArgb())
-                                    }
-                                    c.nativeCanvas.drawRoundRect(
-                                        shapeTopLeft.x, shapeTopLeft.y,
-                                        shapeTopLeft.x + shapeSize.width, shapeTopLeft.y + shapeSize.height,
-                                        32.dp.toPx(), 32.dp.toPx(), p
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier.graphicsLayer {
+                            scaleX = pulse
+                            scaleY = pulse
+                        }
+                    ) {
+                        Canvas(
+                            modifier = Modifier
+                                .size(280.dp)
+                                .graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen }
+                        ) {
+                            val shapeSize = Size(size.width * 0.8f, size.height * 0.8f)
+                            val shapeTopLeft = Offset(
+                                (size.width - shapeSize.width) / 2f,
+                                (size.height - shapeSize.height) / 2f
+                            )
+                            val glowColor = shapeColor.copy(alpha = 0.28f)
+                            val trianglePath = Path().apply {
+                                moveTo(center.x, shapeTopLeft.y)
+                                lineTo(shapeTopLeft.x + shapeSize.width, shapeTopLeft.y + shapeSize.height)
+                                lineTo(shapeTopLeft.x, shapeTopLeft.y + shapeSize.height)
+                                close()
+                            }
+
+                            when (targetCountdown) {
+                                3 -> {
+                                    drawRoundRect(
+                                        color = glowColor,
+                                        topLeft = shapeTopLeft - Offset(10.dp.toPx(), 10.dp.toPx()),
+                                        size = Size(
+                                            shapeSize.width + 20.dp.toPx(),
+                                            shapeSize.height + 20.dp.toPx()
+                                        ),
+                                        cornerRadius = CornerRadius(40.dp.toPx(), 40.dp.toPx())
+                                    )
+                                    drawRoundRect(
+                                        brush = Brush.linearGradient(
+                                            colors = listOf(
+                                                shapeColor.copy(alpha = 0.98f),
+                                                lerp(shapeColor, Color.White, 0.12f)
+                                            ),
+                                            start = Offset(shapeTopLeft.x, shapeTopLeft.y),
+                                            end = Offset(
+                                                shapeTopLeft.x + shapeSize.width,
+                                                shapeTopLeft.y + shapeSize.height
+                                            )
+                                        ),
+                                        topLeft = shapeTopLeft,
+                                        size = shapeSize,
+                                        cornerRadius = CornerRadius(32.dp.toPx(), 32.dp.toPx())
                                     )
                                 }
-                                drawRoundRect(
-                                    color = theme.secondary,
-                                    topLeft = shapeTopLeft,
-                                    size = shapeSize,
-                                    cornerRadius = CornerRadius(32.dp.toPx())
-                                )
-                            }
-                            2 -> {
-                                drawIntoCanvas { c ->
-                                    val p = Paint().asFrameworkPaint().apply {
-                                        isAntiAlias = true
-                                        setShadowLayer(40.dp.toPx(), 0f, 0f, theme.primary.toArgb())
-                                    }
-                                    c.nativeCanvas.drawCircle(center.x, center.y, shapeSize.minDimension / 2f, p)
+                                2 -> {
+                                    drawCircle(
+                                        color = glowColor,
+                                        radius = (shapeSize.minDimension / 2f) + 12.dp.toPx(),
+                                        center = center
+                                    )
+                                    drawCircle(
+                                        brush = Brush.radialGradient(
+                                            colors = listOf(
+                                                lerp(shapeColor, Color.White, 0.14f),
+                                                shapeColor
+                                            ),
+                                            center = center,
+                                            radius = shapeSize.minDimension / 2f
+                                        ),
+                                        radius = shapeSize.minDimension / 2f,
+                                        center = center
+                                    )
                                 }
-                                drawCircle(color = theme.secondary, radius = shapeSize.minDimension / 2f, center = center)
-                            }
-                            1 -> {
-                                val path = Path().apply {
-                                    moveTo(center.x, shapeTopLeft.y)
-                                    lineTo(shapeTopLeft.x + shapeSize.width, shapeTopLeft.y + shapeSize.height)
-                                    lineTo(shapeTopLeft.x, shapeTopLeft.y + shapeSize.height)
-                                    close()
+                                1 -> {
+                                    drawPath(path = trianglePath, color = glowColor)
+                                    drawPath(
+                                        path = trianglePath,
+                                        brush = Brush.verticalGradient(
+                                            colors = listOf(
+                                                lerp(shapeColor, Color.White, 0.16f),
+                                                shapeColor
+                                            ),
+                                            startY = shapeTopLeft.y,
+                                            endY = shapeTopLeft.y + shapeSize.height
+                                        )
+                                    )
                                 }
-                                drawIntoCanvas { c ->
-                                    val p = Paint().asFrameworkPaint().apply {
-                                        isAntiAlias = true
-                                        setShadowLayer(45.dp.toPx(), 0f, 0f, theme.primary.toArgb())
-                                    }
-                                    c.nativeCanvas.drawPath(path.asAndroidPath(), p)
-                                }
-                                drawPath(
-                                    path = path,
-                                    color = theme.primary
-                                )
                             }
                         }
 
-                        // Glossy overlay
-                        drawRect(
-                            brush = Brush.verticalGradient(
-                                listOf(Color.White.copy(alpha = 0.12f), Color.Transparent, Color.Black.copy(alpha = 0.15f))
-                            ),
-                            topLeft = shapeTopLeft,
-                            size = shapeSize,
-                            blendMode = BlendMode.Overlay
+                        Text(
+                            text = targetCountdown.toString(),
+                            fontSize = 165.sp,
+                            fontWeight = FontWeight.Black,
+                            color = Color.White
                         )
                     }
-
-                    Text(
-                        text = targetCountdown.toString(),
-                        fontSize = 165.sp,
-                        fontWeight = FontWeight.Black,
-                        color = Color.White,
-                        modifier = Modifier.graphicsLayer {
-                            // Counter-rotate the text so it stays upright while the shape spins
-                            // (Optional: remove this modifier if you want the text to spin with the shape)
-                            rotationZ = -spinRotation - idleRotation
-                        }
-                    )
                 }
+            }
+
+            OutlinedButton(
+                onClick = onSkip,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 40.dp),
+                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.24f)),
+                colors = ButtonDefaults.outlinedButtonColors(
+                    containerColor = Color.White.copy(alpha = 0.06f),
+                    contentColor = Color.White
+                )
+            ) {
+                Text(
+                    text = "Skip countdown",
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
             }
         }
     }
@@ -1487,6 +1509,12 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
     }
     var showCountdown by remember { mutableStateOf(false) }
     var countdownValue by remember { mutableIntStateOf(3) }
+    fun finishCountdown() {
+        showCountdown = false
+        isPaused = false
+        startAt.longValue = SystemClock.elapsedRealtime()
+        accMs = 0L
+    }
 
     LaunchedEffect(Unit) {
         val isStartingFresh = (CurrentTime.value == 0L && accMs == 0L)
@@ -1494,22 +1522,28 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
         if (isStartingFresh) {
             showCountdown = true
             isPaused = true
+            countdownValue = 3
 
             haptics.performHapticFeedback(HapticFeedbackType.LongPress)
             delay(1000)
-            countdownValue = 2
+            if (showCountdown) {
+                countdownValue = 2
+            }
 
             delay(1000)
-            countdownValue = 1
+            if (showCountdown) {
+                countdownValue = 1
+            }
 
             delay(1000)
-            countdownValue = 0
+            if (showCountdown) {
+                countdownValue = 0
+                delay(500)
+            }
 
-            delay(500)
-            showCountdown = false
-            isPaused = false
-            startAt.longValue = SystemClock.elapsedRealtime()
-            accMs = 0L
+            if (showCountdown) {
+                finishCountdown()
+            }
         }
         while (true) {
             incrementTime()
@@ -2188,7 +2222,14 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                     Spacer(modifier = Modifier.height(16.dp))
                 }
                 if (showCountdown) {
-                    CountdownOverlay(countdownValue = countdownValue, theme = theme)
+                    CountdownOverlay(
+                        countdownValue = countdownValue,
+                        theme = theme,
+                        onSkip = {
+                            countdownValue = 0
+                            finishCountdown()
+                        }
+                    )
                 }
                 if (showSyncDialog.showSyncDialog.value) {
 

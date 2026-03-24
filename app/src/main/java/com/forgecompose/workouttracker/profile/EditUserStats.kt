@@ -219,16 +219,22 @@ fun EditUserStats(navcontroller: NavController) {
                                 "importantMuscles" to importantMuscles
                             )
 
-                            usersRef.document(userName)
-                                .set(data)
-                                .addOnSuccessListener {
-                                    Log.d("Firestore", "User stats saved successfully!")
-                                    Toast.makeText(context, "Profile Saved", Toast.LENGTH_SHORT).show()
-                                }
-                                .addOnFailureListener { e ->
-                                    Log.e("Firestore", "Failed to save stats", e)
-                                    Toast.makeText(context, "Failed to sync to cloud", Toast.LENGTH_SHORT).show()
-                                }
+                            val uid = auth.currentUser?.uid
+                            if (uid.isNullOrBlank()) {
+                                Log.w("Firestore", "Skipping cloud profile save because there is no authenticated uid")
+                                Toast.makeText(context, "Profile Saved", Toast.LENGTH_SHORT).show()
+                            } else {
+                                usersRef.document(uid)
+                                    .set(data)
+                                    .addOnSuccessListener {
+                                        Log.d("Firestore", "User stats saved successfully!")
+                                        Toast.makeText(context, "Profile Saved", Toast.LENGTH_SHORT).show()
+                                    }
+                                    .addOnFailureListener { e ->
+                                        Log.e("Firestore", "Failed to save stats", e)
+                                        Toast.makeText(context, "Failed to sync to cloud", Toast.LENGTH_SHORT).show()
+                                    }
+                            }
 
                             navcontroller.navigate("UserProfile")
                             navcontroller.navigate("UserProfile")

@@ -97,6 +97,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.graphics.drawscope.scale
+import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
@@ -120,16 +122,19 @@ import androidx.health.connect.client.records.SleepSessionRecord
 import androidx.health.connect.client.records.TotalCaloriesBurnedRecord
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
 import java.util.Locale
+import kotlin.math.abs
 import kotlin.math.exp
 import kotlin.math.ln
 import kotlin.math.max
 import kotlin.math.pow
+import kotlin.math.sqrt
 import androidx.health.connect.client.records.HeartRateRecord as HcHeartRateRecord
 
 fun Modifier.glow(
@@ -398,7 +403,10 @@ data class MuscleLoad(
     val band: LoadBand,
     val score: Float,
     val lastTrainedAgo: String? = null,
-    val injuryRisk: Float = 0f
+    val injuryRisk: Float = 0f,
+    val adaptationScore: Float = 0f,
+    val consistencyScore: Float = 0f,
+    val developmentScore: Float = 0f
 )
 
 private fun buildGeminiSignalSnapshot(
@@ -1023,6 +1031,8 @@ suspend fun deriveMuscleLoads(
     caloriesBurned: List<TotalCaloriesBurnedRecord>,
     readHeartRate: suspend (Instant, Instant) -> List<HcHeartRateRecord>
 ): Pair<List<MuscleLoad>, RecoveryFactors> = withContext(Dispatchers.Default) {
+    val experienceYears = parseExperienceToYears(profile.experience)
+    val experienceNorm = (experienceYears / 6f).coerceIn(0f, 1f)
 
     val lastNightSleepDuration = sleepSessions
         .filter { it.endTime.isAfter(now.minus(Duration.ofHours(24))) }
@@ -1130,13 +1140,14 @@ suspend fun deriveMuscleLoads(
         val chronicWeeklyVolume = ((chronic28d[muscle] ?: acuteWeeklyVolume) / 4f).coerceAtLeast(0.1f)
         val acuteWeeklyLoad = acute7dLoad[muscle] ?: acuteWeeklyVolume
         val chronicWeeklyLoad = ((chronic28dLoad[muscle] ?: acuteWeeklyLoad) / 4f).coerceAtLeast(0.1f)
+        val history = muscleHistory[muscle] ?: MuscleHistoryProfile()
         val adaptation = calculateMuscleAdaptation(
             profile = profile,
             survey = survey,
             sprintGoal = sprintGoal,
             muscle = muscle,
             baseTarget = baseTarget,
-            history = muscleHistory[muscle] ?: MuscleHistoryProfile(),
+            history = history,
             frequencyPerWeek = frequencyPerWeek,
             chronicWeeklyVolume = chronicWeeklyVolume,
             chronicWeeklyLoad = chronicWeeklyLoad
@@ -1185,6 +1196,16 @@ suspend fun deriveMuscleLoads(
         }
         val progressPct = (currentVol / effectiveTarget).coerceIn(0f, 1.5f)
         val fatigueNorm = (fatigueScore / 60f).coerceIn(0f, 1f)
+        val consistencyScore = (
+            ((history.consistentWeeks / 6f).coerceIn(0f, 1f) * 0.55f) +
+                ((frequencyPerWeek / desiredFrequency).coerceIn(0f, 1f) * 0.45f)
+            ).coerceIn(0f, 1f)
+        val developmentScore = (
+            ((adaptation.score / 0.55f).coerceIn(0f, 1f) * 0.45f) +
+                (progressPct.coerceIn(0f, 1f) * 0.35f) +
+                (consistencyScore * 0.15f) +
+                (experienceNorm * 0.05f)
+            ).coerceIn(0f, 1f)
         val sortingScore = (
             (progressPct * 0.65f) +
                 ((1f - fatigueNorm) * 0.2f) +
@@ -1197,7 +1218,10 @@ suspend fun deriveMuscleLoads(
             band = band,
             score = sortingScore,
             lastTrainedAgo = lastDate?.let { friendlyAgo(now, it) },
-            injuryRisk = injuryRisk
+            injuryRisk = injuryRisk,
+            adaptationScore = adaptation.score,
+            consistencyScore = consistencyScore,
+            developmentScore = developmentScore
         )
     }
     loads to recoveryFactors
@@ -1368,47 +1392,78 @@ private data class HeatmapRegion(
     val contour: List<Offset>
 )
 
+private data class MuscleVisualState(
+    val sizeBoost: Float = 0f,
+    val definition: Float = 0f,
+    val consistency: Float = 0f
+)
+
+private data class BodyShapeInputs(
+    val weightKg: Float?,
+    val bodyFatPercentage: Float?,
+    val experienceYears: Float,
+    val muscleStates: Map<MuscleGroups, MuscleVisualState>
+)
+
 private fun mirroredContour(contour: List<Offset>): List<Offset> = contour.map { Offset(1f - it.x, it.y) }
 
 private val contourPecLeft = listOf(
-    Offset(0.50f, 0.18f), Offset(0.34f, 0.18f), Offset(0.30f, 0.28f), Offset(0.36f, 0.34f), Offset(0.50f, 0.34f)
+    Offset(0.50f, 0.18f), Offset(0.34f, 0.18f), Offset(0.30f, 0.28f), Offset(0.35f, 0.34f), Offset(0.50f, 0.34f)
 )
 private val contourDeltoidLeft = listOf(
-    Offset(0.34f, 0.18f), Offset(0.20f, 0.22f), Offset(0.18f, 0.32f), Offset(0.20f, 0.36f), Offset(0.26f, 0.36f), Offset(0.30f, 0.28f)
+    Offset(0.34f, 0.18f), Offset(0.24f, 0.20f), Offset(0.20f, 0.24f), Offset(0.18f, 0.32f), Offset(0.21f, 0.35f), Offset(0.26f, 0.36f), Offset(0.30f, 0.28f)
 )
 private val contourBicepsLeft = listOf(
-    Offset(0.30f, 0.28f), Offset(0.26f, 0.36f), Offset(0.20f, 0.36f), Offset(0.16f, 0.48f), Offset(0.26f, 0.48f)
+    Offset(0.30f, 0.28f), Offset(0.26f, 0.36f), Offset(0.21f, 0.35f), Offset(0.18f, 0.40f), Offset(0.16f, 0.48f), Offset(0.26f, 0.48f)
 )
 private val contourForearmLeft = listOf(
-    Offset(0.26f, 0.48f), Offset(0.16f, 0.48f), Offset(0.12f, 0.60f), Offset(0.10f, 0.70f), Offset(0.18f, 0.70f), Offset(0.22f, 0.60f)
+    Offset(0.16f, 0.48f), Offset(0.12f, 0.60f), Offset(0.10f, 0.70f), Offset(0.08f, 0.80f),
+    Offset(0.11f, 0.84f), Offset(0.14f, 0.78f), Offset(0.16f, 0.76f), Offset(0.16f, 0.70f),
+    Offset(0.22f, 0.60f), Offset(0.25f, 0.52f), Offset(0.26f, 0.48f)
 )
 private val contourAbs = listOf(
-    Offset(0.36f, 0.34f), Offset(0.64f, 0.34f), Offset(0.62f, 0.54f), Offset(0.50f, 0.56f), Offset(0.38f, 0.54f)
+    Offset(0.35f, 0.34f), Offset(0.65f, 0.34f), Offset(0.63f, 0.44f), Offset(0.62f, 0.54f), Offset(0.50f, 0.56f), Offset(0.38f, 0.54f), Offset(0.37f, 0.44f)
 )
 private val contourQuadLeft = listOf(
     Offset(0.38f, 0.54f), Offset(0.34f, 0.65f), Offset(0.34f, 0.76f), Offset(0.48f, 0.76f), Offset(0.48f, 0.65f), Offset(0.50f, 0.56f)
 )
 private val contourCalfLeft = listOf(
-    Offset(0.34f, 0.76f), Offset(0.32f, 0.85f), Offset(0.38f, 0.96f), Offset(0.48f, 0.96f), Offset(0.46f, 0.85f), Offset(0.48f, 0.76f)
+    Offset(0.34f, 0.76f), Offset(0.32f, 0.85f), Offset(0.34f, 0.95f), Offset(0.32f, 1.02f),
+    Offset(0.42f, 1.04f), Offset(0.46f, 1.00f), Offset(0.44f, 0.95f), Offset(0.46f, 0.85f), Offset(0.48f, 0.76f)
 )
 
 private val contourTraps = listOf(
-    Offset(0.50f, 0.16f), Offset(0.34f, 0.18f), Offset(0.40f, 0.28f), Offset(0.50f, 0.32f), Offset(0.60f, 0.28f), Offset(0.66f, 0.18f)
+    Offset(0.50f, 0.16f), Offset(0.34f, 0.17f), Offset(0.40f, 0.28f), Offset(0.50f, 0.32f), Offset(0.60f, 0.28f), Offset(0.66f, 0.17f)
 )
 private val contourUpperBack = listOf(
-    Offset(0.50f, 0.32f), Offset(0.40f, 0.28f), Offset(0.30f, 0.28f), Offset(0.34f, 0.40f), Offset(0.50f, 0.42f), Offset(0.66f, 0.40f), Offset(0.70f, 0.28f), Offset(0.60f, 0.28f)
+    Offset(0.50f, 0.32f), Offset(0.40f, 0.28f), Offset(0.28f, 0.28f), Offset(0.33f, 0.40f), Offset(0.50f, 0.42f), Offset(0.67f, 0.40f), Offset(0.72f, 0.28f), Offset(0.60f, 0.28f)
 )
 private val contourLatLeft = listOf(
-    Offset(0.30f, 0.28f), Offset(0.34f, 0.40f), Offset(0.42f, 0.50f), Offset(0.38f, 0.54f), Offset(0.36f, 0.34f)
+    Offset(0.28f, 0.28f), Offset(0.33f, 0.34f), Offset(0.35f, 0.44f), Offset(0.36f, 0.54f), Offset(0.42f, 0.50f), Offset(0.33f, 0.40f)
 )
 private val contourLowerBack = listOf(
-    Offset(0.50f, 0.42f), Offset(0.34f, 0.40f), Offset(0.42f, 0.50f), Offset(0.50f, 0.52f), Offset(0.58f, 0.50f), Offset(0.66f, 0.40f)
+    Offset(0.50f, 0.42f), Offset(0.33f, 0.40f), Offset(0.42f, 0.50f), Offset(0.50f, 0.52f), Offset(0.58f, 0.50f), Offset(0.67f, 0.40f)
 )
 private val contourGluteLeft = listOf(
-    Offset(0.50f, 0.52f), Offset(0.42f, 0.50f), Offset(0.38f, 0.54f), Offset(0.34f, 0.65f), Offset(0.48f, 0.65f), Offset(0.50f, 0.68f)
+    Offset(0.50f, 0.52f), Offset(0.42f, 0.50f), Offset(0.36f, 0.54f), Offset(0.32f, 0.65f), Offset(0.46f, 0.65f), Offset(0.50f, 0.56f)
 )
 private val contourHamstringLeft = listOf(
-    Offset(0.34f, 0.65f), Offset(0.34f, 0.76f), Offset(0.48f, 0.76f), Offset(0.48f, 0.65f)
+    Offset(0.32f, 0.65f), Offset(0.32f, 0.76f), Offset(0.46f, 0.76f), Offset(0.46f, 0.65f)
+)
+private val contourCalfLeftBack = listOf(
+    Offset(0.32f, 0.76f), Offset(0.30f, 0.85f), Offset(0.32f, 0.95f), Offset(0.30f, 1.02f),
+    Offset(0.40f, 1.04f), Offset(0.44f, 1.00f), Offset(0.46f, 0.95f), Offset(0.44f, 0.85f), Offset(0.46f, 0.76f)
+)
+private val contourDeltoidLeftBack = listOf(
+    Offset(0.34f, 0.17f), Offset(0.22f, 0.19f), Offset(0.18f, 0.24f), Offset(0.16f, 0.32f), Offset(0.19f, 0.35f), Offset(0.24f, 0.36f), Offset(0.28f, 0.28f)
+)
+private val contourTricepsLeft = listOf(
+    Offset(0.28f, 0.28f), Offset(0.24f, 0.36f), Offset(0.19f, 0.35f), Offset(0.16f, 0.40f), Offset(0.14f, 0.48f), Offset(0.24f, 0.48f)
+)
+private val contourForearmLeftBack = listOf(
+    Offset(0.14f, 0.48f), Offset(0.10f, 0.60f), Offset(0.08f, 0.70f), Offset(0.06f, 0.80f),
+    Offset(0.09f, 0.84f), Offset(0.12f, 0.78f), Offset(0.15f, 0.76f), Offset(0.16f, 0.70f),
+    Offset(0.20f, 0.60f), Offset(0.23f, 0.52f), Offset(0.24f, 0.48f)
 )
 
 private val frontHeatmapRegions = listOf(
@@ -1437,14 +1492,14 @@ private val backHeatmapRegions = listOf(
     HeatmapRegion("glutes_r", HeatmapSide.Back, listOf(MuscleGroups.Glutes), mirroredContour(contourGluteLeft)),
     HeatmapRegion("hamstrings_l", HeatmapSide.Back, listOf(MuscleGroups.Hamstrings), contourHamstringLeft),
     HeatmapRegion("hamstrings_r", HeatmapSide.Back, listOf(MuscleGroups.Hamstrings), mirroredContour(contourHamstringLeft)),
-    HeatmapRegion("calves_l", HeatmapSide.Back, listOf(MuscleGroups.Calves), contourCalfLeft),
-    HeatmapRegion("calves_r", HeatmapSide.Back, listOf(MuscleGroups.Calves), mirroredContour(contourCalfLeft)),
-    HeatmapRegion("triceps_l", HeatmapSide.Back, listOf(MuscleGroups.Triceps), contourBicepsLeft),
-    HeatmapRegion("triceps_r", HeatmapSide.Back, listOf(MuscleGroups.Triceps), mirroredContour(contourBicepsLeft)),
-    HeatmapRegion("delts_l", HeatmapSide.Back, listOf(MuscleGroups.Delts), contourDeltoidLeft),
-    HeatmapRegion("delts_r", HeatmapSide.Back, listOf(MuscleGroups.Delts), mirroredContour(contourDeltoidLeft)),
-    HeatmapRegion("forearms_l", HeatmapSide.Back, listOf(MuscleGroups.Forearms), contourForearmLeft),
-    HeatmapRegion("forearms_r", HeatmapSide.Back, listOf(MuscleGroups.Forearms), mirroredContour(contourForearmLeft))
+    HeatmapRegion("calves_l", HeatmapSide.Back, listOf(MuscleGroups.Calves), contourCalfLeftBack),
+    HeatmapRegion("calves_r", HeatmapSide.Back, listOf(MuscleGroups.Calves), mirroredContour(contourCalfLeftBack)),
+    HeatmapRegion("triceps_l", HeatmapSide.Back, listOf(MuscleGroups.Triceps), contourTricepsLeft),
+    HeatmapRegion("triceps_r", HeatmapSide.Back, listOf(MuscleGroups.Triceps), mirroredContour(contourTricepsLeft)),
+    HeatmapRegion("delts_l", HeatmapSide.Back, listOf(MuscleGroups.Delts), contourDeltoidLeftBack),
+    HeatmapRegion("delts_r", HeatmapSide.Back, listOf(MuscleGroups.Delts), mirroredContour(contourDeltoidLeftBack)),
+    HeatmapRegion("forearms_l", HeatmapSide.Back, listOf(MuscleGroups.Forearms), contourForearmLeftBack),
+    HeatmapRegion("forearms_r", HeatmapSide.Back, listOf(MuscleGroups.Forearms), mirroredContour(contourForearmLeftBack))
 )
 
 private fun regionsForSide(side: HeatmapSide): List<HeatmapRegion> = when (side) {
@@ -1465,12 +1520,59 @@ private fun heatIntensity(load: MuscleLoad): Float {
     return (volumeRatio * 0.72f + bandPenalty + load.injuryRisk * 0.35f).coerceIn(0f, 1f)
 }
 
-private fun heatColor(intensity: Float): Color = when {
-    intensity < 0.2f -> Color(0xFF2E5BFF)
-    intensity < 0.4f -> Color(0xFF00BCD4)
-    intensity < 0.6f -> Color(0xFF00E676)
-    intensity < 0.8f -> Color(0xFFFFC107)
-    else -> Color(0xFFFF5252)
+private val bodySilhouetteBase = Color(0xFF1D1F24)
+private val bodySilhouetteStroke = Color(0xFF444854)
+private val bodyRegionBase = Color(0xFF292B31)
+private val heatBlue = Color(0xFF0A52FF)
+private val heatPurple = Color(0xFF8C2CFF)
+private val heatOrange = Color(0xFFFF8A1F)
+private val heatRed = Color(0xFFFF3B30)
+private val stressOrange = Color(0xFFFF9A2F)
+private val stressRed = Color(0xFFFF2D20)
+
+private fun lerpColor(start: Color, end: Color, amount: Float): Color =
+    androidx.compose.ui.graphics.lerp(start, end, amount.coerceIn(0f, 1f))
+
+private fun heatColor(intensity: Float): Color {
+    val clamped = intensity.coerceIn(0f, 1f)
+    return when {
+        clamped <= 0.33f -> lerpColor(heatBlue, heatPurple, clamped / 0.33f)
+        clamped <= 0.68f -> lerpColor(heatPurple, heatOrange, (clamped - 0.33f) / 0.35f)
+        else -> lerpColor(heatOrange, heatRed, (clamped - 0.68f) / 0.32f)
+    }
+}
+
+private fun fatigueGlowIntensity(load: MuscleLoad): Float {
+    val bandStress = when (load.band) {
+        LoadBand.Recovering -> 0.38f
+        LoadBand.Overreached -> 0.72f
+        LoadBand.DeloadRecommended -> 0.88f
+        LoadBand.OnTrack -> 0.08f
+        LoadBand.Building -> 0.12f
+        else -> 0f
+    }
+    val rawStress = max(
+        bandStress,
+        max(
+            load.injuryRisk * 0.95f,
+            ((heatIntensity(load) - 0.58f) * 1.45f).coerceAtLeast(0f)
+        )
+    )
+    return ((rawStress - 0.12f) / 0.88f).coerceIn(0f, 1f)
+}
+
+private fun fatigueGlowColor(load: MuscleLoad): Color {
+    val heatBias = ((heatIntensity(load) * 0.4f) + (fatigueGlowIntensity(load) * 0.6f)).coerceIn(0f, 1f)
+    return lerpColor(stressOrange, stressRed, heatBias)
+}
+
+private fun quietHeatFill(load: MuscleLoad?): Color {
+    if (load == null) return bodyRegionBase
+    val intensity = heatIntensity(load)
+    val palette = heatColor(intensity)
+    val blend = (0.16f + intensity * 0.62f).coerceIn(0.16f, 0.78f)
+    val boosted = lerpColor(palette, Color.White, (intensity - 0.72f).coerceAtLeast(0f) * 0.18f)
+    return lerpColor(bodyRegionBase, boosted, blend)
 }
 
 private fun bodyFrame(size: Size): Rect {
@@ -1481,11 +1583,151 @@ private fun bodyFrame(size: Size): Rect {
     return Rect(left = left, top = top, right = left + width, bottom = top + height)
 }
 
-private fun contourPointsInFrame(frame: Rect, region: HeatmapRegion): List<Offset> {
+private fun influence(y: Float, center: Float, radius: Float): Float {
+    val distance = abs(y - center)
+    return (1f - distance / radius).coerceIn(0f, 1f)
+}
+
+private fun bilateralInfluence(point: Offset, centerX: Float, centerY: Float, radiusX: Float, radiusY: Float): Float {
+    val leftDx = (point.x - centerX) / radiusX
+    val rightDx = (point.x - (1f - centerX)) / radiusX
+    val dy = (point.y - centerY) / radiusY
+    val left = (1f - sqrt((leftDx * leftDx) + (dy * dy))).coerceIn(0f, 1f)
+    val right = (1f - sqrt((rightDx * rightDx) + (dy * dy))).coerceIn(0f, 1f)
+    return max(left, right)
+}
+
+private fun midlineInfluence(point: Offset, centerY: Float, radiusX: Float, radiusY: Float): Float {
+    val dx = (point.x - 0.5f) / radiusX
+    val dy = (point.y - centerY) / radiusY
+    return (1f - sqrt((dx * dx) + (dy * dy))).coerceIn(0f, 1f)
+}
+
+private fun regionCentroid(contour: List<Offset>): Offset {
+    if (contour.isEmpty()) return Offset(0.5f, 0.5f)
+    val inv = 1f / contour.size.toFloat()
+    return Offset(
+        x = contour.sumOf { it.x.toDouble() }.toFloat() * inv,
+        y = contour.sumOf { it.y.toDouble() }.toFloat() * inv
+    )
+}
+
+private fun regionVisualState(region: HeatmapRegion, bodyShape: BodyShapeInputs): MuscleVisualState =
+    region.muscles
+        .mapNotNull { bodyShape.muscleStates[it] }
+        .maxByOrNull { it.sizeBoost + (it.definition * 0.35f) }
+        ?: MuscleVisualState()
+
+private fun buildMuscleVisualStates(
+    loads: List<MuscleLoad>,
+    bodyFatPercentage: Float?,
+    experienceYears: Float
+): Map<MuscleGroups, MuscleVisualState> {
+    val experienceNorm = (experienceYears / 6f).coerceIn(0f, 1f)
+    val bodyFatPenalty = bodyFatPercentage
+        ?.let { ((it - 14f) / 20f).coerceIn(0f, 1f) * 0.22f }
+        ?: 0f
+
+    return loads.associate { load ->
+        val adaptationNorm = (load.adaptationScore / 0.55f).coerceIn(0f, 1f)
+        val heat = heatIntensity(load)
+        val sizeBoost = (
+                load.developmentScore * 0.62f +
+                        load.consistencyScore * 0.22f +
+                        adaptationNorm * 0.16f
+                ).coerceIn(0f, 1f)
+        val definition = (
+                experienceNorm * 0.34f +
+                        load.consistencyScore * 0.26f +
+                        adaptationNorm * 0.2f +
+                        heat * 0.2f -
+                        bodyFatPenalty
+                ).coerceIn(0f, 1f)
+
+        load.group to MuscleVisualState(
+            sizeBoost = sizeBoost,
+            definition = definition,
+            consistency = load.consistencyScore
+        )
+    }
+}
+
+private fun localEvolutionScale(point: Offset, side: HeatmapSide, inputs: BodyShapeInputs): Float {
+    fun state(muscle: MuscleGroups) = inputs.muscleStates[muscle] ?: MuscleVisualState()
+    var delta = 0f
+
+    if (side == HeatmapSide.Front) {
+        delta += bilateralInfluence(point, 0.27f, 0.26f, 0.12f, 0.11f) * state(MuscleGroups.Delts).sizeBoost * 0.045f
+        delta += bilateralInfluence(point, 0.35f, 0.28f, 0.15f, 0.12f) * state(MuscleGroups.Pecs).sizeBoost * 0.04f
+        delta += bilateralInfluence(point, 0.22f, 0.41f, 0.08f, 0.14f) * state(MuscleGroups.Biceps).sizeBoost * 0.045f
+        delta += bilateralInfluence(point, 0.15f, 0.61f, 0.07f, 0.18f) * state(MuscleGroups.Forearms).sizeBoost * 0.03f
+        delta += midlineInfluence(point, 0.46f, 0.15f, 0.18f) * state(MuscleGroups.Abs).sizeBoost * 0.02f
+        delta += bilateralInfluence(point, 0.41f, 0.67f, 0.10f, 0.16f) * state(MuscleGroups.Quads).sizeBoost * 0.05f
+        delta += bilateralInfluence(point, 0.39f, 0.91f, 0.08f, 0.13f) * state(MuscleGroups.Calves).sizeBoost * 0.032f
+    } else {
+        delta += midlineInfluence(point, 0.21f, 0.17f, 0.1f) * state(MuscleGroups.Traps).sizeBoost * 0.03f
+        delta += midlineInfluence(point, 0.36f, 0.23f, 0.16f) * state(MuscleGroups.UpperBack).sizeBoost * 0.028f
+        delta += bilateralInfluence(point, 0.33f, 0.39f, 0.14f, 0.18f) * state(MuscleGroups.Lats).sizeBoost * 0.05f
+        delta += bilateralInfluence(point, 0.21f, 0.41f, 0.08f, 0.14f) * state(MuscleGroups.Triceps).sizeBoost * 0.04f
+        delta += bilateralInfluence(point, 0.14f, 0.61f, 0.06f, 0.18f) * state(MuscleGroups.Forearms).sizeBoost * 0.026f
+        delta += bilateralInfluence(point, 0.40f, 0.58f, 0.12f, 0.11f) * state(MuscleGroups.Glutes).sizeBoost * 0.045f
+        delta += bilateralInfluence(point, 0.39f, 0.72f, 0.09f, 0.16f) * state(MuscleGroups.Hamstrings).sizeBoost * 0.04f
+        delta += bilateralInfluence(point, 0.38f, 0.91f, 0.08f, 0.13f) * state(MuscleGroups.Calves).sizeBoost * 0.032f
+    }
+
+    return delta
+}
+
+private fun morphBodyPoint(point: Offset, inputs: BodyShapeInputs, side: HeatmapSide): Offset {
+    val weightNorm = (((inputs.weightKg ?: 75f) - 75f) / 45f).coerceIn(-1f, 1f)
+    val bodyFatNorm = inputs.bodyFatPercentage
+        ?.let { ((it - 18f) / 18f).coerceIn(-1f, 1.1f) }
+        ?: 0f
+    val softness = (bodyFatNorm * 0.7f + weightNorm * 0.35f).coerceIn(-1f, 1.2f)
+    val muscularity = (weightNorm - bodyFatNorm * 0.45f).coerceIn(-1f, 1f)
+    val experienceNorm = (inputs.experienceYears / 6f).coerceIn(0f, 1f)
+
+    val y = point.y
+    val dx = point.x - 0.5f
+    val absDx = abs(dx)
+
+    val torsoZone = (1f - (absDx / 0.22f)).coerceIn(0f, 1f)
+    val armZone = ((absDx - 0.18f) / 0.18f).coerceIn(0f, 1f)
+    val legZone = if (y > 0.54f) (1f - (absDx / 0.18f)).coerceIn(0f, 1f) else 0f
+
+    var scale = 1f + 0.025f * weightNorm
+    scale += influence(y, 0.24f, 0.14f) * torsoZone * (0.035f * muscularity + 0.01f * softness)
+    scale += influence(y, 0.40f, 0.16f) * torsoZone * (0.02f * muscularity + 0.025f * softness)
+    scale += influence(y, 0.55f, 0.18f) * torsoZone * (0.055f * softness - 0.018f * bodyFatNorm.coerceAtMost(0f))
+    scale += influence(y, 0.66f, 0.16f) * legZone * (0.03f * softness + 0.028f * weightNorm)
+    scale += influence(y, 0.82f, 0.18f) * legZone * (0.04f * weightNorm + 0.015f * softness)
+    scale += influence(y, 0.60f, 0.30f) * armZone * (0.025f * weightNorm + 0.03f * softness)
+    scale += influence(y, 0.24f, 0.24f) * torsoZone * (0.012f * experienceNorm)
+    scale += localEvolutionScale(point, side, inputs)
+
+    val extremityDamp = when {
+        y < 0.14f -> 0.2f
+        y > 0.98f -> 0.55f
+        else -> 1f
+    }
+    val adjustedScale = 1f + (scale - 1f) * extremityDamp
+    return Offset(x = 0.5f + dx * adjustedScale, y = y)
+}
+
+private fun contourPointsInFrame(frame: Rect, region: HeatmapRegion, bodyShape: BodyShapeInputs): List<Offset> {
+    val centroid = regionCentroid(region.contour)
+    val state = regionVisualState(region, bodyShape)
+    val regionExpansion = 1f + (state.sizeBoost * 0.07f) + (state.consistency * 0.02f)
+
     return region.contour.map { point ->
+        val expanded = Offset(
+            x = centroid.x + (point.x - centroid.x) * regionExpansion,
+            y = centroid.y + (point.y - centroid.y) * regionExpansion
+        )
+        val morphed = morphBodyPoint(expanded, bodyShape, region.side)
         Offset(
-            x = frame.left + frame.width * point.x,
-            y = frame.top + frame.height * point.y
+            x = frame.left + frame.width * morphed.x,
+            y = frame.top + frame.height * morphed.y
         )
     }
 }
@@ -1498,7 +1740,7 @@ private fun pointInPolygon(point: Offset, polygon: List<Offset>): Boolean {
         val pi = polygon[i]
         val pj = polygon[j]
         val intersects = (pi.y > point.y) != (pj.y > point.y) &&
-            point.x < (pj.x - pi.x) * (point.y - pi.y) / ((pj.y - pi.y).let { if (it == 0f) 0.00001f else it }) + pi.x
+                point.x < (pj.x - pi.x) * (point.y - pi.y) / ((pj.y - pi.y).let { if (it == 0f) 0.00001f else it }) + pi.x
         if (intersects) inside = !inside
         j = i
     }
@@ -1516,49 +1758,305 @@ private fun buildPolygonPath(points: List<Offset>): androidx.compose.ui.graphics
     return path
 }
 
-private fun buildBodySilhouettePath(frame: Rect, side: HeatmapSide): androidx.compose.ui.graphics.Path {
-    fun x(value: Float) = frame.left + frame.width * value
-    fun y(value: Float) = frame.top + frame.height * value
-    
-    val leftPoints = if (side == HeatmapSide.Front) {
-        listOf(
-            Offset(0.50f, 0.02f), Offset(0.45f, 0.025f), Offset(0.42f, 0.06f), Offset(0.42f, 0.10f),
-            Offset(0.46f, 0.13f), Offset(0.46f, 0.16f), Offset(0.34f, 0.18f), Offset(0.20f, 0.22f),
-            Offset(0.18f, 0.32f), Offset(0.20f, 0.36f), Offset(0.16f, 0.48f), Offset(0.12f, 0.60f),
-            Offset(0.10f, 0.70f), Offset(0.08f, 0.76f), Offset(0.14f, 0.78f), Offset(0.18f, 0.70f),
-            Offset(0.22f, 0.60f), Offset(0.26f, 0.48f), Offset(0.26f, 0.36f), Offset(0.30f, 0.28f),
-            Offset(0.36f, 0.34f), Offset(0.38f, 0.54f), Offset(0.34f, 0.65f), Offset(0.34f, 0.76f),
-            Offset(0.32f, 0.85f), Offset(0.38f, 0.96f), Offset(0.36f, 0.99f), Offset(0.46f, 0.99f),
-            Offset(0.48f, 0.96f), Offset(0.46f, 0.85f), Offset(0.48f, 0.76f), Offset(0.48f, 0.65f),
-            Offset(0.50f, 0.56f)
-        )
-    } else {
-        listOf(
-            Offset(0.50f, 0.02f), Offset(0.45f, 0.025f), Offset(0.42f, 0.06f), Offset(0.42f, 0.10f), 
-            Offset(0.46f, 0.13f), Offset(0.46f, 0.16f), 
-            Offset(0.32f, 0.17f), Offset(0.18f, 0.20f), 
-            Offset(0.16f, 0.30f), Offset(0.18f, 0.36f), 
-            Offset(0.14f, 0.48f), Offset(0.10f, 0.60f), 
-            Offset(0.08f, 0.70f), Offset(0.06f, 0.76f), Offset(0.12f, 0.78f), Offset(0.16f, 0.70f), 
-            Offset(0.20f, 0.60f), Offset(0.24f, 0.48f), Offset(0.24f, 0.36f), Offset(0.28f, 0.28f), 
-            Offset(0.34f, 0.34f), Offset(0.36f, 0.54f), 
-            Offset(0.32f, 0.65f), Offset(0.32f, 0.76f), 
-            Offset(0.30f, 0.85f), Offset(0.36f, 0.96f), Offset(0.34f, 0.99f), Offset(0.44f, 0.99f), 
-            Offset(0.46f, 0.96f), Offset(0.44f, 0.85f), Offset(0.46f, 0.76f), Offset(0.46f, 0.65f),
-            Offset(0.50f, 0.56f)
+private val frontLeftPoints = listOf(
+    // ── Head (rounded skull) ──
+    Offset(0.500f, 0.018f), Offset(0.482f, 0.012f), Offset(0.462f, 0.014f),
+    Offset(0.446f, 0.024f), Offset(0.434f, 0.040f), Offset(0.427f, 0.060f),
+    Offset(0.424f, 0.080f), Offset(0.428f, 0.096f), Offset(0.436f, 0.108f),
+    Offset(0.448f, 0.118f),
+    // ── Neck ──
+    Offset(0.454f, 0.133f), Offset(0.458f, 0.149f), Offset(0.450f, 0.163f),
+    // ── Trapezius → Deltoid cap (smooth curve) ──
+    Offset(0.422f, 0.169f), Offset(0.385f, 0.175f), Offset(0.345f, 0.184f),
+    Offset(0.305f, 0.195f), Offset(0.272f, 0.209f), Offset(0.250f, 0.224f),
+    // ── Outer upper arm (bicep bulge) ──
+    Offset(0.237f, 0.246f), Offset(0.228f, 0.272f), Offset(0.223f, 0.300f),
+    Offset(0.220f, 0.328f), Offset(0.218f, 0.350f),
+    // ── Outer elbow ──
+    Offset(0.215f, 0.368f), Offset(0.212f, 0.384f),
+    // ── Outer forearm (brachioradialis taper) ──
+    Offset(0.203f, 0.406f), Offset(0.192f, 0.434f), Offset(0.180f, 0.464f),
+    Offset(0.167f, 0.496f), Offset(0.154f, 0.528f), Offset(0.142f, 0.556f),
+    // ── Wrist ──
+    Offset(0.133f, 0.578f), Offset(0.126f, 0.598f),
+    // ── Hand ──
+    Offset(0.119f, 0.622f), Offset(0.113f, 0.644f), Offset(0.109f, 0.664f),
+    Offset(0.107f, 0.682f),
+    // ── Fingertips (round bottom) ──
+    Offset(0.108f, 0.698f), Offset(0.115f, 0.710f), Offset(0.127f, 0.708f),
+    Offset(0.137f, 0.694f),
+    // ── Inner hand / wrist ascending ──
+    Offset(0.145f, 0.670f), Offset(0.151f, 0.646f), Offset(0.157f, 0.620f),
+    Offset(0.165f, 0.590f), Offset(0.174f, 0.558f),
+    // ── Inner forearm ascending ──
+    Offset(0.187f, 0.522f), Offset(0.200f, 0.488f), Offset(0.214f, 0.454f),
+    Offset(0.227f, 0.424f),
+    // ── Inner elbow / inner upper arm ──
+    Offset(0.241f, 0.394f), Offset(0.253f, 0.364f), Offset(0.262f, 0.334f),
+    Offset(0.269f, 0.304f), Offset(0.274f, 0.278f),
+    // ── Armpit → chest side ──
+    Offset(0.280f, 0.256f), Offset(0.296f, 0.242f), Offset(0.318f, 0.253f),
+    Offset(0.338f, 0.275f),
+    // ── Pec lower contour ──
+    Offset(0.352f, 0.302f), Offset(0.358f, 0.330f),
+    // ── Obliques / waist taper ──
+    Offset(0.360f, 0.360f), Offset(0.356f, 0.390f), Offset(0.349f, 0.418f),
+    Offset(0.343f, 0.444f),
+    // ── Iliac / hip flare ──
+    Offset(0.346f, 0.470f), Offset(0.354f, 0.496f), Offset(0.366f, 0.520f),
+    Offset(0.380f, 0.540f), Offset(0.386f, 0.556f),
+    // ── Outer quad (vastus lateralis bulge) ──
+    Offset(0.382f, 0.576f), Offset(0.372f, 0.604f), Offset(0.361f, 0.634f),
+    Offset(0.351f, 0.664f), Offset(0.343f, 0.696f), Offset(0.337f, 0.726f),
+    // ── Knee ──
+    Offset(0.333f, 0.750f), Offset(0.331f, 0.772f), Offset(0.333f, 0.792f),
+    // ── Calf (gastrocnemius) ──
+    Offset(0.339f, 0.816f), Offset(0.343f, 0.840f), Offset(0.341f, 0.866f),
+    Offset(0.335f, 0.893f),
+    // ── Ankle / Achilles ──
+    Offset(0.327f, 0.920f), Offset(0.321f, 0.946f),
+    // ── Foot (anatomic arch + toes) ──
+    Offset(0.317f, 0.970f), Offset(0.318f, 0.993f), Offset(0.327f, 1.013f),
+    Offset(0.346f, 1.027f), Offset(0.374f, 1.035f), Offset(0.405f, 1.039f),
+    Offset(0.430f, 1.037f), Offset(0.447f, 1.027f),
+    // ── Inner ankle ──
+    Offset(0.457f, 1.005f), Offset(0.462f, 0.978f), Offset(0.464f, 0.950f),
+    // ── Inner calf (soleus) ──
+    Offset(0.466f, 0.920f), Offset(0.468f, 0.888f), Offset(0.470f, 0.858f),
+    Offset(0.472f, 0.830f),
+    // ── Inner knee ──
+    Offset(0.474f, 0.802f), Offset(0.476f, 0.775f), Offset(0.478f, 0.750f),
+    // ── Inner thigh (adductors / VMO) ──
+    Offset(0.482f, 0.720f), Offset(0.486f, 0.688f), Offset(0.490f, 0.654f),
+    Offset(0.494f, 0.620f), Offset(0.496f, 0.590f),
+    // ── Crotch ──
+    Offset(0.498f, 0.567f), Offset(0.500f, 0.555f)
+)
+
+private val backLeftPoints = listOf(
+    // ── Head ──
+    Offset(0.500f, 0.018f), Offset(0.482f, 0.012f), Offset(0.462f, 0.014f),
+    Offset(0.446f, 0.024f), Offset(0.434f, 0.040f), Offset(0.427f, 0.060f),
+    Offset(0.424f, 0.080f), Offset(0.428f, 0.096f), Offset(0.436f, 0.108f),
+    Offset(0.448f, 0.118f),
+    // ── Neck (thicker for traps view) ──
+    Offset(0.452f, 0.132f), Offset(0.454f, 0.148f), Offset(0.447f, 0.162f),
+    // ── Trapezius → Deltoid ──
+    Offset(0.418f, 0.168f), Offset(0.378f, 0.174f), Offset(0.336f, 0.183f),
+    Offset(0.296f, 0.195f), Offset(0.264f, 0.209f), Offset(0.242f, 0.226f),
+    // ── Outer upper arm (tricep shape) ──
+    Offset(0.230f, 0.248f), Offset(0.222f, 0.274f), Offset(0.217f, 0.302f),
+    Offset(0.214f, 0.330f), Offset(0.212f, 0.352f),
+    // ── Outer elbow ──
+    Offset(0.210f, 0.370f), Offset(0.208f, 0.386f),
+    // ── Outer forearm ──
+    Offset(0.199f, 0.408f), Offset(0.188f, 0.436f), Offset(0.176f, 0.466f),
+    Offset(0.163f, 0.498f), Offset(0.150f, 0.530f), Offset(0.138f, 0.556f),
+    // ── Wrist ──
+    Offset(0.130f, 0.578f), Offset(0.122f, 0.598f),
+    // ── Hand ──
+    Offset(0.116f, 0.622f), Offset(0.110f, 0.644f), Offset(0.106f, 0.664f),
+    Offset(0.104f, 0.682f),
+    // ── Fingertips ──
+    Offset(0.105f, 0.698f), Offset(0.112f, 0.710f), Offset(0.124f, 0.708f),
+    Offset(0.134f, 0.694f),
+    // ── Inner hand ascending ──
+    Offset(0.142f, 0.670f), Offset(0.148f, 0.646f), Offset(0.154f, 0.620f),
+    Offset(0.162f, 0.590f), Offset(0.170f, 0.558f),
+    // ── Inner forearm ascending ──
+    Offset(0.184f, 0.522f), Offset(0.197f, 0.488f), Offset(0.210f, 0.454f),
+    Offset(0.223f, 0.424f),
+    // ── Inner elbow / inner upper arm ──
+    Offset(0.237f, 0.394f), Offset(0.249f, 0.364f), Offset(0.258f, 0.334f),
+    Offset(0.264f, 0.304f), Offset(0.268f, 0.278f),
+    // ── Armpit → lat insertions ──
+    Offset(0.275f, 0.254f), Offset(0.292f, 0.240f), Offset(0.316f, 0.248f),
+    Offset(0.338f, 0.268f),
+    // ── Lat / upper back contour (wider V-taper) ──
+    Offset(0.358f, 0.295f), Offset(0.370f, 0.322f), Offset(0.378f, 0.350f),
+    // ── Lower back / waist taper (deeper) ──
+    Offset(0.375f, 0.380f), Offset(0.366f, 0.408f), Offset(0.352f, 0.432f),
+    Offset(0.342f, 0.455f),
+    // ── Glute rise ──
+    Offset(0.346f, 0.480f), Offset(0.358f, 0.508f), Offset(0.375f, 0.534f),
+    Offset(0.392f, 0.556f), Offset(0.396f, 0.576f),
+    // ── Outer hamstring ──
+    Offset(0.390f, 0.598f), Offset(0.378f, 0.626f), Offset(0.365f, 0.656f),
+    Offset(0.353f, 0.686f), Offset(0.344f, 0.716f),
+    // ── Knee (back, popliteal) ──
+    Offset(0.338f, 0.744f), Offset(0.335f, 0.768f), Offset(0.337f, 0.790f),
+    // ── Calf (pronounced gastrocnemius from rear) ──
+    Offset(0.344f, 0.816f), Offset(0.350f, 0.842f), Offset(0.347f, 0.868f),
+    Offset(0.339f, 0.894f),
+    // ── Ankle ──
+    Offset(0.329f, 0.920f), Offset(0.323f, 0.946f),
+    // ── Heel / foot ──
+    Offset(0.319f, 0.970f), Offset(0.316f, 0.993f), Offset(0.319f, 1.013f),
+    Offset(0.332f, 1.027f), Offset(0.358f, 1.035f), Offset(0.390f, 1.039f),
+    Offset(0.418f, 1.037f), Offset(0.438f, 1.027f),
+    // ── Inner ankle ──
+    Offset(0.452f, 1.005f), Offset(0.458f, 0.978f), Offset(0.460f, 0.950f),
+    // ── Inner calf ──
+    Offset(0.462f, 0.920f), Offset(0.464f, 0.888f), Offset(0.466f, 0.858f),
+    Offset(0.468f, 0.830f),
+    // ── Inner knee ──
+    Offset(0.470f, 0.802f), Offset(0.472f, 0.775f), Offset(0.474f, 0.750f),
+    // ── Inner thigh ──
+    Offset(0.478f, 0.720f), Offset(0.482f, 0.688f), Offset(0.486f, 0.654f),
+    Offset(0.490f, 0.620f), Offset(0.494f, 0.590f),
+    // ── Crotch ──
+    Offset(0.498f, 0.567f), Offset(0.500f, 0.555f)
+)
+
+private fun buildBodySilhouettePath(
+    frame: Rect,
+    side: HeatmapSide,
+    bodyShape: BodyShapeInputs
+): androidx.compose.ui.graphics.Path {
+    fun point(normalized: Offset): Offset {
+        val morphed = morphBodyPoint(normalized, bodyShape, side)
+        return Offset(
+            x = frame.left + frame.width * morphed.x,
+            y = frame.top + frame.height * morphed.y
         )
     }
 
+    val leftPoints = if (side == HeatmapSide.Front) frontLeftPoints else backLeftPoints
+
     return androidx.compose.ui.graphics.Path().apply {
         if (leftPoints.isEmpty()) return@apply
-        moveTo(x(leftPoints.first().x), y(leftPoints.first().y))
-        for (i in 1 until leftPoints.size) {
-            lineTo(x(leftPoints[i].x), y(leftPoints[i].y))
-        }
+
+        // Build full loop: left side → mirrored right side
+        val all = mutableListOf<Offset>()
+        for (p in leftPoints) all.add(point(p))
         for (i in leftPoints.size - 2 downTo 0) {
-            lineTo(x(1f - leftPoints[i].x), y(leftPoints[i].y))
+            all.add(point(Offset(1f - leftPoints[i].x, leftPoints[i].y)))
+        }
+
+        val n = all.size
+        moveTo(all[0].x, all[0].y)
+
+        // Catmull-Rom → cubic Bézier for smooth curves
+        for (i in 0 until n) {
+            val p0 = all[(i - 1 + n) % n]
+            val p1 = all[i]
+            val p2 = all[(i + 1) % n]
+            val p3 = all[(i + 2) % n]
+            val cp1x = p1.x + (p2.x - p0.x) / 6f
+            val cp1y = p1.y + (p2.y - p0.y) / 6f
+            val cp2x = p2.x - (p3.x - p1.x) / 6f
+            val cp2y = p2.y - (p3.y - p1.y) / 6f
+            cubicTo(cp1x, cp1y, cp2x, cp2y, p2.x, p2.y)
         }
         close()
+    }
+}
+
+private fun drawBodyFiberLines(
+    draw: androidx.compose.ui.graphics.drawscope.DrawScope,
+    frame: Rect,
+    side: HeatmapSide,
+    bodyShape: BodyShapeInputs
+) = with(draw) {
+    fun point(vx: Float, vy: Float): Offset {
+        val morphed = morphBodyPoint(Offset(vx, vy), bodyShape, side)
+        return Offset(frame.left + frame.width * morphed.x, frame.top + frame.height * morphed.y)
+    }
+
+    fun definitionFor(vararg muscles: MuscleGroups): Float {
+        val values = muscles.mapNotNull { bodyShape.muscleStates[it]?.definition }
+        if (values.isEmpty()) return (bodyShape.experienceYears / 8f).coerceIn(0f, 0.45f)
+        return values.average().toFloat()
+    }
+
+    fun seg(sx: Float, sy: Float, ex: Float, ey: Float, intensity: Float) {
+        if (intensity <= 0.02f) return
+        drawLine(
+            color = Color.White.copy(alpha = 0.06f + intensity * 0.26f),
+            start = point(sx, sy), end = point(ex, ey),
+            strokeWidth = (0.8f + intensity * 1.6f).dp.toPx()
+        )
+    }
+
+    if (side == HeatmapSide.Front) {
+        val abs = definitionFor(MuscleGroups.Abs)
+        val pec = definitionFor(MuscleGroups.Pecs, MuscleGroups.Delts)
+        val arm = definitionFor(MuscleGroups.Biceps, MuscleGroups.Forearms)
+        val quad = definitionFor(MuscleGroups.Quads)
+        val delt = definitionFor(MuscleGroups.Delts)
+
+        // Linea alba (midline)
+        seg(0.50f, 0.33f, 0.50f, 0.52f, abs)
+        // Abs horizontal separations
+        seg(0.46f, 0.36f, 0.54f, 0.36f, abs * 0.9f)
+        seg(0.46f, 0.40f, 0.54f, 0.40f, abs)
+        seg(0.46f, 0.44f, 0.54f, 0.44f, abs)
+        seg(0.47f, 0.48f, 0.53f, 0.48f, abs * 0.85f)
+        // Pec lower border
+        seg(0.35f, 0.30f, 0.44f, 0.33f, pec)
+        seg(0.56f, 0.33f, 0.65f, 0.30f, pec)
+        // Sternum
+        seg(0.50f, 0.22f, 0.50f, 0.33f, pec * 0.7f)
+        // Anterior delt separation
+        seg(0.34f, 0.25f, 0.30f, 0.29f, delt * 0.8f)
+        seg(0.66f, 0.25f, 0.70f, 0.29f, delt * 0.8f)
+        // Serratus
+        seg(0.36f, 0.34f, 0.39f, 0.36f, abs * 0.55f)
+        seg(0.64f, 0.34f, 0.61f, 0.36f, abs * 0.55f)
+        seg(0.37f, 0.37f, 0.40f, 0.39f, abs * 0.45f)
+        seg(0.63f, 0.37f, 0.60f, 0.39f, abs * 0.45f)
+        // Bicep line
+        seg(0.24f, 0.30f, 0.23f, 0.36f, arm * 0.8f)
+        seg(0.76f, 0.30f, 0.77f, 0.36f, arm * 0.8f)
+        // Forearm
+        seg(0.21f, 0.41f, 0.19f, 0.50f, arm * 0.55f)
+        seg(0.79f, 0.41f, 0.81f, 0.50f, arm * 0.55f)
+        // Quad - rectus femoris
+        seg(0.42f, 0.58f, 0.40f, 0.72f, quad * 0.7f)
+        seg(0.58f, 0.58f, 0.60f, 0.72f, quad * 0.7f)
+        // Vastus lateralis
+        seg(0.37f, 0.60f, 0.35f, 0.72f, quad * 0.55f)
+        seg(0.63f, 0.60f, 0.65f, 0.72f, quad * 0.55f)
+        // VMO teardrop
+        seg(0.45f, 0.70f, 0.44f, 0.74f, quad * 0.6f)
+        seg(0.55f, 0.70f, 0.56f, 0.74f, quad * 0.6f)
+    } else {
+        val back = definitionFor(MuscleGroups.Lats, MuscleGroups.UpperBack, MuscleGroups.Traps)
+        val arm = definitionFor(MuscleGroups.Triceps, MuscleGroups.Forearms)
+        val post = definitionFor(MuscleGroups.Glutes, MuscleGroups.Hamstrings)
+        val trap = definitionFor(MuscleGroups.Traps)
+
+        // Spinal erectors
+        seg(0.48f, 0.20f, 0.48f, 0.50f, back * 0.7f)
+        seg(0.52f, 0.20f, 0.52f, 0.50f, back * 0.7f)
+        // Spine midline
+        seg(0.50f, 0.18f, 0.50f, 0.52f, back * 0.5f)
+        // Scapula medial border
+        seg(0.43f, 0.24f, 0.44f, 0.36f, back * 0.6f)
+        seg(0.57f, 0.24f, 0.56f, 0.36f, back * 0.6f)
+        // Lat insertion lines
+        seg(0.42f, 0.35f, 0.46f, 0.45f, back * 0.8f)
+        seg(0.58f, 0.35f, 0.54f, 0.45f, back * 0.8f)
+        // Lower trap
+        seg(0.46f, 0.22f, 0.50f, 0.30f, trap * 0.6f)
+        seg(0.54f, 0.22f, 0.50f, 0.30f, trap * 0.6f)
+        // Tricep long head
+        seg(0.24f, 0.30f, 0.22f, 0.37f, arm * 0.7f)
+        seg(0.76f, 0.30f, 0.78f, 0.37f, arm * 0.7f)
+        // Forearm
+        seg(0.21f, 0.41f, 0.18f, 0.50f, arm * 0.5f)
+        seg(0.79f, 0.41f, 0.82f, 0.50f, arm * 0.5f)
+        // Glute crease
+        seg(0.42f, 0.56f, 0.50f, 0.58f, post * 0.7f)
+        seg(0.58f, 0.56f, 0.50f, 0.58f, post * 0.7f)
+        // Glute-ham tie-in
+        seg(0.50f, 0.56f, 0.50f, 0.66f, post * 0.6f)
+        // Hamstring - biceps femoris
+        seg(0.40f, 0.62f, 0.38f, 0.74f, post * 0.6f)
+        seg(0.60f, 0.62f, 0.62f, 0.74f, post * 0.6f)
+        // Semitendinosus
+        seg(0.44f, 0.62f, 0.45f, 0.74f, post * 0.5f)
+        seg(0.56f, 0.62f, 0.55f, 0.74f, post * 0.5f)
     }
 }
 
@@ -1566,26 +2064,73 @@ private fun drawHeatmapRegion(
     draw: androidx.compose.ui.graphics.drawscope.DrawScope,
     frame: Rect,
     region: HeatmapRegion,
-    color: Color,
-    alpha: Float,
+    bodyShape: BodyShapeInputs,
+    fillColor: Color,
+    accentColor: Color,
+    fillAlpha: Float,
+    accentAlpha: Float,
     strokeWidthPx: Float
 ) = with(draw) {
-    val points = contourPointsInFrame(frame, region)
+    val points = contourPointsInFrame(frame, region, bodyShape)
     val path = buildPolygonPath(points)
     val cornerEffect = androidx.compose.ui.graphics.PathEffect.cornerPathEffect(strokeWidthPx * 6)
-    drawPath(path = path, color = color.copy(alpha = alpha))
-    drawPath(path = path, color = color.copy(alpha = 0.90f), style = Stroke(width = strokeWidthPx, pathEffect = cornerEffect))
+
+    drawPath(path = path, color = fillColor.copy(alpha = fillAlpha))
+
+    drawPath(
+        path = path,
+        color = bodySilhouetteBase.copy(alpha = 0.9f),
+        style = Stroke(width = strokeWidthPx * 3.5f, pathEffect = cornerEffect)
+    )
+
+    drawPath(
+        path = path,
+        color = accentColor.copy(alpha = accentAlpha),
+        style = Stroke(width = strokeWidthPx * 1.2f, pathEffect = cornerEffect)
+    )
+}
+
+private fun drawRegionGlow(
+    draw: androidx.compose.ui.graphics.drawscope.DrawScope,
+    frame: Rect,
+    region: HeatmapRegion,
+    bodyShape: BodyShapeInputs,
+    color: Color,
+    intensity: Float
+) = with(draw) {
+    if (intensity <= 0.04f) return@with
+
+    val points = contourPointsInFrame(frame, region, bodyShape)
+    val path = buildPolygonPath(points)
+    val bounds = path.getBounds()
+    val center = bounds.center
+    val radius = (max(bounds.width, bounds.height) * (0.68f + intensity * 0.34f)).coerceAtLeast(1f)
+
+    drawPath(
+        path = path,
+        brush = Brush.radialGradient(
+            colors = listOf(
+                color.copy(alpha = 0.78f * intensity),
+                color.copy(alpha = 0.46f * intensity),
+                color.copy(alpha = 0.2f * intensity),
+                Color.Transparent
+            ),
+            center = center,
+            radius = radius
+        )
+    )
 }
 
 private fun findHeatmapRegionAtTap(
     tap: Offset,
     canvasSize: IntSize,
-    regions: List<HeatmapRegion>
+    regions: List<HeatmapRegion>,
+    bodyShape: BodyShapeInputs
 ): HeatmapRegion? {
     if (canvasSize.width <= 0 || canvasSize.height <= 0) return null
     val frame = bodyFrame(Size(canvasSize.width.toFloat(), canvasSize.height.toFloat()))
     return regions.firstOrNull { region ->
-        val polygon = contourPointsInFrame(frame, region)
+        val polygon = contourPointsInFrame(frame, region, bodyShape)
         pointInPolygon(tap, polygon)
     }
 }
@@ -1600,6 +2145,10 @@ private fun topMuscleForRegion(
 @Composable
 private fun BodyHeatmapCard(
     loads: List<MuscleLoad>,
+    visualLoads: List<MuscleLoad>,
+    bodyFatPercentage: Float?,
+    userWeightKg: Float?,
+    experienceYears: Float,
     onSelectLoad: (MuscleLoad) -> Unit
 ) {
     val context = LocalContext.current
@@ -1610,6 +2159,25 @@ private fun BodyHeatmapCard(
     var canvasSize by remember { mutableStateOf(IntSize.Zero) }
     val loadsByMuscle = remember(loads) { loads.associateBy { it.group } }
     val regions = remember(side) { regionsForSide(side) }
+    val haptics = LocalHapticFeedback.current
+    val coroutineScope = androidx.compose.runtime.rememberCoroutineScope()
+    var clickedRegionId by remember { mutableStateOf<String?>(null) }
+    val clickPulse = remember { androidx.compose.animation.core.Animatable(0f) }
+    val muscleStates = remember(visualLoads, bodyFatPercentage, experienceYears) {
+        buildMuscleVisualStates(
+            loads = visualLoads,
+            bodyFatPercentage = bodyFatPercentage,
+            experienceYears = experienceYears
+        )
+    }
+    val bodyShape = remember(bodyFatPercentage, userWeightKg, experienceYears, muscleStates) {
+        BodyShapeInputs(
+            weightKg = userWeightKg,
+            bodyFatPercentage = bodyFatPercentage,
+            experienceYears = experienceYears,
+            muscleStates = muscleStates
+        )
+    }
 
     Surface(
         color = theme.background,
@@ -1656,46 +2224,103 @@ private fun BodyHeatmapCard(
                     .fillMaxWidth()
                     .height(380.dp)
                     .onSizeChanged { canvasSize = it }
-                    .pointerInput(side, loads, canvasSize) {
+                    .pointerInput(side, loads, canvasSize, bodyFatPercentage, userWeightKg, experienceYears, visualLoads) {
                         detectTapGestures { tap ->
-                            val region = findHeatmapRegionAtTap(tap, canvasSize, regions) ?: return@detectTapGestures
-                            topMuscleForRegion(region, loadsByMuscle)?.let(onSelectLoad)
+                            val region = findHeatmapRegionAtTap(tap, canvasSize, regions, bodyShape) ?: return@detectTapGestures
+                            val load = topMuscleForRegion(region, loadsByMuscle)
+                            if (load != null) {
+                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                clickedRegionId = region.id
+                                coroutineScope.launch {
+                                    clickPulse.snapTo(0f)
+                                    clickPulse.animateTo(1f, tween(300, easing = LinearEasing))
+                                    clickedRegionId = null
+                                }
+                                onSelectLoad(load)
+                            }
                         }
                     }
             ) {
                 val frame = bodyFrame(size)
-                val silhouettePath = buildBodySilhouettePath(frame, side)
+                val silhouettePath = buildBodySilhouettePath(frame, side, bodyShape)
                 val cornerEffect = androidx.compose.ui.graphics.PathEffect.cornerPathEffect(4.dp.toPx())
 
                 drawPath(
                     path = silhouettePath,
-                    color = theme.secondary.copy(alpha = 0.14f)
+                    color = bodySilhouetteBase
                 )
                 drawPath(
                     path = silhouettePath,
-                    color = theme.secondary.copy(alpha = 0.30f),
-                    style = Stroke(width = 1.2.dp.toPx(), pathEffect = cornerEffect)
+                    color = bodySilhouetteStroke.copy(alpha = 0.95f),
+                    style = Stroke(width = 2.5.dp.toPx(), pathEffect = cornerEffect)
                 )
 
                 drawLine(
-                    color = Color.White.copy(alpha = 0.08f),
+                    color = bodySilhouetteStroke.copy(alpha = 0.2f),
                     start = Offset(frame.left + frame.width * 0.5f, frame.top + frame.height * 0.17f),
                     end = Offset(frame.left + frame.width * 0.5f, frame.top + frame.height * 0.96f),
                     strokeWidth = 1.dp.toPx()
                 )
 
                 regions.forEach { region ->
-                    val heat = topMuscleForRegion(region, loadsByMuscle)?.let(::heatIntensity) ?: 0f
-                    val fill = heatColor(heat)
+                    val load = topMuscleForRegion(region, loadsByMuscle)
+                    val heat = load?.let(::heatIntensity) ?: 0f
+                    val fill = quietHeatFill(load)
+                    val accent = load?.let { heatColor(heatIntensity(it)) } ?: bodySilhouetteStroke
+                    val glowIntensity = load?.let(::fatigueGlowIntensity) ?: 0f
+                    val glowColor = load?.let(::fatigueGlowColor) ?: Color.Transparent
+                    val isClicked = region.id == clickedRegionId
+                    val currentPulse = if (isClicked) clickPulse.value else 0f
+
+                    drawRegionGlow(
+                        draw = this,
+                        frame = frame,
+                        region = region,
+                        bodyShape = bodyShape,
+                        color = glowColor,
+                        intensity = glowIntensity
+                    )
+
+                    if (isClicked && currentPulse > 0f) {
+                        val bounds = buildPolygonPath(contourPointsInFrame(frame, region, bodyShape)).getBounds()
+                        withTransform({
+                            val scaleAmt = 1f + (0.2f * kotlin.math.sin(currentPulse.toDouble() * Math.PI)).toFloat()
+                            scale(scaleAmt, scaleAmt, bounds.center)
+                        }) {
+                            drawHeatmapRegion(
+                                draw = this,
+                                frame = frame,
+                                region = region,
+                                bodyShape = bodyShape,
+                                fillColor = Color.White,
+                                accentColor = Color.White,
+                                fillAlpha = (0.2f * kotlin.math.sin(currentPulse.toDouble() * Math.PI)).toFloat(),
+                                accentAlpha = (0.6f * kotlin.math.sin(currentPulse.toDouble() * Math.PI)).toFloat(),
+                                strokeWidthPx = 1.dp.toPx()
+                            )
+                        }
+                    }
+
                     drawHeatmapRegion(
                         draw = this,
                         frame = frame,
                         region = region,
-                        color = fill,
-                        alpha = 0.42f + heat * 0.4f,
+                        bodyShape = bodyShape,
+                        fillColor = fill,
+                        accentColor = if (glowIntensity > 0.15f) glowColor else accent,
+                        fillAlpha = 0.84f + heat * 0.14f,
+                        accentAlpha = 0.36f + heat * 0.58f + glowIntensity * 0.56f +
+                            if (isClicked) (0.28f * kotlin.math.sin(currentPulse.toDouble() * Math.PI)).toFloat() else 0f,
                         strokeWidthPx = 1.dp.toPx()
                     )
                 }
+
+                drawBodyFiberLines(
+                    draw = this,
+                    frame = frame,
+                    side = side,
+                    bodyShape = bodyShape
+                )
             }
 
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -1810,6 +2435,8 @@ fun MuscleStatusSection(
     var progress by remember { mutableStateOf(0f) }
     val prefsManager = remember { UserPreferencesManager(context) }
     val profile = remember { buildUserProfile(prefsManager) }
+    val experienceYears = remember(profile.experience) { parseExperienceToYears(profile.experience) }
+    var latestBodyFatPercentage by remember { mutableStateOf<Float?>(null) }
 
     val goalPrefs = remember { SprintGoalPreferences(context) }
     var sprintGoal by remember { mutableStateOf(goalPrefs.load()) }
@@ -1831,6 +2458,7 @@ fun MuscleStatusSection(
         val nutrition = healthConnectManager.readNutrition(now.minus(2, ChronoUnit.DAYS), now)
         val bodyfat = healthConnectManager.readBodyFat(start, now)
         val calories = healthConnectManager.readTotalCalories(now.minus(7, ChronoUnit.DAYS), now)
+        latestBodyFatPercentage = bodyfat.maxByOrNull { it.time }?.percentage?.value?.toFloat()
 
         val surveyContent = SurveyTape.readTape()
 
@@ -1973,6 +2601,10 @@ fun MuscleStatusSection(
         if (performanceOptions.showBodyHeatmap) {
             BodyHeatmapCard(
                 loads = filtered,
+                visualLoads = loads,
+                bodyFatPercentage = latestBodyFatPercentage,
+                userWeightKg = profile.weightKg.toFloat(),
+                experienceYears = experienceYears,
                 onSelectLoad = {
                     haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                     selectedMuscle = it
