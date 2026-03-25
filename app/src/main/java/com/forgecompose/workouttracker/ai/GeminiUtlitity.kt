@@ -36,6 +36,9 @@ private const val AI_ADVICE_VISIBLE_MS = 8_000L
 private const val SCIENCE_FACT_VISIBLE_MS = 5_000L
 private const val MAX_PROMPT_LEARNED_RULES = 6
 private const val MAX_PROMPT_WORKOUT_RULES = 4
+private const val GOOGLE_AI_STUDIO_MODEL = "gemini-3.1-flash-lite-preview"
+private const val GOOGLE_AI_STUDIO_ENDPOINT =
+    "https://generativelanguage.googleapis.com/v1beta/models/$GOOGLE_AI_STUDIO_MODEL:generateContent"
 
 private fun cleanRuleList(values: List<String>, maxItems: Int): List<String> {
     val seen = linkedSetOf<String>()
@@ -904,6 +907,7 @@ class GeminiUtilityViewModel(application: Application) : AndroidViewModel(applic
                 val cfg = PersonaPrefs.readLocalLlmConfig()
                 buildLocalLlmOpenAiBaseUrl(cfg.ipAddress, cfg.port) != null && cfg.selectedModel.isNotBlank()
             }
+            AiModelProvider.GOOGLE_AI_STUDIO -> hasGoogleAiStudioApiKey()
         }
     }
 
@@ -945,6 +949,7 @@ class GeminiUtilityViewModel(application: Application) : AndroidViewModel(applic
                 val promptEnvelope = when (providerUsed) {
                     AiModelProvider.EDGE_ON_DEVICE -> buildEdgeBatchPrompt(persona, contextPrompt, v1, v2, v3)
                     AiModelProvider.LOCAL_NETWORK -> buildLocalBatchPrompt(persona, contextPrompt, v1, v2, v3)
+                    AiModelProvider.GOOGLE_AI_STUDIO -> buildAiStudioBatchPrompt(persona, contextPrompt, v1, v2, v3)
                 }
                 val result = when (providerUsed) {
                     AiModelProvider.EDGE_ON_DEVICE -> {
@@ -965,13 +970,26 @@ class GeminiUtilityViewModel(application: Application) : AndroidViewModel(applic
                             )
                         }
                     }
+                    AiModelProvider.GOOGLE_AI_STUDIO -> {
+                        val apiKey = BuildConfig.GOOGLE_AI_STUDIO_API_KEY
+                        if (apiKey.isBlank()) {
+                            ""
+                        } else {
+                            generateWithGoogleAiStudio(
+                                apiKey = apiKey,
+                                systemPrompt = promptEnvelope.systemInstruction,
+                                userPrompt = promptEnvelope.userPrompt,
+                                maxTokens = maxTokens ?: 256
+                            )
+                        }
+                    }
                 }
                 if (result.isNotBlank()) {
                     withContext(Dispatchers.Main) {
-                        val finalAdvice = if (providerUsed == AiModelProvider.LOCAL_NETWORK) {
-                            processLocalResult(result)
-                        } else {
+                        val finalAdvice = if (providerUsed == AiModelProvider.EDGE_ON_DEVICE) {
                             processBatchResult(result)
+                        } else {
+                            processLocalResult(result)
                         }
                         if (!finalAdvice.isNullOrBlank()) {
                             GeminiAdaptiveMemoryStore.rememberGeneratedAdvice(
@@ -992,10 +1010,13 @@ class GeminiUtilityViewModel(application: Application) : AndroidViewModel(applic
                     }
                 } else {
                     withContext(Dispatchers.Main) {
-                        currentAdvice = if (providerUsed == AiModelProvider.LOCAL_NETWORK) {
-                            "No response from local LLM. Check IP, port, and selected model."
-                        } else {
-                            "No response from on-device model. Try again."
+                        currentAdvice = when (providerUsed) {
+                            AiModelProvider.LOCAL_NETWORK ->
+                                "No response from local LLM. Check IP, port, and selected model."
+                            AiModelProvider.GOOGLE_AI_STUDIO ->
+                                "No response from Google AI Studio. Check the API key and connection."
+                            AiModelProvider.EDGE_ON_DEVICE ->
+                                "No response from on-device model. Try again."
                         }
                         hasAdvice = true
                     }
@@ -1003,10 +1024,13 @@ class GeminiUtilityViewModel(application: Application) : AndroidViewModel(applic
             } catch (e: Exception) {
                 Log.e("GeminiUtility", "Advice generation failed for provider=$providerUsed", e)
                 withContext(Dispatchers.Main) {
-                    currentAdvice = if (providerUsed == AiModelProvider.LOCAL_NETWORK) {
-                        "Local LLM request failed. Verify server is reachable and model is loaded."
-                    } else {
-                        "Advice generation failed on device. Try reloading the model."
+                    currentAdvice = when (providerUsed) {
+                        AiModelProvider.LOCAL_NETWORK ->
+                            "Local LLM request failed. Verify server is reachable and model is loaded."
+                        AiModelProvider.GOOGLE_AI_STUDIO ->
+                            "Google AI Studio request failed. Verify API key and internet access."
+                        AiModelProvider.EDGE_ON_DEVICE ->
+                            "Advice generation failed on device. Try reloading the model."
                     }
                     hasAdvice = true
                 }
@@ -1022,6 +1046,14 @@ class GeminiUtilityViewModel(application: Application) : AndroidViewModel(applic
             }
         }
     }
+
+    private fun buildAiStudioBatchPrompt(
+        persona: String,
+        context: String,
+        v1: String,
+        v2: String,
+        v3: String
+    ): PromptEnvelope = buildLocalBatchPrompt(persona, context, v1, v2, v3)
 
     private fun startAdviceRotation() {
         if (rotationJob?.isActive == true) return 
@@ -1224,6 +1256,98 @@ class GeminiUtilityViewModel(application: Application) : AndroidViewModel(applic
                 ?.optJSONObject(0)
                 ?.optJSONObject("message")
                 ?.optString("content")
+                .orEmpty()
+                .trim()
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    private fun generateWithGoogleAiStudio(
+        apiKey: String,
+        systemPrompt: String,
+        userPrompt: String,
+        maxTokens: Int,
+        temperature: Double = 0.6
+    ): String {
+        val safeKey = apiKey.trim()
+        if (safeKey.isBlank()) return ""
+
+        val safeMaxTokens = maxTokens.coerceIn(16, 300)
+        val temperatureRange = temperature.coerceIn(0.5, 0.9)
+        val endpoint = "$GOOGLE_AI_STUDIO_ENDPOINT?key=$safeKey"
+        val payload = JSONObject().apply {
+            put(
+                "system_instruction",
+                JSONObject().apply {
+                    put(
+                        "parts",
+                        JSONArray().apply {
+                            put(JSONObject().apply { put("text", systemPrompt) })
+                        }
+                    )
+                }
+            )
+            put(
+                "contents",
+                JSONArray().apply {
+                    put(
+                        JSONObject().apply {
+                            put("role", "user")
+                            put(
+                                "parts",
+                                JSONArray().apply {
+                                    put(JSONObject().apply { put("text", userPrompt) })
+                                }
+                            )
+                        }
+                    )
+                }
+            )
+            put(
+                "generationConfig",
+                JSONObject().apply {
+                    put("temperature", temperatureRange)
+                    put("maxOutputTokens", safeMaxTokens)
+                }
+            )
+        }.toString()
+
+        val connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
+            requestMethod = "POST"
+            connectTimeout = 15000
+            readTimeout = 240000
+            doOutput = true
+            setRequestProperty("Content-Type", "application/json")
+            setRequestProperty("Accept", "application/json")
+        }
+
+        return try {
+            connection.outputStream.use { stream ->
+                stream.write(payload.toByteArray(Charsets.UTF_8))
+            }
+
+            val code = connection.responseCode
+            val responseStream = if (code in 200..299) connection.inputStream else connection.errorStream
+            val responseBody = responseStream?.bufferedReader()?.use { it.readText() }.orEmpty()
+            if (code !in 200..299 || responseBody.isBlank()) return ""
+
+            val responseJson = JSONObject(responseBody)
+            responseJson.optJSONArray("candidates")
+                ?.optJSONObject(0)
+                ?.optJSONObject("content")
+                ?.optJSONArray("parts")
+                ?.let { parts ->
+                    buildString {
+                        for (index in 0 until parts.length()) {
+                            val text = parts.optJSONObject(index)?.optString("text").orEmpty().trim()
+                            if (text.isNotBlank()) {
+                                if (isNotEmpty()) append('\n')
+                                append(text)
+                            }
+                        }
+                    }
+                }
                 .orEmpty()
                 .trim()
         } finally {

@@ -240,7 +240,7 @@ fun SettingsScreen(
 
                         SettingsOptionRow(
                             title = "AI Settings",
-                            subtitle = "Change AI persona, disable or enable AI features",
+                            subtitle = "Change persona and switch between on-device, local, or AI Studio AI",
                             icon = Icons.Default.AutoAwesome,
                             onClick = {  navController.navigate("PersonaSettings")  }
                         )

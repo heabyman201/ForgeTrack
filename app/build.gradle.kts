@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -11,18 +13,34 @@ plugins {
     id("com.google.firebase.crashlytics")
 }
 
+val localProperties = Properties().apply {
+    val file = rootProject.file("local.properties")
+    if (file.exists()) {
+        file.inputStream().use(::load)
+    }
+}
+
+fun localProperty(name: String): String = localProperties.getProperty(name, "").trim()
+
+fun String.asBuildConfigString(): String =
+    "\"" + replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+
 android {
     namespace = "com.forgecompose.workouttracker"
     compileSdk = 36
 
     defaultConfig {
         applicationId = "com.forgecompose.workouttracker"
-        buildFeatures { buildConfig = true }
         minSdk = 31
         targetSdk = 36
         versionCode = 7
         versionName = "1.07"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        buildConfigField(
+            "String",
+            "GOOGLE_AI_STUDIO_API_KEY",
+            localProperty("API_KEY").asBuildConfigString()
+        )
         ndk {
             abiFilters.add("arm64-v8a")
             abiFilters.add("armeabi-v7a")
@@ -48,6 +66,7 @@ android {
         jvmTarget = "11"
     }
     buildFeatures {
+        buildConfig = true
         compose = true
         mlModelBinding = true
     }

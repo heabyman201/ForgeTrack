@@ -68,7 +68,8 @@ import java.net.URL
 
 enum class AiModelProvider(val key: String) {
     EDGE_ON_DEVICE("edge_on_device"),
-    LOCAL_NETWORK("local_network");
+    LOCAL_NETWORK("local_network"),
+    GOOGLE_AI_STUDIO("google_ai_studio");
 
     companion object {
         fun fromKey(key: String?): AiModelProvider {
@@ -238,6 +239,8 @@ fun buildLocalLlmOpenAiBaseUrl(ipAddress: String, port: String): String? {
     val root = buildLocalLlmRootUrl(ipAddress, port) ?: return null
     return "$root/v1"
 }
+
+fun hasGoogleAiStudioApiKey(): Boolean = BuildConfig.GOOGLE_AI_STUDIO_API_KEY.isNotBlank()
 
 object LocalLlmManager {
     private val _isFetchingModels = MutableStateFlow(false)
@@ -601,7 +604,8 @@ fun PersonaSettingsScreen(
                     PersonaSectionCard(title = "Model Source", theme = theme) {
                         val providers = listOf(
                             AiModelProvider.EDGE_ON_DEVICE to "On-device model (.bin)",
-                            AiModelProvider.LOCAL_NETWORK to "Local network LLM server"
+                            AiModelProvider.LOCAL_NETWORK to "Local network LLM server",
+                            AiModelProvider.GOOGLE_AI_STUDIO to "Google AI Studio API (fixed Gemini 3.1 Flash-Lite)"
                         )
                         providers.forEach { (provider, subtitle) ->
                             Row(
@@ -623,7 +627,11 @@ fun PersonaSettingsScreen(
                             ) {
                                 Column(Modifier.weight(1f)) {
                                     Text(
-                                        text = if (provider == AiModelProvider.EDGE_ON_DEVICE) "On Device" else "Local Server",
+                                        text = when (provider) {
+                                            AiModelProvider.EDGE_ON_DEVICE -> "On Device"
+                                            AiModelProvider.LOCAL_NETWORK -> "Local Server"
+                                            AiModelProvider.GOOGLE_AI_STUDIO -> "Google AI Studio"
+                                        },
                                         color = Color.White,
                                         fontWeight = FontWeight.SemiBold
                                     )
@@ -729,7 +737,7 @@ fun PersonaSettingsScreen(
                                 }
                             }
                         }
-                    } else {
+                    } else if (modelProvider == AiModelProvider.LOCAL_NETWORK) {
                         PersonaSectionCard(title = "Local LLM", theme = theme) {
                             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                 OutlinedTextField(
@@ -842,6 +850,51 @@ fun PersonaSettingsScreen(
                                         }
                                     }
                                 }
+                            }
+                        }
+                    } else {
+                        PersonaSectionCard(title = "Google AI Studio", theme = theme) {
+                            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                Text(
+                                    text = "Uses the build-time API key from Gradle/local.properties.",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = Color.White.copy(alpha = 0.84f)
+                                )
+                                Text(
+                                    text = "Model: Gemini 3.1 Flash-Lite",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = Color.White,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(theme.secondary.copy(alpha = 0.1f), RoundedCornerShape(8.dp))
+                                        .padding(10.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = if (hasGoogleAiStudioApiKey()) Icons.Default.CheckCircle else Icons.Default.Delete,
+                                        contentDescription = null,
+                                        tint = if (hasGoogleAiStudioApiKey()) theme.primary else Color.Red.copy(alpha = 0.85f),
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Text(
+                                        text = if (hasGoogleAiStudioApiKey()) {
+                                            "API key detected. Requests will use Google AI Studio."
+                                        } else {
+                                            "Missing API_KEY in local.properties. Add it before using this mode."
+                                        },
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = Color.White.copy(alpha = 0.78f)
+                                    )
+                                }
+                                Text(
+                                    text = "No in-app key field is shown here to keep the key out of source files and settings storage.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color.White.copy(alpha = 0.68f)
+                                )
                             }
                         }
                     }
