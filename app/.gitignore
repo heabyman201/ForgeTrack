@@ -1,1 +1,23 @@
 /build
+
+# Local configuration and secret files
+local.properties
+*.env
+.env
+.env.*
+secrets.properties
+*.secret
+*.secrets
+
+# Firebase / service account credentials
+google-services.json
+firebase-*.json
+service-account*.json
+credentials*.json
+
+# Signing and private key material
+*.jks
+*.keystore
+*.p12
+*.pem
+*.key
