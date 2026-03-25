@@ -4,7 +4,7 @@ An Android application for logging workouts, tracking progress, and receiving AI
 ---
 
 ## What It Does
-ForgeTrack records workouts ,exercises, sets, reps, weight — and stores them locally. It surfaces that data back through a history view and progress charts, and passes it to an AI coaching system that generates feedback and recommendations based on what you have actually been doing. There is also a rest timer. That is roughly the scope of it.
+ForgeTrack records workouts ,exercises, sets, reps, weight and stores them locally. It surfaces that data back through a history view and progress charts, and passes it to an AI coaching system that generates feedback and recommendations based on what you have actually been doing. There is also a rest timer. That is roughly the scope of it.
 
 ---
 
