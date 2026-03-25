@@ -1,13 +1,3 @@
-import java.util.Properties
-
-val localProps = Properties().apply {
-    val f = rootProject.file("local.properties")
-    if (f.exists()) f.inputStream().use { load(it) }
-}
-val apiKey: String =
-    (localProps.getProperty("API_KEY")
-        ?: System.getenv("API_KEY")
-        ?: "")
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -32,7 +22,6 @@ android {
         targetSdk = 36
         versionCode = 7
         versionName = "1.07"
-        buildConfigField("String", "API_KEY", "\"$apiKey\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk {
             abiFilters.add("arm64-v8a")

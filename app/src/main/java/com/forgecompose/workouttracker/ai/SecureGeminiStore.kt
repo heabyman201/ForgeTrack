@@ -39,10 +39,6 @@ object SecureGeminiStore {
                 EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
                 EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
             ) as EncryptedSharedPreferences
-            val stored = prefs.getString(K_API_KEY, null)
-            if (stored.isNullOrEmpty() && BuildConfig.API_KEY.isNotEmpty()) {
-                prefs.edit().putString(K_API_KEY, BuildConfig.API_KEY).apply()
-            }
             ready = true
         }
     }
@@ -60,5 +56,5 @@ object SecureGeminiStore {
 
     fun saveApiKey(key: String) { if (ready) prefs.edit().putString(K_API_KEY, key).apply() }
     fun readApiKey(): String? =
-        if (ready) prefs.getString(K_API_KEY, null) ?: BuildConfig.API_KEY.takeIf { it.isNotEmpty() } else null
+        if (ready) prefs.getString(K_API_KEY, null) else null
 }
