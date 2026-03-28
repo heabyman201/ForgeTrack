@@ -66,6 +66,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -118,6 +120,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asComposeRenderEffect
 import androidx.compose.ui.graphics.drawscope.DrawScope
@@ -139,10 +142,12 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.core.content.ContextCompat
 import androidx.core.content.ContextCompat.startActivity
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import kotlin.math.min
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
 import androidx.navigation.NavType
@@ -993,6 +998,184 @@ fun MainScreen(viewModel: WorkoutListViewModel, viewModel2: MainScreenViewModel,
     }
 }
 
+private enum class ExerciseGlyphType {
+    Press,
+    Pull,
+    Squat,
+    Hinge,
+    Arms,
+    Core,
+    Cardio,
+    General
+}
+
+private fun exerciseGlyphTypeFor(name: String): ExerciseGlyphType {
+    val normalized = name.lowercase()
+    return when {
+        normalized.contains("bench") || normalized.contains("press") || normalized.contains("push-up") || normalized.contains("push up") || normalized.contains("dip") || normalized.contains("fly") ->
+            ExerciseGlyphType.Press
+        normalized.contains("pull") || normalized.contains("row") || normalized.contains("pulldown") || normalized.contains("chin") ->
+            ExerciseGlyphType.Pull
+        normalized.contains("squat") || normalized.contains("lunge") || normalized.contains("step-up") || normalized.contains("step up") || normalized.contains("leg press") || normalized.contains("hack squat") ->
+            ExerciseGlyphType.Squat
+        normalized.contains("deadlift") || normalized.contains("rdl") || normalized.contains("romanian") || normalized.contains("good morning") || normalized.contains("hip thrust") || normalized.contains("glute bridge") || normalized.contains("swing") ->
+            ExerciseGlyphType.Hinge
+        normalized.contains("curl") || normalized.contains("extension") || normalized.contains("pushdown") || normalized.contains("kickback") || normalized.contains("raise") || normalized.contains("shrug") ->
+            ExerciseGlyphType.Arms
+        normalized.contains("plank") || normalized.contains("crunch") || normalized.contains("leg raise") || normalized.contains("twist") || normalized.contains("rollout") ->
+            ExerciseGlyphType.Core
+        normalized.contains("run") || normalized.contains("bike") || normalized.contains("swim") || normalized.contains("stair") || normalized.contains("jump") || normalized.contains("burpee") || normalized.contains("mountain climber") ->
+            ExerciseGlyphType.Cardio
+        else -> ExerciseGlyphType.General
+    }
+}
+
+private fun primaryMuscleLabelFor(name: String): String {
+    val normalized = name.lowercase()
+    return when {
+        normalized.contains("bench") || normalized.contains("push-up") || normalized.contains("push up") || normalized.contains("dip") || normalized.contains("fly") || normalized.contains("chest press") ->
+            "Chest"
+        normalized.contains("incline") || normalized.contains("overhead press") || normalized.contains("arnold press") || normalized.contains("lateral raise") || normalized.contains("front raise") || normalized.contains("shoulder press") ->
+            "Shoulders"
+        normalized.contains("pull") || normalized.contains("pulldown") || normalized.contains("row") || normalized.contains("chin") ->
+            "Back"
+        normalized.contains("curl") ->
+            "Biceps"
+        normalized.contains("extension") || normalized.contains("pushdown") || normalized.contains("kickback") || normalized.contains("skull crusher") ->
+            "Triceps"
+        normalized.contains("squat") || normalized.contains("leg press") || normalized.contains("leg extension") || normalized.contains("step-up") || normalized.contains("step up") ->
+            "Quads"
+        normalized.contains("deadlift") || normalized.contains("rdl") || normalized.contains("romanian") || normalized.contains("leg curl") || normalized.contains("good morning") ->
+            "Hamstrings"
+        normalized.contains("hip thrust") || normalized.contains("glute bridge") || normalized.contains("abduction") ->
+            "Glutes"
+        normalized.contains("calf") ->
+            "Calves"
+        normalized.contains("plank") || normalized.contains("crunch") || normalized.contains("leg raise") || normalized.contains("twist") || normalized.contains("rollout") ->
+            "Core"
+        normalized.contains("shrug") ->
+            "Traps"
+        normalized.contains("run") || normalized.contains("bike") || normalized.contains("swim") || normalized.contains("stair") || normalized.contains("jump") || normalized.contains("burpee") || normalized.contains("mountain climber") ->
+            "Cardio"
+        else -> "Full Body"
+    }
+}
+
+private fun formatLastLoggedLabel(lastUsed: Long): String {
+    if (lastUsed <= 0L) return "New"
+    val relative = DateUtils.getRelativeTimeSpanString(
+        lastUsed,
+        System.currentTimeMillis(),
+        DateUtils.MINUTE_IN_MILLIS,
+        DateUtils.FORMAT_ABBREV_RELATIVE
+    ).toString()
+    return relative
+        .replace(" minutes ago", " mins ago")
+        .replace(" minute ago", " min ago")
+        .replace(" hours ago", " hrs ago")
+        .replace(" hour ago", " hr ago")
+}
+
+@Composable
+private fun ExerciseGlyphBadge(
+    workoutName: String,
+    accent: Color,
+    modifier: Modifier = Modifier
+) {
+    val glyphType = remember(workoutName) { exerciseGlyphTypeFor(workoutName) }
+    Box(
+        modifier = modifier
+            .size(28.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(
+                Brush.radialGradient(
+                    colors = listOf(
+                        accent.copy(alpha = 0.18f),
+                        Color.White.copy(alpha = 0.05f)
+                    )
+                )
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        Canvas(modifier = Modifier.size(20.dp)) {
+            val stroke = min(size.width, size.height) * 0.10f
+            val headRadius = size.minDimension * 0.12f
+            val headCenter = Offset(size.width * 0.5f, size.height * 0.22f)
+            val shoulderY = size.height * 0.38f
+            val hipY = size.height * 0.58f
+            val footY = size.height * 0.88f
+            val color = Color.White.copy(alpha = 0.92f)
+
+            fun limb(start: Offset, end: Offset) {
+                drawLine(color = color, start = start, end = end, strokeWidth = stroke, cap = StrokeCap.Round)
+            }
+
+            drawCircle(color = color, radius = headRadius, center = headCenter)
+            limb(Offset(size.width * 0.5f, headCenter.y + headRadius), Offset(size.width * 0.5f, hipY))
+
+            when (glyphType) {
+                ExerciseGlyphType.Press -> {
+                    limb(Offset(size.width * 0.5f, shoulderY), Offset(size.width * 0.24f, size.height * 0.34f))
+                    limb(Offset(size.width * 0.5f, shoulderY), Offset(size.width * 0.76f, size.height * 0.34f))
+                    limb(Offset(size.width * 0.18f, size.height * 0.30f), Offset(size.width * 0.82f, size.height * 0.30f))
+                    limb(Offset(size.width * 0.5f, hipY), Offset(size.width * 0.34f, footY))
+                    limb(Offset(size.width * 0.5f, hipY), Offset(size.width * 0.66f, footY))
+                }
+                ExerciseGlyphType.Pull -> {
+                    limb(Offset(size.width * 0.5f, shoulderY), Offset(size.width * 0.26f, size.height * 0.46f))
+                    limb(Offset(size.width * 0.5f, shoulderY), Offset(size.width * 0.74f, size.height * 0.46f))
+                    limb(Offset(size.width * 0.18f, size.height * 0.18f), Offset(size.width * 0.82f, size.height * 0.18f))
+                    limb(Offset(size.width * 0.5f, hipY), Offset(size.width * 0.36f, footY))
+                    limb(Offset(size.width * 0.5f, hipY), Offset(size.width * 0.64f, footY))
+                }
+                ExerciseGlyphType.Squat -> {
+                    limb(Offset(size.width * 0.5f, shoulderY), Offset(size.width * 0.20f, size.height * 0.38f))
+                    limb(Offset(size.width * 0.5f, shoulderY), Offset(size.width * 0.80f, size.height * 0.38f))
+                    limb(Offset(size.width * 0.18f, size.height * 0.34f), Offset(size.width * 0.82f, size.height * 0.34f))
+                    limb(Offset(size.width * 0.5f, hipY), Offset(size.width * 0.32f, size.height * 0.74f))
+                    limb(Offset(size.width * 0.32f, size.height * 0.74f), Offset(size.width * 0.22f, footY))
+                    limb(Offset(size.width * 0.5f, hipY), Offset(size.width * 0.68f, size.height * 0.74f))
+                    limb(Offset(size.width * 0.68f, size.height * 0.74f), Offset(size.width * 0.78f, footY))
+                }
+                ExerciseGlyphType.Hinge -> {
+                    limb(Offset(size.width * 0.5f, shoulderY), Offset(size.width * 0.26f, size.height * 0.48f))
+                    limb(Offset(size.width * 0.5f, shoulderY), Offset(size.width * 0.74f, size.height * 0.48f))
+                    limb(Offset(size.width * 0.22f, size.height * 0.52f), Offset(size.width * 0.78f, size.height * 0.52f))
+                    limb(Offset(size.width * 0.5f, hipY), Offset(size.width * 0.34f, size.height * 0.80f))
+                    limb(Offset(size.width * 0.5f, hipY), Offset(size.width * 0.66f, size.height * 0.80f))
+                }
+                ExerciseGlyphType.Arms -> {
+                    limb(Offset(size.width * 0.5f, shoulderY), Offset(size.width * 0.28f, size.height * 0.44f))
+                    limb(Offset(size.width * 0.28f, size.height * 0.44f), Offset(size.width * 0.38f, size.height * 0.28f))
+                    limb(Offset(size.width * 0.5f, shoulderY), Offset(size.width * 0.72f, size.height * 0.44f))
+                    limb(Offset(size.width * 0.72f, size.height * 0.44f), Offset(size.width * 0.62f, size.height * 0.28f))
+                    limb(Offset(size.width * 0.5f, hipY), Offset(size.width * 0.38f, footY))
+                    limb(Offset(size.width * 0.5f, hipY), Offset(size.width * 0.62f, footY))
+                }
+                ExerciseGlyphType.Core -> {
+                    limb(Offset(size.width * 0.5f, shoulderY), Offset(size.width * 0.28f, size.height * 0.50f))
+                    limb(Offset(size.width * 0.5f, shoulderY), Offset(size.width * 0.72f, size.height * 0.50f))
+                    limb(Offset(size.width * 0.5f, hipY), Offset(size.width * 0.24f, size.height * 0.82f))
+                    limb(Offset(size.width * 0.5f, hipY), Offset(size.width * 0.76f, size.height * 0.82f))
+                }
+                ExerciseGlyphType.Cardio -> {
+                    limb(Offset(size.width * 0.5f, shoulderY), Offset(size.width * 0.28f, size.height * 0.44f))
+                    limb(Offset(size.width * 0.5f, shoulderY), Offset(size.width * 0.72f, size.height * 0.34f))
+                    limb(Offset(size.width * 0.5f, hipY), Offset(size.width * 0.34f, size.height * 0.76f))
+                    limb(Offset(size.width * 0.34f, size.height * 0.76f), Offset(size.width * 0.20f, footY))
+                    limb(Offset(size.width * 0.5f, hipY), Offset(size.width * 0.72f, size.height * 0.68f))
+                    limb(Offset(size.width * 0.72f, size.height * 0.68f), Offset(size.width * 0.84f, size.height * 0.56f))
+                }
+                ExerciseGlyphType.General -> {
+                    limb(Offset(size.width * 0.5f, shoulderY), Offset(size.width * 0.28f, size.height * 0.46f))
+                    limb(Offset(size.width * 0.5f, shoulderY), Offset(size.width * 0.72f, size.height * 0.46f))
+                    limb(Offset(size.width * 0.5f, hipY), Offset(size.width * 0.36f, footY))
+                    limb(Offset(size.width * 0.5f, hipY), Offset(size.width * 0.64f, footY))
+                }
+            }
+        }
+    }
+}
 
 @Stable
     class ColdStartStages {
@@ -1473,6 +1656,15 @@ fun WorkoutListScreen(
 
                                     val interactionSource = remember { MutableInteractionSource() }
                                     val pressed by interactionSource.collectIsPressedAsState()
+                                    val rowGradient = remember(theme, isLaunching) {
+                                        Brush.horizontalGradient(
+                                            colors = listOf(
+                                                theme.primary.copy(alpha = if (isLaunching) 0.18f else 0.12f),
+                                                theme.secondary.copy(alpha = if (isLaunching) 0.14f else 0.08f),
+                                                surface.copy(alpha = 0.10f)
+                                            )
+                                        )
+                                    }
 
                                     val pressScale by animateFloatAsState(
                                         targetValue = if (pressed) 0.96f else 1f,
@@ -1483,7 +1675,7 @@ fun WorkoutListScreen(
                                     Card(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .height(65.dp)
+                                            .height(82.dp)
                                             .graphicsLayer {
 
                                                 alpha = entranceAlpha.value
@@ -1538,11 +1730,14 @@ fun WorkoutListScreen(
                                             },
                                         shape = cardShape16,
                                         colors = CardDefaults.cardColors(
-                                            containerColor = surface.copy(alpha = 0.3f)
+                                            containerColor = Color.Transparent
                                         )
                                     ) {
                                         Box(
-                                            modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp),
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .background(rowGradient)
+                                                .padding(horizontal = 20.dp),
                                             contentAlignment = Alignment.CenterStart
                                         ) {
                                             Row(
@@ -1550,27 +1745,140 @@ fun WorkoutListScreen(
                                                 verticalAlignment = Alignment.CenterVertically,
                                                 horizontalArrangement = Arrangement.SpaceBetween
                                             ) {
-                                                Text(
-                                                    text = workoutName,
-                                                    fontSize = 18.sp,
-                                                    color = onSurface,
-                                                    fontWeight = if (isLaunching) FontWeight.Bold else FontWeight.Normal
-                                                )
+                                                Row(
+                                                    modifier = Modifier.weight(1f),
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                                ) {
+                                                    ExerciseGlyphBadge(
+                                                        workoutName = workoutName,
+                                                        accent = theme.primary
+                                                    )
+                                                    Column(
+                                                        modifier = Modifier.weight(1f),
+                                                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                                                    ) {
+                                                        Text(
+                                                            text = workoutName,
+                                                            fontSize = 18.sp,
+                                                            color = onSurface,
+                                                            fontWeight = if (isLaunching) FontWeight.Bold else FontWeight.Normal,
+                                                            maxLines = 1,
+                                                            overflow = TextOverflow.Ellipsis
+                                                        )
+                                                        Row(
+                                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                                            verticalAlignment = Alignment.CenterVertically
+                                                        ) {
+                                                            Text(
+                                                                text = primaryMuscleLabelFor(workoutName),
+                                                                style = MaterialTheme.typography.labelMedium,
+                                                                color = Color.White,
+                                                                maxLines = 1,
+                                                                modifier = Modifier
+                                                                    .clip(RoundedCornerShape(10.dp))
+                                                                    .background(
+                                                                        Brush.horizontalGradient(
+                                                                            listOf(
+                                                                                theme.primary.copy(alpha = 0.22f),
+                                                                                theme.primary.copy(alpha = 0.10f)
+                                                                            )
+                                                                        )
+                                                                    )
+                                                                    .border(
+                                                                        width = 0.75.dp,
+                                                                        color = Color.White.copy(alpha = 0.12f),
+                                                                        shape = RoundedCornerShape(10.dp)
+                                                                    )
+                                                                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                                                            )
+                                                            Text(
+                                                                text = formatLastLoggedLabel(useCount.lastUsed),
+                                                                style = MaterialTheme.typography.labelMedium,
+                                                                color = Color.White.copy(alpha = 0.92f),
+                                                                maxLines = 1,
+                                                                modifier = Modifier
+                                                                    .clip(RoundedCornerShape(10.dp))
+                                                                    .background(
+                                                                        Brush.horizontalGradient(
+                                                                            listOf(
+                                                                                Color.White.copy(alpha = 0.10f),
+                                                                                theme.secondary.copy(alpha = 0.08f)
+                                                                            )
+                                                                        )
+                                                                    )
+                                                                    .border(
+                                                                        width = 0.75.dp,
+                                                                        color = Color.White.copy(alpha = 0.10f),
+                                                                        shape = RoundedCornerShape(10.dp)
+                                                                    )
+                                                                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                                                            )
+                                                        }
+                                                    }
+                                                }
 
                                                 val isFavorite = workoutName in favoritePresets
                                                 if (isFavorite || useCount.count > 0) {
+                                                    val chipBackground = if (isFavorite) {
+                                                        Brush.horizontalGradient(
+                                                            listOf(
+                                                                theme.primary.copy(alpha = 0.95f),
+                                                                theme.secondary.copy(alpha = 0.82f)
+                                                            )
+                                                        )
+                                                    } else {
+                                                        Brush.horizontalGradient(
+                                                            listOf(
+                                                                theme.primary.copy(alpha = 0.18f),
+                                                                theme.primary.copy(alpha = 0.10f)
+                                                            )
+                                                        )
+                                                    }
+                                                    val chipBorderColor = if (isFavorite) Color.White.copy(alpha = 0.48f) else Color.White.copy(alpha = 0.12f)
                                                     Text(
                                                         text = if (isFavorite) "★ Favorite" else "Suggested",
                                                         style = MaterialTheme.typography.labelMedium,
                                                         color = Color.White,
                                                         modifier = Modifier
                                                             .graphicsLayer {
-                                                                alpha = 0.6f + (launchProgress.value * 0.4f)
-                                                                scaleX = 1f + (launchProgress.value * 0.1f)
-                                                                scaleY = 1f + (launchProgress.value * 0.1f)
+                                                                alpha = if (isFavorite) 0.92f + (launchProgress.value * 0.08f) else 0.62f + (launchProgress.value * 0.2f)
+                                                                scaleX = 1f + (launchProgress.value * if (isFavorite) 0.14f else 0.08f)
+                                                                scaleY = 1f + (launchProgress.value * if (isFavorite) 0.14f else 0.08f)
+                                                            }
+                                                            .drawWithCache {
+                                                                val glowBrush = Brush.radialGradient(
+                                                                    colors = if (isFavorite) {
+                                                                        listOf(
+                                                                            theme.primary.copy(alpha = 0.50f),
+                                                                            theme.secondary.copy(alpha = 0.28f),
+                                                                            Color.Transparent
+                                                                        )
+                                                                    } else {
+                                                                        listOf(
+                                                                            theme.primary.copy(alpha = 0.10f),
+                                                                            Color.Transparent
+                                                                        )
+                                                                    },
+                                                                    center = Offset(size.width / 2f, size.height / 2f),
+                                                                    radius = size.maxDimension * if (isFavorite) 1.45f else 1.1f
+                                                                )
+                                                                onDrawBehind {
+                                                                    drawRoundRect(
+                                                                        brush = glowBrush,
+                                                                        topLeft = Offset.Zero,
+                                                                        size = size,
+                                                                        cornerRadius = CornerRadius(size.height / 2f, size.height / 2f)
+                                                                    )
+                                                                }
                                                             }
                                                             .clip(RoundedCornerShape(10.dp))
-                                                            .background(theme.primary.copy(alpha = 0.25f + (launchProgress.value * 0.4f)))
+                                                            .background(chipBackground)
+                                                            .border(
+                                                                width = if (isFavorite) 1.dp else 0.75.dp,
+                                                                color = chipBorderColor,
+                                                                shape = RoundedCornerShape(10.dp)
+                                                            )
                                                             .padding(horizontal = 8.dp, vertical = 4.dp)
                                                     )
                                                 }

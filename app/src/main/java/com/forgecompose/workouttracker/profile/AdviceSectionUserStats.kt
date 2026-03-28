@@ -14,6 +14,7 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
@@ -33,10 +34,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.FlagCircle
-import androidx.compose.material3.Divider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -55,13 +54,17 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
+import kotlin.random.Random
 
-private const val AI_ADVICE_VISIBLE_MS = 8_000L
-private const val SCIENCE_FACT_VISIBLE_MS = 9_000L
+private const val AI_ADVICE_VISIBLE_MS = 6_000L
+private const val SCIENCE_FACT_VISIBLE_MS = 7_000L
 
 private val MUSCLE_GROWTH_FACTS = listOf(
     "Muscle growth starts with a training signal, but it depends on recovery to actually build tissue.",
@@ -101,6 +104,15 @@ private val MUSCLE_GROWTH_FACTS = listOf(
 )
 
 private fun randomMuscleGrowthFact(): String = MUSCLE_GROWTH_FACTS.random()
+
+private val adviceCardIntroStartOffsets = listOf(
+    Offset(-540f, -180f),
+    Offset(-460f, 160f),
+    Offset(220f, -260f),
+    Offset(420f, 220f),
+    Offset(-120f, -340f),
+    Offset(520f, -80f)
+)
 
 @Composable
 fun GlowingTextSkeleton(color: Color, modifier: Modifier = Modifier) {
@@ -179,6 +191,8 @@ fun AdviceSectionUser(
         .flow(context)
         .collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
     val accent = appearanceOptions.selectedTheme.colors.primary
+    val secondaryAccent = appearanceOptions.selectedTheme.colors.secondary
+    val surfaceColor = appearanceOptions.selectedTheme.colors.background.copy(alpha = 0.85f)
     val linesToShow = remember(extraLines, maxExtraLines) {
         extraLines.filter { it.isNotBlank() }.take(maxExtraLines)
     }
@@ -188,6 +202,21 @@ fun AdviceSectionUser(
     }
     var scienceFact by remember(adviceText, lastWorkoutName, aiEnabled) {
         mutableStateOf(randomMuscleGrowthFact())
+    }
+    val introStartOffset = remember(adviceText, lastWorkoutName, linesToShow, aiEnabled) {
+        adviceCardIntroStartOffsets.random(Random.Default)
+    }
+    val introEndOffset = Offset(320f, 420f)
+    var playIntroGradient by remember(adviceText, lastWorkoutName, linesToShow, aiEnabled) { mutableStateOf(false) }
+    val introProgress by animateFloatAsState(
+        targetValue = if (playIntroGradient) 1f else 0f,
+        animationSpec = tween(durationMillis = 900, easing = LinearEasing),
+        label = "adviceCardIntroGradient"
+    )
+
+    LaunchedEffect(adviceText, lastWorkoutName, linesToShow, aiEnabled) {
+        playIntroGradient = false
+        playIntroGradient = true
     }
 
     LaunchedEffect(adviceText, lastWorkoutName, linesToShow, aiEnabled, isAdviceLoading, displayDurationMs) {
@@ -205,11 +234,30 @@ fun AdviceSectionUser(
     Surface(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
-        color = appearanceOptions.selectedTheme.colors.background.copy(alpha = 0.85f)
+        color = Color.Transparent
     ) {
+        val settledStartOffset = Offset(0f, 0f)
+        val settledEndOffset = Offset(720f, 0f)
+        val introBrush = Brush.linearGradient(
+            colors = listOf(
+                accent.copy(alpha = 0.12f + ((1f - introProgress) * 0.12f)),
+                secondaryAccent.copy(alpha = 0.08f + ((1f - introProgress) * 0.08f)),
+                surfaceColor.copy(alpha = 0.92f)
+            ),
+            start = Offset(
+                x = androidx.compose.ui.util.lerp(introStartOffset.x, settledStartOffset.x, introProgress),
+                y = androidx.compose.ui.util.lerp(introStartOffset.y, settledStartOffset.y, introProgress)
+            ),
+            end = Offset(
+                x = androidx.compose.ui.util.lerp(introEndOffset.x, settledEndOffset.x, introProgress),
+                y = androidx.compose.ui.util.lerp(introEndOffset.y, settledEndOffset.y, introProgress)
+            )
+        )
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .clip(RoundedCornerShape(16.dp))
+                .background(introBrush)
                 .padding(horizontal = 16.dp, vertical = 14.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
@@ -291,26 +339,41 @@ fun AdviceSectionUser(
                             )
                             if (linesToShow.isNotEmpty()) {
                                 Spacer(modifier = Modifier.height(8.dp))
-                                Divider(color = accent.copy(alpha = 0.24f), thickness = 1.dp)
-                                Spacer(modifier = Modifier.height(8.dp))
                                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                     linesToShow.forEach { line ->
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Icon(
-                                                imageVector = Icons.Filled.ChevronRight,
-                                                contentDescription = null,
-                                                tint = accent.copy(alpha = 0.75f),
-                                                modifier = Modifier.size(18.dp)
-                                            )
-                                            Spacer(modifier = Modifier.width(6.dp))
-                                            Text(
-                                                text = line,
-                                                style = MaterialTheme.typography.bodyLarge,
-                                                color = Color.White.copy(alpha = 0.9f),
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
+                                        val separatorIndex = line.indexOf(':')
+                                        val statText = buildAnnotatedString {
+                                            if (separatorIndex in 1 until line.lastIndex) {
+                                                append(line.substring(0, separatorIndex + 1))
+                                                withStyle(
+                                                    SpanStyle(
+                                                        color = Color.White.copy(alpha = 0.96f),
+                                                        fontWeight = FontWeight.Bold
+                                                    )
+                                                ) {
+                                                    append(" ")
+                                                    append(line.substring(separatorIndex + 1).trim())
+                                                }
+                                            } else {
+                                                withStyle(
+                                                    SpanStyle(
+                                                        color = Color.White.copy(alpha = 0.96f),
+                                                        fontWeight = FontWeight.Bold
+                                                    )
+                                                ) {
+                                                    append(line)
+                                                }
+                                            }
                                         }
+                                        Text(
+                                            text = statText,
+                                            style = MaterialTheme.typography.bodyMedium.copy(
+                                                fontWeight = FontWeight.Medium
+                                            ),
+                                            color = Color.White.copy(alpha = 0.74f),
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
                                     }
                                 }
                             }

@@ -19,11 +19,16 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.EmojiEvents
+import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -39,6 +44,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import java.util.Map.entry
+
 private val nameToMusclesWeighted: List<Pair<Regex, List<Pair<MuscleGroups, Float>>>> = listOf(
     "bench( press)?|flat bench|barbell bench" to listOf(MuscleGroups.Pecs to 1.0f, MuscleGroups.Triceps to 0.6f, MuscleGroups.Delts to 0.6f),
     "incline( bench)?|incline press" to listOf(MuscleGroups.Pecs to 0.9f, MuscleGroups.Delts to 0.7f, MuscleGroups.Triceps to 0.5f),
@@ -150,22 +157,42 @@ fun WorkoutHighlightRow(
             newSets = workout.sets ?: 0
         )
     }
+    val entry = nameToMusclesWeighted.firstOrNull { it.first.containsMatchIn(workout.name) }?.second?.maxByOrNull { it.second }
+    val wr = if (entry != null) (workout.reps ?: 0) * (workout.sets ?: 0) * entry.second else 0f
 
-    val highlightType = when {
+    val wrType : String = when {
+        wr <= 10 -> "Low"
+        wr <= 20 -> "Low"
+        wr <= 40 -> "Mid"
+        wr <= 75 -> "High" // Orange
+        wr <= 90 -> "Extreme"
+        wr <= 130 -> "Extreme"
+        else -> "Peak"
+    }
+    val highlightType : String = when {
         pr.isStrengthPr -> "Strength PR"
         pr.isVolumePr -> "Volume PR"
-        else -> "WR"
+        else -> "Intensity"
     }
+
 
     val valueText = when {
         pr.isStrengthPr -> "${workout.weight}kg"
         pr.isVolumePr -> "${((workout.weight ?: 0.0) * (workout.reps ?: 0) * (workout.sets ?: 0)).toInt()}kg"
-        else -> {
-            val entry = nameToMusclesWeighted.firstOrNull { it.first.containsMatchIn(workout.name) }?.second?.maxByOrNull { it.second }
-            val wr = if (entry != null) (workout.reps ?: 0) * (workout.sets ?: 0) * entry.second else 0f
-            "%.0f WR".format(wr)
-        }
+        else -> "$wrType Intensity"
     }
+
+    val wrColor : Color = when {
+        wr <= 10 -> Color.White
+        wr <= 20 -> Color(0xFFB0BEC5) // Blue Grey (Light)
+        wr <= 40 -> Color(0xFFFFEB3B) // Yellow (Warning/Transition)
+        wr <= 75 -> Color(0xFFFF9800) // Orange
+        wr <= 90 -> Color(0xFFF44336) // Bright Red
+        wr <= 130 -> Color(0xFFB71C1C) // Deep Red (Full Red)
+        else -> Color(0xFF9C27B0)      // Purple (Legendary/Above 180)
+    }
+    val isPrHighlight = pr.isStrengthPr || pr.isVolumePr
+    val badgeColor = if (isPrHighlight) theme.primary else wrColor
 
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -184,22 +211,30 @@ fun WorkoutHighlightRow(
             Text(
                 text = highlightType,
                 style = MaterialTheme.typography.labelSmall,
-                color = if (pr.isStrengthPr || pr.isVolumePr) theme.primary else Color.White.copy(alpha = 0.6f),
-                fontWeight = if (pr.isStrengthPr || pr.isVolumePr) FontWeight.Bold else FontWeight.Normal
+                color = if (isPrHighlight) theme.primary else Color.White.copy(alpha = 0.6f),
+                fontWeight = if (isPrHighlight) FontWeight.Bold else FontWeight.Normal
             )
         }
         
-        Box(
+        Row(
             modifier = Modifier
                 .clip(RoundedCornerShape(12.dp))
-                .background(if (pr.isStrengthPr || pr.isVolumePr) theme.primary.copy(alpha = 0.2f) else Color.White.copy(alpha = 0.1f))
-                .padding(horizontal = 12.dp, vertical = 6.dp)
+                .background(if (isPrHighlight) theme.primary.copy(alpha = 0.2f) else wrColor.copy(alpha = 0.1f))
+                .padding(horizontal = 12.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
+            Icon(
+                imageVector = if (isPrHighlight) Icons.Filled.EmojiEvents else Icons.Filled.LocalFireDepartment,
+                contentDescription = if (isPrHighlight) "Personal record" else "Work rate",
+                tint = badgeColor,
+                modifier = Modifier.size(18.dp)
+            )
             Text(
                 text = valueText,
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.ExtraBold,
-                color = if (pr.isStrengthPr || pr.isVolumePr) theme.primary else Color.White
+                color = badgeColor
             )
         }
     }
