@@ -495,7 +495,7 @@ fun SettingProgressBar(
     theme: ColorSchemeAppTheme
 ){
     Slider(
-        value = currentMax.toFloat().coerceIn(1f, 4f),
+        value = currentMax.toFloat().coerceIn(valueRange),
         onValueChange = { v -> onChangeI(v.toInt())
             onChangeL(v.toLong())},
         valueRange = valueRange,

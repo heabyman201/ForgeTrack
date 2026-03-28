@@ -12,6 +12,7 @@ import com.forgecompose.workouttracker.workout.*
 
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.content.Context
 import android.content.Intent
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.Animatable
@@ -117,6 +118,21 @@ import kotlin.math.roundToInt
 import kotlin.math.sin
 import java.text.Normalizer
 
+internal const val REST_TIMER_PREFS = "rest_timer_prefs"
+internal const val PREF_AUTO_REST_TIME = "auto_rest_time"
+
+internal fun isAutoRestTimeEnabled(context: Context): Boolean {
+    return context.getSharedPreferences(REST_TIMER_PREFS, Context.MODE_PRIVATE)
+        .getBoolean(PREF_AUTO_REST_TIME, false)
+}
+
+internal fun setAutoRestTimeEnabled(context: Context, enabled: Boolean) {
+    context.getSharedPreferences(REST_TIMER_PREFS, Context.MODE_PRIVATE)
+        .edit()
+        .putBoolean(PREF_AUTO_REST_TIME, enabled)
+        .apply()
+}
+
 @SuppressLint("UnrememberedMutableState")
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -162,9 +178,9 @@ fun GoalScreen(navController: NavController, viewModel: WorkoutListViewModel) {
             } else {
                 // If no previous data, default to bar weight for barbell/ez-bar exercises
                 if (ConnectedWorkout.barbellVisualExercises.contains(workout.value)) {
-                    CurrentWeight.value = ConnectedWorkout.BAR_WEIGHT
+                    CurrentWeight.value = readBarbellWeightPreference(ctx)
                 } else if (ConnectedWorkout.ezBarVisualExercises.contains(workout.value)) {
-                    CurrentWeight.value = ConnectedWorkout.EZ_BAR_WEIGHT
+                    CurrentWeight.value = readEzBarbellWeightPreference(ctx)
                 }
             }
         }
@@ -625,6 +641,9 @@ fun RestTimeSelectorDialog(
     var hours by remember { mutableIntStateOf(initialHours.toInt()) }
     var minutes by remember { mutableIntStateOf(initialMinutes.toInt()) }
     var seconds by remember { mutableIntStateOf(initialSeconds.toInt()) }
+    var autoRestTimeEnabled by remember {
+        mutableStateOf(isAutoRestTimeEnabled(context))
+    }
 
     val animatedBorderBrush = remember(theme) {
         Brush.linearGradient(
@@ -684,6 +703,42 @@ fun RestTimeSelectorDialog(
                         value = seconds,
                         range = 0..59,
                         onValueChange = { seconds = it }
+                    )
+                }
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Auto shorten rest time",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color.White
+                        )
+                        Text(
+                            text = "Learns from early skips and trims the next rest timer.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.White.copy(alpha = 0.72f)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Switch(
+                        checked = autoRestTimeEnabled,
+                        onCheckedChange = { enabled ->
+                            autoRestTimeEnabled = enabled
+                            setAutoRestTimeEnabled(context, enabled)
+                        },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = theme.primary,
+                            checkedTrackColor = theme.secondary.copy(alpha = 0.5f),
+                            uncheckedThumbColor = Color.Gray,
+                            uncheckedTrackColor = Color.DarkGray
+                        )
                     )
                 }
 

@@ -231,6 +231,78 @@ import kotlin.random.Random
 import kotlin.time.Clock
 import kotlin.time.ExperimentalTime
 import kotlin.time.toJavaInstant
+import androidx.core.content.edit
+
+private const val EQUIPMENT_PREFS = "equipment_prefs"
+private const val PREF_BARBELL_WEIGHT = "barbell_Weight"
+private const val PREF_EZ_BARBELL_WEIGHT = "ez_barbell_weight"
+private const val PREF_BARBELL_SIDE_PLATES_PREFIX = "barbell_side_plates_"
+private const val PREF_EZ_BARBELL_SIDE_PLATES_PREFIX = "ez_barbell_side_plates_"
+private const val DEFAULT_BARBELL_WEIGHT = 20.0
+private const val DEFAULT_EZ_BARBELL_WEIGHT = 10.0
+private const val MIN_CONFIGURABLE_BAR_WEIGHT = 1.0
+private const val MAX_CONFIGURABLE_BAR_WEIGHT = 30.0
+private const val BAR_WEIGHT_STEP = 0.5
+
+internal fun readBarbellWeightPreference(context: Context): Double {
+    return context.getSharedPreferences(EQUIPMENT_PREFS, Context.MODE_PRIVATE)
+        .getFloat(PREF_BARBELL_WEIGHT, DEFAULT_BARBELL_WEIGHT.toFloat())
+        .toDouble()
+}
+
+internal fun writeBarbellWeightPreference(context: Context, value: Double) {
+    context.getSharedPreferences(EQUIPMENT_PREFS, Context.MODE_PRIVATE)
+        .edit {
+            putFloat(PREF_BARBELL_WEIGHT, value.toFloat())
+        }
+}
+
+internal fun readEzBarbellWeightPreference(context: Context): Double {
+    return context.getSharedPreferences(EQUIPMENT_PREFS, Context.MODE_PRIVATE)
+        .getFloat(PREF_EZ_BARBELL_WEIGHT, DEFAULT_EZ_BARBELL_WEIGHT.toFloat())
+        .toDouble()
+}
+
+internal fun writeEzBarbellWeightPreference(context: Context, value: Double) {
+    context.getSharedPreferences(EQUIPMENT_PREFS, Context.MODE_PRIVATE)
+        .edit {
+            putFloat(PREF_EZ_BARBELL_WEIGHT, value.toFloat())
+        }
+}
+
+private fun equipmentWorkoutKey(workoutName: String): String {
+    return workoutName.lowercase()
+        .replace(Regex("[^a-z0-9]+"), "_")
+        .trim('_')
+}
+
+private fun readSavedSidePlateWeights(
+    context: Context,
+    workoutName: String,
+    prefix: String
+): List<Double>? {
+    val raw = context.getSharedPreferences(EQUIPMENT_PREFS, Context.MODE_PRIVATE)
+        .getString(prefix + equipmentWorkoutKey(workoutName), null)
+        ?: return null
+
+    if (raw.isBlank()) return emptyList()
+
+    return raw.split(",")
+        .mapNotNull { it.toDoubleOrNull() }
+}
+
+private fun writeSavedSidePlateWeights(
+    context: Context,
+    workoutName: String,
+    prefix: String,
+    sidePlateWeights: List<Double>
+) {
+    val serialized = sidePlateWeights.joinToString(",")
+    context.getSharedPreferences(EQUIPMENT_PREFS, Context.MODE_PRIVATE)
+        .edit()
+        .putString(prefix + equipmentWorkoutKey(workoutName), serialized)
+        .apply()
+}
 
 @Composable
 fun PreventBackGesture() {
@@ -3759,6 +3831,7 @@ fun NumberStepperWeights(
                 label = label,
                 value = value,
                 onValueChange = onValueChange,
+                workoutName = workoutName,
                 theme = theme
             )
         } else if (useEzBarVisual) {
@@ -3766,6 +3839,7 @@ fun NumberStepperWeights(
                 label = label,
                 value = value,
                 onValueChange = onValueChange,
+                workoutName = workoutName,
                 theme = theme
             )
         } else {
@@ -3787,11 +3861,33 @@ private fun BarbellStyleInput(
     label: String,
     value: Double,
     onValueChange: (Double) -> Unit,
+    workoutName: String,
     theme: ColorSchemeAppTheme
 ) {
+    val context = LocalContext.current
     val haptics = LocalHapticFeedback.current
-    val sidePlates = remember(value) { calculateSidePlates(value, ConnectedWorkout.BAR_WEIGHT) }
+    var barWeight by remember { mutableStateOf(readBarbellWeightPreference(context)) }
+    var sidePlateWeights by remember {
+        mutableStateOf(
+            readSavedSidePlateWeights(context, workoutName, PREF_BARBELL_SIDE_PLATES_PREFIX)
+                ?.takeIf {
+                    abs(calculateTotalWeightFromSidePlates(barWeight, it) - value) <= 0.01
+                }
+                ?: calculateSidePlateWeights(value, barWeight)
+        )
+    }
+    val sidePlates = sidePlateWeights.mapNotNull(::plateConfigForWeight)
     val barColor = Color.LightGray
+    val totalWeight = remember(barWeight, sidePlateWeights) {
+        calculateTotalWeightFromSidePlates(barWeight, sidePlateWeights)
+    }
+
+    LaunchedEffect(value, barWeight) {
+        if (abs(totalWeight - value) > 0.01) {
+            sidePlateWeights = calculateSidePlateWeights(value, barWeight)
+            writeSavedSidePlateWeights(context, workoutName, PREF_BARBELL_SIDE_PLATES_PREFIX, sidePlateWeights)
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -3807,7 +3903,7 @@ private fun BarbellStyleInput(
         )
         Spacer(modifier = Modifier.height(4.dp))
         Text(
-            text = "${String.format("%.1f", value)} kg",
+            text = "${String.format("%.1f", totalWeight)} kg",
             style = MaterialTheme.typography.displaySmall.copy(fontWeight = FontWeight.Bold),
             color = theme.primary
         )
@@ -3886,13 +3982,19 @@ private fun BarbellStyleInput(
                 PlateControlColumn(
                     config = config,
                     onAdd = {
-                        onValueChange(value + (config.weightKg * 2))
+                        val updated = sidePlateWeights + config.weightKg
+                        sidePlateWeights = updated
+                        writeSavedSidePlateWeights(context, workoutName, PREF_BARBELL_SIDE_PLATES_PREFIX, updated)
+                        onValueChange(calculateTotalWeightFromSidePlates(barWeight, updated))
                         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                     },
                     onRemove = {
-                        val newValue = (value - (config.weightKg * 2)).coerceAtLeast(ConnectedWorkout.BAR_WEIGHT)
-                        onValueChange(newValue)
-                        haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        sidePlateWeights.removeSinglePlate(config.weightKg)?.let { updated ->
+                            sidePlateWeights = updated
+                            writeSavedSidePlateWeights(context, workoutName, PREF_BARBELL_SIDE_PLATES_PREFIX, updated)
+                            onValueChange(calculateTotalWeightFromSidePlates(barWeight, updated))
+                            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        }
                     },
                     theme = theme
                 )
@@ -3900,17 +4002,32 @@ private fun BarbellStyleInput(
         }
 
         Spacer(modifier = Modifier.height(16.dp))
+        BarWeightAdjustmentRow(
+            title = "Barbell Weight",
+            currentWeight = barWeight,
+            onWeightChange = { updatedWeight ->
+                barWeight = updatedWeight
+                writeBarbellWeightPreference(context, updatedWeight)
+                writeSavedSidePlateWeights(context, workoutName, PREF_BARBELL_SIDE_PLATES_PREFIX, sidePlateWeights)
+                onValueChange(calculateTotalWeightFromSidePlates(updatedWeight, sidePlateWeights))
+            },
+            theme = theme
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
 
         // Reset
         OutlinedButton(
             onClick = {
-                onValueChange(ConnectedWorkout.BAR_WEIGHT)
+                sidePlateWeights = emptyList()
+                writeSavedSidePlateWeights(context, workoutName, PREF_BARBELL_SIDE_PLATES_PREFIX, emptyList())
+                onValueChange(barWeight)
                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)
             },
             colors = ButtonDefaults.outlinedButtonColors(contentColor = theme.primary),
             border = BorderStroke(1.dp, theme.primary.copy(alpha = 0.5f))
         ) {
-            Text("Reset to Empty Bar (${ConnectedWorkout.BAR_WEIGHT.toInt()}kg)")
+            Text("Reset to Empty Bar (${String.format("%.1f", barWeight)}kg)")
         }
     }
 }
@@ -3920,11 +4037,33 @@ private fun EzBarStyleInput(
     label: String,
     value: Double,
     onValueChange: (Double) -> Unit,
+    workoutName: String,
     theme: ColorSchemeAppTheme
 ) {
+    val context = LocalContext.current
     val haptics = LocalHapticFeedback.current
-    val sidePlates = remember(value) { calculateSidePlates(value, ConnectedWorkout.EZ_BAR_WEIGHT) }
+    var ezBarWeight by remember { mutableStateOf(readEzBarbellWeightPreference(context)) }
+    var sidePlateWeights by remember {
+        mutableStateOf(
+            readSavedSidePlateWeights(context, workoutName, PREF_EZ_BARBELL_SIDE_PLATES_PREFIX)
+                ?.takeIf {
+                    abs(calculateTotalWeightFromSidePlates(ezBarWeight, it) - value) <= 0.01
+                }
+                ?: calculateSidePlateWeights(value, ezBarWeight)
+        )
+    }
+    val sidePlates = sidePlateWeights.mapNotNull(::plateConfigForWeight)
     val barColor = Color.LightGray
+    val totalWeight = remember(ezBarWeight, sidePlateWeights) {
+        calculateTotalWeightFromSidePlates(ezBarWeight, sidePlateWeights)
+    }
+
+    LaunchedEffect(value, ezBarWeight) {
+        if (abs(totalWeight - value) > 0.01) {
+            sidePlateWeights = calculateSidePlateWeights(value, ezBarWeight)
+            writeSavedSidePlateWeights(context, workoutName, PREF_EZ_BARBELL_SIDE_PLATES_PREFIX, sidePlateWeights)
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -3940,7 +4079,7 @@ private fun EzBarStyleInput(
         )
         Spacer(modifier = Modifier.height(4.dp))
         Text(
-            text = "${String.format("%.1f", value)} kg",
+            text = "${String.format("%.1f", totalWeight)} kg",
             style = MaterialTheme.typography.displaySmall.copy(fontWeight = FontWeight.Bold),
             color = theme.primary
         )
@@ -4037,13 +4176,19 @@ private fun EzBarStyleInput(
                 PlateControlColumn(
                     config = config,
                     onAdd = {
-                        onValueChange(value + (config.weightKg * 2))
+                        val updated = sidePlateWeights + config.weightKg
+                        sidePlateWeights = updated
+                        writeSavedSidePlateWeights(context, workoutName, PREF_EZ_BARBELL_SIDE_PLATES_PREFIX, updated)
+                        onValueChange(calculateTotalWeightFromSidePlates(ezBarWeight, updated))
                         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                     },
                     onRemove = {
-                        val newValue = (value - (config.weightKg * 2)).coerceAtLeast(ConnectedWorkout.EZ_BAR_WEIGHT)
-                        onValueChange(newValue)
-                        haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        sidePlateWeights.removeSinglePlate(config.weightKg)?.let { updated ->
+                            sidePlateWeights = updated
+                            writeSavedSidePlateWeights(context, workoutName, PREF_EZ_BARBELL_SIDE_PLATES_PREFIX, updated)
+                            onValueChange(calculateTotalWeightFromSidePlates(ezBarWeight, updated))
+                            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        }
                     },
                     theme = theme
                 )
@@ -4051,17 +4196,88 @@ private fun EzBarStyleInput(
         }
 
         Spacer(modifier = Modifier.height(16.dp))
+        BarWeightAdjustmentRow(
+            title = "EZ Bar Weight",
+            currentWeight = ezBarWeight,
+            onWeightChange = { updatedWeight ->
+                ezBarWeight = updatedWeight
+                writeEzBarbellWeightPreference(context, updatedWeight)
+                writeSavedSidePlateWeights(context, workoutName, PREF_EZ_BARBELL_SIDE_PLATES_PREFIX, sidePlateWeights)
+                onValueChange(calculateTotalWeightFromSidePlates(updatedWeight, sidePlateWeights))
+            },
+            theme = theme
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
 
         // Reset
         OutlinedButton(
             onClick = {
-                onValueChange(ConnectedWorkout.EZ_BAR_WEIGHT)
+                sidePlateWeights = emptyList()
+                writeSavedSidePlateWeights(context, workoutName, PREF_EZ_BARBELL_SIDE_PLATES_PREFIX, emptyList())
+                onValueChange(ezBarWeight)
                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)
             },
             colors = ButtonDefaults.outlinedButtonColors(contentColor = theme.primary),
             border = BorderStroke(1.dp, theme.primary.copy(alpha = 0.5f))
         ) {
-            Text("Reset to Empty EZ Bar (${ConnectedWorkout.EZ_BAR_WEIGHT.toInt()}kg)")
+            Text("Reset to Empty EZ Bar (${String.format("%.1f", ezBarWeight)}kg)")
+        }
+    }
+}
+
+@Composable
+private fun BarWeightAdjustmentRow(
+    title: String,
+    currentWeight: Double,
+    onWeightChange: (Double) -> Unit,
+    theme: ColorSchemeAppTheme
+) {
+    val haptics = LocalHapticFeedback.current
+
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.bodyMedium,
+            color = Color.White.copy(alpha = 0.82f)
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            OutlinedButton(
+                onClick = {
+                    val updatedWeight = (currentWeight - BAR_WEIGHT_STEP)
+                        .coerceAtLeast(MIN_CONFIGURABLE_BAR_WEIGHT)
+                    onWeightChange(updatedWeight)
+                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                },
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = theme.primary),
+                border = BorderStroke(1.dp, theme.primary.copy(alpha = 0.45f))
+            ) {
+                Text("-0.5")
+            }
+            Text(
+                text = "${String.format("%.1f", currentWeight)} kg",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = theme.primary
+            )
+            OutlinedButton(
+                onClick = {
+                    val updatedWeight = (currentWeight + BAR_WEIGHT_STEP)
+                        .coerceAtMost(MAX_CONFIGURABLE_BAR_WEIGHT)
+                    onWeightChange(updatedWeight)
+                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                },
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = theme.primary),
+                border = BorderStroke(1.dp, theme.primary.copy(alpha = 0.45f))
+            ) {
+                Text("+0.5")
+            }
         }
     }
 }
@@ -4418,7 +4634,7 @@ fun GoalCompletionAnimation(
             launch {
                 animationTime.animateTo(
                     targetValue = 1f,
-                    animationSpec = tween(durationMillis = 2000, easing = LinearEasing)
+                    animationSpec = tween(durationMillis = 3750, easing = LinearEasing)
                 )
                 onAnimationFinished()
                 showFinishButton = true
@@ -5028,8 +5244,8 @@ object ConnectedWorkout {
     var interMinute = mutableIntStateOf(0)
     var interSecond = mutableIntStateOf(0)
 
-    val BAR_WEIGHT = 20.0
-    val EZ_BAR_WEIGHT = 10.0
+    val BAR_WEIGHT = DEFAULT_BARBELL_WEIGHT
+    val EZ_BAR_WEIGHT = DEFAULT_EZ_BARBELL_WEIGHT
 
     fun recordSetCompletionTimestamp(timestampMillis: Long = System.currentTimeMillis()) {
         val lastTimestamp = setCompletionTimestamps.lastOrNull()
@@ -5347,16 +5563,30 @@ val standardPlates = listOf(
 // Grey/White
 )
 
-// Helper to determine which plates are on one side based on total weight
-fun calculateSidePlates(totalWeight: Double, barWeight: Double = ConnectedWorkout.BAR_WEIGHT): List<PlateConfig> {
+private fun plateConfigForWeight(weightKg: Double): PlateConfig? {
+    return standardPlates.firstOrNull { abs(it.weightKg - weightKg) < 0.01 }
+}
+
+private fun List<Double>.removeSinglePlate(weightKg: Double): List<Double>? {
+    val removeIndex = indexOfLast { abs(it - weightKg) < 0.01 }
+    if (removeIndex == -1) return null
+    return toMutableList().apply { removeAt(removeIndex) }
+}
+
+private fun calculateTotalWeightFromSidePlates(barWeight: Double, sidePlateWeights: List<Double>): Double {
+    return (barWeight + sidePlateWeights.sum() * 2.0)
+        .coerceAtLeast(barWeight)
+}
+
+fun calculateSidePlateWeights(totalWeight: Double, barWeight: Double = ConnectedWorkout.BAR_WEIGHT): List<Double> {
     var remainingWeightPerSide = ((totalWeight - barWeight).coerceAtLeast(0.0)) / 2.0
-    val plates = mutableListOf<PlateConfig>()
+    val plates = mutableListOf<Double>()
 
     // Greedy algorithm: fit biggest plates first
     standardPlates.forEach { plateConfig ->
         // Using a small epsilon for floating point comparison safety
         while (remainingWeightPerSide >= plateConfig.weightKg - 0.01) {
-            plates.add(plateConfig)
+            plates.add(plateConfig.weightKg)
             remainingWeightPerSide -= plateConfig.weightKg
         }
     }
