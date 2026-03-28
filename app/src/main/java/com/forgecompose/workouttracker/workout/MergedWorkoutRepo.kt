@@ -100,6 +100,8 @@ class MergedWorkoutRepository(
         "trainingEnvironment" to workout.trainingEnvironment,
         "sessionRpe" to workout.sessionRpe,
         "systemicDrainScore" to workout.systemicDrainScore,
+        "intensityScore" to workout.intensityScore,
+        "timingFatigueScore" to workout.timingFatigueScore,
         "updatedAt" to System.currentTimeMillis()
     )
 

@@ -308,7 +308,8 @@ fun WorkoutDetailScreen(
                 fatigue = currentFatigue,
                 weight = workout.weight,
                 sets = workout.sets,
-                reps = workout.reps
+                reps = workout.reps,
+                intensityScore = workout.intensityScore
             )
         )
 

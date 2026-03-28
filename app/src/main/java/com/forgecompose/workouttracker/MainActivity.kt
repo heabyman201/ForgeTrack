@@ -180,6 +180,131 @@ import kotlin.system.exitProcess
 
 var startDestination = "home"
 
+private data class WorkoutPatternSuggestion(
+    val workoutName: String,
+    val sessionsTracked: Int,
+    val avgIntensity: Int,
+    val avgRpe: Int,
+    val avgFatigue: Int,
+    val avgRestSeconds: Int,
+    val avgGapDays: Double,
+    val daysSinceLast: Double,
+    val rationale: String
+) {
+    val promptSummary: String
+        get() = buildString {
+            append("Typical user pattern points to ")
+            append(workoutName)
+            append(". Usually repeats every ")
+            append(String.format("%.1f", avgGapDays))
+            append(" days, averages intensity ")
+            append(avgIntensity)
+            append("/10, RPE ")
+            append(avgRpe)
+            append("/10, fatigue ")
+            append(avgFatigue)
+            append("/10, and rest around ")
+            append(avgRestSeconds)
+            append("s. ")
+            append(rationale)
+        }
+
+    val homeLine: String
+        get() = "Next workout: $workoutName, intensity $avgIntensity/10, rest ${avgRestSeconds}s."
+}
+
+private fun Workout.patternIntensityScore(): Int {
+    return intensityScore
+        ?: sessionRpe
+        ?: rpe
+        ?: run {
+            val rest = restPeriodSeconds ?: 90
+            val restBonus = when {
+                rest <= 60 -> 2
+                rest <= 90 -> 1
+                rest >= 180 -> -1
+                else -> 0
+            }
+            (5 + restBonus).coerceIn(1, 10)
+        }
+}
+
+private fun buildWorkoutPatternSuggestion(
+    workouts: List<Workout>,
+    latestWorkout: Workout?
+): WorkoutPatternSuggestion? {
+    if (workouts.isEmpty()) return null
+    val now = System.currentTimeMillis()
+    val latestFatigue = latestWorkout?.fatigueLevel ?: 0
+    val latestIntensity = latestWorkout?.patternIntensityScore() ?: 0
+
+    return workouts
+        .filter { it.name.isNotBlank() }
+        .groupBy { it.name.trim() }
+        .mapNotNull { (name, entries) ->
+            val sorted = entries.sortedByDescending { it.date }
+            val count = sorted.size
+            if (count == 0) return@mapNotNull null
+
+            val intensityValues = sorted.map { it.patternIntensityScore() }
+            val avgIntensity = intensityValues.average().roundToInt().coerceIn(1, 10)
+            val avgRpe = sorted.mapNotNull { it.sessionRpe ?: it.rpe }.averageOrNull()?.roundToInt() ?: avgIntensity
+            val avgFatigue = sorted.mapNotNull { it.fatigueLevel }.averageOrNull()?.roundToInt() ?: avgRpe
+            val avgRest = sorted.mapNotNull { it.restPeriodSeconds }.averageOrNull()?.roundToInt() ?: 90
+            val ascending = sorted.sortedBy { it.date }
+            val gapDays = ascending.zipWithNext { previous, current ->
+                ((current.date - previous.date).toDouble() / DateUtils.DAY_IN_MILLIS.toDouble()).coerceAtLeast(0.25)
+            }
+            val avgGapDays = if (gapDays.isNotEmpty()) gapDays.average() else 3.0
+            val lastDate = sorted.first().date
+            val daysSinceLast = ((now - lastDate).toDouble() / DateUtils.DAY_IN_MILLIS.toDouble()).coerceAtLeast(0.0)
+            val isLatestWorkout = latestWorkout?.name?.equals(name, ignoreCase = true) == true
+            val readinessRatio = (daysSinceLast / avgGapDays.coerceAtLeast(0.75)).coerceIn(0.0, 2.4)
+            val frequencyScore = count.coerceAtMost(8) * 1.2
+            val readinessScore = readinessRatio * 2.3
+            val recoveryBias = when {
+                latestFatigue >= 7 || latestIntensity >= 8 -> if (isLatestWorkout) -1.4 else 1.2
+                isLatestWorkout -> 0.6
+                else -> 0.8
+            }
+            val patternBias = when {
+                avgIntensity <= 6 && avgFatigue <= 6 -> 0.7
+                avgIntensity >= 8 && latestFatigue >= 7 -> -0.6
+                else -> 0.2
+            }
+            val score = frequencyScore + readinessScore + recoveryBias + patternBias
+            val rationale = when {
+                readinessRatio >= 1.1 -> "$name is due again based on the user's normal rotation."
+                latestFatigue >= 7 || latestIntensity >= 8 -> "$name usually fits better after harder sessions."
+                else -> "$name is the most stable pattern in recent training."
+            }
+
+            WorkoutPatternSuggestion(
+                workoutName = name,
+                sessionsTracked = count,
+                avgIntensity = avgIntensity,
+                avgRpe = avgRpe.coerceIn(1, 10),
+                avgFatigue = avgFatigue.coerceIn(1, 10),
+                avgRestSeconds = avgRest.coerceAtLeast(30),
+                avgGapDays = avgGapDays,
+                daysSinceLast = daysSinceLast,
+                rationale = rationale
+            ) to score
+        }
+        .maxByOrNull { it.second }
+        ?.first
+}
+
+private fun Iterable<Int>.averageOrNull(): Double? {
+    var count = 0
+    var sum = 0.0
+    for (value in this) {
+        sum += value
+        count++
+    }
+    return if (count == 0) null else sum / count
+}
+
 class MainActivity : ComponentActivity() {
 
     private lateinit var onboardingManager: OnboardingManager
@@ -1020,6 +1145,9 @@ fun WorkoutListScreen(
             else -> "maintain"
         }
     }
+    val patternSuggestion = remember(allWorkouts, latestWorkout?.id, latestWorkout?.date) {
+        buildWorkoutPatternSuggestion(allWorkouts, latestWorkout)
+    }
     val preferredStyleLabel = remember(userPreferredStyle) {
         when (userPreferredStyle) {
             "Both" -> "weights and cardio"
@@ -1032,7 +1160,10 @@ fun WorkoutListScreen(
         userName,
         userExperience,
         userPreferredStyle,
-        userWeight
+        userWeight,
+        patternSuggestion?.workoutName,
+        patternSuggestion?.avgIntensity,
+        patternSuggestion?.avgRestSeconds
     ) {
         buildString {
             append("You are the home-screen fitness coach. ")
@@ -1062,12 +1193,19 @@ fun WorkoutListScreen(
             append(", bodyweight ")
             append(userWeight.ifBlank { "-" })
             append(" kg.")
+            append(" ")
+            append(
+                patternSuggestion?.promptSummary
+                    ?: "Still learning the user's preferred in-workout intensity and workout rotation."
+            )
         }
     }
     val homeAdviceState = useGeminiAdviceGenerator(contextPrompt = fitnessContext)
-    val homeAdviceFallback = remember(latestWorkout, previousSameWorkout) {
+    val homeAdviceFallback = remember(latestWorkout, previousSameWorkout, patternSuggestion?.workoutName) {
         when {
             latestWorkout == null -> "Log your next session to get a quick AI cue."
+            patternSuggestion != null ->
+                "${patternSuggestion.workoutName} fits your current rhythm. Match your usual pace."
             previousSameWorkout != null && (latestWorkout.weight ?: 0.0) > (previousSameWorkout.weight ?: 0.0) ->
                 "Last session improved. Keep momentum but stay crisp."
             previousSameWorkout != null && (latestWorkout.weight ?: 0.0) < (previousSameWorkout.weight ?: 0.0) ->
@@ -1080,6 +1218,7 @@ fun WorkoutListScreen(
         if (!aiEnabled) return@LaunchedEffect
 
         val durationMinutes = ((workout.durationMillis ?: 0L) / 60_000L).coerceAtLeast(0L)
+        val useNextWorkoutAngle = (((workout.id) + (workout.date / DateUtils.DAY_IN_MILLIS).toInt()) and 1) == 0
         val directionLine = when (workoutDirection) {
             "load_up" -> "The latest trend still supports progression."
             "back_off" -> "The latest trend says to ease off or deload."
@@ -1091,11 +1230,16 @@ fun WorkoutListScreen(
             val repsDelta = (workout.reps ?: 0) - (previous.reps ?: 0)
             "Previous same workout: ${previous.weight ?: 0.0} kg, ${previous.reps ?: 0} reps. Delta: ${String.format("%.1f", weightDelta)} kg, ${repsDelta} reps."
         } ?: "No previous matching workout yet."
+        val angleInstruction = if (useNextWorkoutAngle && patternSuggestion != null) {
+            "Focus this batch on the next likely workout and how the user usually performs it. Mention the next workout suggestion directly."
+        } else {
+            "Focus this batch on the latest workout performance and what it means right now."
+        }
 
         homeAdviceState.generateBatch(
-            "Workout: ${workout.name}. Speak naturally and mention the workout name once. Do not sound robotic.",
+            "Workout: ${workout.name}. Speak naturally and mention the workout name once. Do not sound robotic. $angleInstruction",
             "Latest performance: ${workout.weight ?: 0.0} kg, ${workout.sets ?: 0} sets, ${workout.reps ?: 0} reps, ${workout.distance ?: 0.0} km, ${durationMinutes} min, RPE ${workout.sessionRpe ?: workout.rpe ?: 0}, fatigue ${workout.fatigueLevel ?: 0}.",
-            "Profile: ${userExperience.ifBlank { "unknown experience" }}, prefers $preferredStyleLabel, bodyweight ${userWeight.ifBlank { "-" }} kg. $comparisonLine $directionLine. Do not reverse the advice direction unless the data clearly changes."
+            "Profile: ${userExperience.ifBlank { "unknown experience" }}, prefers $preferredStyleLabel, bodyweight ${userWeight.ifBlank { "-" }} kg. $comparisonLine $directionLine. ${patternSuggestion?.promptSummary ?: "No clear pattern recommendation yet."} Do not reverse the advice direction unless the data clearly changes."
         )
     }
     val scope = rememberCoroutineScope()
@@ -1225,13 +1369,19 @@ fun WorkoutListScreen(
                                         modifier = Modifier.fillMaxSize(),
                                         lastWorkoutName = workoutForCard?.name ?: "No workouts yet.",
                                         extraLines = if (workoutForCard?.name in cardioExerciseNames) {
-                                            listOf("Distance: ${workoutForCard?.distance ?: 0.0} km", "Time: $time")
+                                            buildList {
+                                                add("Distance: ${workoutForCard?.distance ?: 0.0} km")
+                                                add("Time: $time")
+                                            }
                                         } else {
-                                            listOf(
-                                                "Weight: ${workoutForCard?.weight ?: 0.0} kg",
-                                                "Sets/Reps: ${workoutForCard?.sets ?: 0} x ${workoutForCard?.reps ?: 0}",
-                                                "Time: $time"
-                                            )
+                                            buildList {
+                                                add("Weight: ${workoutForCard?.weight ?: 0.0} kg")
+                                                add("Sets/Reps: ${workoutForCard?.sets ?: 0} x ${workoutForCard?.reps ?: 0}")
+                                                add("Time: $time")
+                                                if (workoutForCard?.intensityScore != null) {
+                                                    add("Intensity: ${workoutForCard.intensityScore}/10")
+                                                }
+                                            }
                                         }
                                     )
                                 }

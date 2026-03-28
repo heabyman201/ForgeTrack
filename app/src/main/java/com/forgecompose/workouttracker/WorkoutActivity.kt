@@ -1939,9 +1939,22 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                                         trainingEnvironment = trainingEnv,
                                         sessionRpe = estimatedRpe,
                                         systemicDrainScore = systemicDrain,
+                                        intensityScore = timingMetrics.intensityScore,
+                                        timingFatigueScore = timingMetrics.fatigueScore,
                                         heartRateAvg = avgHrForLog,
                                         heartRateMax = maxHrForLog,
                                         heartRateTimeline = hrTimelineForLog
+                                    )
+                                    GeminiAdaptiveMemoryStore.recordWorkoutCompletionSignals(
+                                        context = context.applicationContext,
+                                        workoutName = workout.value,
+                                        rpe = estimatedRpe,
+                                        fatigue = estimatedFatigue,
+                                        intensityScore = timingMetrics.intensityScore,
+                                        systemicDrain = systemicDrain,
+                                        weight = CurrentWeight.value,
+                                        sets = CurrentSets.intValue,
+                                        reps = CurrentReps.intValue
                                     )
                                     PDE.logWorkout(
                                         workout.value,
@@ -2266,9 +2279,22 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                                     trainingEnvironment = trainingEnv,
                                     sessionRpe = estimatedRpe,
                                     systemicDrainScore = systemicDrain,
+                                    intensityScore = timingMetrics.intensityScore,
+                                    timingFatigueScore = timingMetrics.fatigueScore,
                                     heartRateAvg = avgHrForLog,
                                     heartRateMax = maxHrForLog,
                                     heartRateTimeline = hrTimelineForLog
+                                )
+                                GeminiAdaptiveMemoryStore.recordWorkoutCompletionSignals(
+                                    context = context.applicationContext,
+                                    workoutName = workout.value,
+                                    rpe = estimatedRpe,
+                                    fatigue = estimatedFatigue,
+                                    intensityScore = timingMetrics.intensityScore,
+                                    systemicDrain = systemicDrain,
+                                    weight = CurrentWeight.value,
+                                    sets = CurrentSets.intValue,
+                                    reps = CurrentReps.intValue
                                 )
                                 PDE.logWorkout(
                                     workout.value,
@@ -2332,9 +2358,22 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                                     trainingEnvironment = trainingEnv,
                                     sessionRpe = estimatedRpe,
                                     systemicDrainScore = systemicDrain,
+                                    intensityScore = timingMetrics.intensityScore,
+                                    timingFatigueScore = timingMetrics.fatigueScore,
                                     heartRateAvg = avgHrForLog,
                                     heartRateMax = maxHrForLog,
                                     heartRateTimeline = hrTimelineForLog
+                                )
+                                GeminiAdaptiveMemoryStore.recordWorkoutCompletionSignals(
+                                    context = context.applicationContext,
+                                    workoutName = workout.value,
+                                    rpe = estimatedRpe,
+                                    fatigue = estimatedFatigue,
+                                    intensityScore = timingMetrics.intensityScore,
+                                    systemicDrain = systemicDrain,
+                                    weight = CurrentWeight.value,
+                                    sets = CurrentSets.intValue,
+                                    reps = CurrentReps.intValue
                                 )
                                 PDE.logWorkout(
                                     workout.value,
@@ -5559,4 +5598,3 @@ private data class ParticleData(
     val wobbleMagnitudeBase: Float,
     val wobbleMagnitudeExtra: Float
 )
-

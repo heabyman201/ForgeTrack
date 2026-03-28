@@ -1,6 +1,7 @@
 package com.forgecompose.workouttracker
 
 import android.content.Context
+import com.forgecompose.workouttracker.health.HrRepository
 import com.google.android.gms.tasks.Tasks
 import com.google.android.gms.wearable.MessageClient
 import com.google.android.gms.wearable.MessageEvent

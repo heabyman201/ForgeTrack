@@ -92,7 +92,9 @@ data class Workout(
     var sessionRpe: Int? = null,
 
     // Calculated by your Algo later. Represents total neurological cost.
-    var systemicDrainScore: Float? = null
+    var systemicDrainScore: Float? = null,
+    var intensityScore: Int? = null,
+    var timingFatigueScore: Int? = null
 )
 enum class WorkoutStatus {
     PLANNED,
@@ -155,7 +157,7 @@ class MuscleGroupConverter {
         WorkoutExercise::class,
         ExerciseSet::class
     ],
-    version = 6,
+    version = 7,
     exportSchema = false
 )
 @TypeConverters(
@@ -201,6 +203,12 @@ abstract class AppDatabase : RoomDatabase() {
                 database.execSQL("ALTER TABLE workouts ADD COLUMN heartRateTimeline TEXT DEFAULT NULL")
             }
         }
+        val MIGRATION_6_7 = object : androidx.room.migration.Migration(6, 7) {
+            override fun migrate(database: androidx.sqlite.db.SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE workouts ADD COLUMN intensityScore INTEGER DEFAULT NULL")
+                database.execSQL("ALTER TABLE workouts ADD COLUMN timingFatigueScore INTEGER DEFAULT NULL")
+            }
+        }
 
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
@@ -209,7 +217,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "workout_tracker"
                 )
-                    .addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+                    .addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
                     .build()
                 INSTANCE = instance
                 instance
@@ -609,7 +617,9 @@ class WorkoutListViewModel(
         // --- NEW PARAMS ---
         trainingEnvironment: String? = null,
         sessionRpe: Int? = null,
-        systemicDrainScore: Float? = null
+        systemicDrainScore: Float? = null,
+        intensityScore: Int? = null,
+        timingFatigueScore: Int? = null
     ) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
@@ -642,7 +652,9 @@ class WorkoutListViewModel(
                     // --- MAPPING NEW FIELDS ---
                     trainingEnvironment = trainingEnvironment,
                     sessionRpe = sessionRpe,
-                    systemicDrainScore = systemicDrainScore
+                    systemicDrainScore = systemicDrainScore,
+                    intensityScore = intensityScore,
+                    timingFatigueScore = timingFatigueScore
                 )
                 workoutRepository.insertWorkout(newWorkout)
             } catch (e: Exception) {

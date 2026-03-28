@@ -866,35 +866,6 @@ fun PersonaSettingsScreen(
                                     color = Color.White,
                                     fontWeight = FontWeight.SemiBold
                                 )
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .background(theme.secondary.copy(alpha = 0.1f), RoundedCornerShape(8.dp))
-                                        .padding(10.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = if (hasGoogleAiStudioApiKey()) Icons.Default.CheckCircle else Icons.Default.Delete,
-                                        contentDescription = null,
-                                        tint = if (hasGoogleAiStudioApiKey()) theme.primary else Color.Red.copy(alpha = 0.85f),
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                    Text(
-                                        text = if (hasGoogleAiStudioApiKey()) {
-                                            "API key detected. Requests will use Google AI Studio."
-                                        } else {
-                                            "Missing API_KEY in local.properties. Add it before using this mode."
-                                        },
-                                        style = MaterialTheme.typography.labelMedium,
-                                        color = Color.White.copy(alpha = 0.78f)
-                                    )
-                                }
-                                Text(
-                                    text = "No in-app key field is shown here to keep the key out of source files and settings storage.",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = Color.White.copy(alpha = 0.68f)
-                                )
                             }
                         }
                     }
@@ -925,7 +896,7 @@ fun PersonaSettingsScreen(
                             Triple("Surgeon Apex", "Cold, calculated and precise", "surgeon_apex")
                         ).toMutableList().apply {
                             if (girlfriendUnlocked) {
-                                add(4, Triple("Girlfriend-Like", "Affectionate and caring with healthy boundaries", "girlfriend_like"))
+                                add(4, Triple("PERSONA_5", "", "girlfriend_like"))
                             }
                         }
 

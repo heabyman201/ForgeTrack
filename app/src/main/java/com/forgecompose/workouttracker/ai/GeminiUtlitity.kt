@@ -29,6 +29,7 @@ import kotlinx.coroutines.sync.withLock
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
+import kotlin.math.roundToInt
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -37,8 +38,24 @@ private const val SCIENCE_FACT_VISIBLE_MS = 5_000L
 private const val MAX_PROMPT_LEARNED_RULES = 6
 private const val MAX_PROMPT_WORKOUT_RULES = 4
 private const val GOOGLE_AI_STUDIO_MODEL = "gemini-3.1-flash-lite-preview"
+private const val GEMINI_UTILITY_TAG = "GeminiUtility"
 private const val GOOGLE_AI_STUDIO_ENDPOINT =
     "https://generativelanguage.googleapis.com/v1beta/models/$GOOGLE_AI_STUDIO_MODEL:generateContent"
+
+private fun logSystemPrompt(source: String, systemPrompt: String) {
+    Log.d(GEMINI_UTILITY_TAG, "System prompt [$source]: $systemPrompt")
+}
+
+private fun logLearnedMemory(memoryBlock: String) {
+    Log.d(
+        GEMINI_UTILITY_TAG,
+        if (memoryBlock.isBlank()) {
+            "Learned memory: <empty>"
+        } else {
+            "Learned memory: $memoryBlock"
+        }
+    )
+}
 
 private fun cleanRuleList(values: List<String>, maxItems: Int): List<String> {
     val seen = linkedSetOf<String>()
@@ -158,7 +175,8 @@ private data class GeminiAdviceMemory(
     val systemPrompt: String,
     val contextPrompt: String,
     val payloadSummary: String,
-    val advice: String
+    val advice: String,
+    val baselineSignalSnapshot: GeminiSignalSnapshot? = null
 ) {
     fun toJson(): JSONObject = JSONObject().apply {
         put("generatedAtEpochMs", generatedAtEpochMs)
@@ -166,6 +184,9 @@ private data class GeminiAdviceMemory(
         put("contextPrompt", contextPrompt)
         put("payloadSummary", payloadSummary)
         put("advice", advice)
+        if (baselineSignalSnapshot != null) {
+            put("baselineSignalSnapshot", baselineSignalSnapshot.toJson())
+        }
     }
 
     val signature: String
@@ -181,7 +202,9 @@ private data class GeminiAdviceMemory(
                     systemPrompt = json.optString("systemPrompt"),
                     contextPrompt = json.optString("contextPrompt"),
                     payloadSummary = json.optString("payloadSummary"),
-                    advice = json.optString("advice")
+                    advice = json.optString("advice"),
+                    baselineSignalSnapshot = json.optJSONObject("baselineSignalSnapshot")?.toString()
+                        ?.let(GeminiSignalSnapshot::fromJson)
                 )
             }.getOrNull()
         }
@@ -200,7 +223,8 @@ data class WorkoutTrendSnapshot(
     val fatigue: Int? = null,
     val weight: Double? = null,
     val sets: Int? = null,
-    val reps: Int? = null
+    val reps: Int? = null,
+    val intensityScore: Int? = null
 ) {
     fun toJson(): JSONObject = JSONObject().apply {
         put("workoutName", workoutName)
@@ -215,6 +239,7 @@ data class WorkoutTrendSnapshot(
         if (weight != null) put("weight", weight)
         if (sets != null) put("sets", sets)
         if (reps != null) put("reps", reps)
+        if (intensityScore != null) put("intensityScore", intensityScore)
     }
 
     companion object {
@@ -234,7 +259,8 @@ data class WorkoutTrendSnapshot(
                     fatigue = json.optIntOrNull("fatigue"),
                     weight = json.optDoubleOrNull("weight"),
                     sets = json.optIntOrNull("sets"),
-                    reps = json.optIntOrNull("reps")
+                    reps = json.optIntOrNull("reps"),
+                    intensityScore = json.optIntOrNull("intensityScore")
                 )
             }.getOrNull()
         }
@@ -251,7 +277,8 @@ private data class PendingWorkoutAdvice(
     val strengthChangeAtGeneration: Double? = null,
     val volumeChangeAtGeneration: Double? = null,
     val rpeAtGeneration: Int? = null,
-    val fatigueAtGeneration: Int? = null
+    val fatigueAtGeneration: Int? = null,
+    val intensityAtGeneration: Int? = null
 ) {
     fun toJson(): JSONObject = JSONObject().apply {
         put("workoutName", workoutName)
@@ -264,6 +291,7 @@ private data class PendingWorkoutAdvice(
         if (volumeChangeAtGeneration != null) put("volumeChangeAtGeneration", volumeChangeAtGeneration)
         if (rpeAtGeneration != null) put("rpeAtGeneration", rpeAtGeneration)
         if (fatigueAtGeneration != null) put("fatigueAtGeneration", fatigueAtGeneration)
+        if (intensityAtGeneration != null) put("intensityAtGeneration", intensityAtGeneration)
     }
 
     val signature: String
@@ -284,7 +312,8 @@ private data class PendingWorkoutAdvice(
                     strengthChangeAtGeneration = json.optDoubleOrNull("strengthChangeAtGeneration"),
                     volumeChangeAtGeneration = json.optDoubleOrNull("volumeChangeAtGeneration"),
                     rpeAtGeneration = json.optIntOrNull("rpeAtGeneration"),
-                    fatigueAtGeneration = json.optIntOrNull("fatigueAtGeneration")
+                    fatigueAtGeneration = json.optIntOrNull("fatigueAtGeneration"),
+                    intensityAtGeneration = json.optIntOrNull("intensityAtGeneration")
                 )
             }.getOrNull()
         }
@@ -491,14 +520,26 @@ object GeminiAdaptiveMemoryStore {
         advice: String
     ) {
         if (advice.isBlank()) return
+        val prefs = prefs(context)
+        val baselineSignalSnapshot =
+            GeminiSignalSnapshot.fromJson(prefs.getString(K_LAST_SIGNAL_SNAPSHOT, null))
         val memory = GeminiAdviceMemory(
             generatedAtEpochMs = System.currentTimeMillis(),
             systemPrompt = systemPrompt,
             contextPrompt = contextPrompt,
             payloadSummary = payload.filter { it.isNotBlank() }.joinToString(" | "),
-            advice = advice
+            advice = advice,
+            baselineSignalSnapshot = baselineSignalSnapshot
         )
-        prefs(context).edit()
+        Log.d(
+            GEMINI_UTILITY_TAG,
+            if (baselineSignalSnapshot == null) {
+                "Pending advice stored without baseline signal snapshot."
+            } else {
+                "Pending advice stored with baseline signal snapshot at ${baselineSignalSnapshot.capturedAtEpochMs}."
+            }
+        )
+        prefs.edit()
             .putString(K_PENDING_ADVICE, memory.toJson().toString())
             .apply()
     }
@@ -525,7 +566,8 @@ object GeminiAdaptiveMemoryStore {
             strengthChangeAtGeneration = trend.strengthChangePct,
             volumeChangeAtGeneration = trend.volumeChangePct,
             rpeAtGeneration = trend.rpe,
-            fatigueAtGeneration = trend.fatigue
+            fatigueAtGeneration = trend.fatigue,
+            intensityAtGeneration = trend.intensityScore
         )
         writeJsonEntry(prefs, K_PENDING_WORKOUT_ADVICES, normalizeWorkoutName(trend.workoutName), pending.toJson())
     }
@@ -555,6 +597,90 @@ object GeminiAdaptiveMemoryStore {
         writeJsonEntry(prefs, K_WORKOUT_TRENDS, normalizedName, snapshot.toJson())
     }
 
+    fun recordWorkoutCompletionSignals(
+        context: Context,
+        workoutName: String,
+        rpe: Int,
+        fatigue: Int,
+        intensityScore: Int,
+        systemicDrain: Float,
+        weight: Double?,
+        sets: Int?,
+        reps: Int?
+    ) {
+        val normalizedFatigue = (fatigue / 10f).coerceIn(0f, 1f)
+        val normalizedRpe = (rpe / 10f).coerceIn(0f, 1f)
+        val normalizedIntensity = (intensityScore / 10f).coerceIn(0f, 1f)
+        val normalizedDrain = (systemicDrain / 100f).coerceIn(0f, 1f)
+        val recoveryEfficacy = (
+            1f -
+                (normalizedFatigue * 0.42f) -
+                (normalizedDrain * 0.28f) -
+                (((normalizedRpe - 0.6f).coerceAtLeast(0f)) * 0.18f)
+            ).coerceIn(0.05f, 1f)
+        val avgInjuryRisk = (
+            (normalizedFatigue * 0.4f) +
+                (normalizedRpe * 0.32f) +
+                (normalizedDrain * 0.18f) +
+                ((1f - normalizedIntensity) * 0.1f)
+            ).coerceIn(0f, 1f)
+        val avgLoadScore = (
+            (normalizedIntensity * 0.45f) +
+                (normalizedRpe * 0.25f) +
+                ((1f - normalizedFatigue) * 0.15f) +
+                ((1f - normalizedDrain) * 0.15f)
+            ).coerceIn(0f, 1f)
+        val readinessCount = when {
+            fatigue <= 5 && rpe <= 7 && intensityScore >= 6 -> 3
+            fatigue <= 6 && intensityScore >= 5 -> 2
+            fatigue <= 7 -> 1
+            else -> 0
+        }
+        val cautionCount = when {
+            fatigue >= 8 || rpe >= 9 || systemicDrain >= 78f -> 3
+            fatigue >= 7 || rpe >= 8 || systemicDrain >= 62f -> 2
+            fatigue >= 6 || rpe >= 7 -> 1
+            else -> 0
+        }
+        val phase = when {
+            fatigue >= 8 || rpe >= 9 -> "Deload Window"
+            intensityScore >= 8 && fatigue <= 6 -> "Peaking"
+            fatigue >= 6 -> "Recovering"
+            else -> "Maintenance"
+        }
+
+        recordMuscleSignals(
+            context = context,
+            snapshot = GeminiSignalSnapshot(
+                capturedAtEpochMs = System.currentTimeMillis(),
+                recoveryEfficacy = recoveryEfficacy,
+                avgInjuryRisk = avgInjuryRisk,
+                avgLoadScore = avgLoadScore,
+                highReadinessCount = readinessCount,
+                cautionCount = cautionCount
+            )
+        )
+        recordWorkoutTrendSnapshot(
+            context = context,
+            snapshot = WorkoutTrendSnapshot(
+                workoutName = workoutName,
+                source = "session_completion",
+                capturedAtEpochMs = System.currentTimeMillis(),
+                phase = phase,
+                rpe = rpe,
+                fatigue = fatigue,
+                weight = weight,
+                sets = sets,
+                reps = reps,
+                intensityScore = intensityScore
+            )
+        )
+        Log.d(
+            GEMINI_UTILITY_TAG,
+            "Recorded post-workout learning signals for $workoutName: rpe=$rpe fatigue=$fatigue intensity=$intensityScore drain=${systemicDrain.roundToInt()}"
+        )
+    }
+
     fun buildPromptMemoryBlock(
         context: Context,
         contextPrompt: String,
@@ -562,8 +688,11 @@ object GeminiAdaptiveMemoryStore {
     ): String {
         val state = readPromptState(prefs(context))
         val workoutMemory = buildWorkoutMemoryBlock(contextPrompt, payload, state)
-        if (state.learnedRules.isEmpty() && workoutMemory.isBlank()) return ""
-        return buildString {
+        if (state.learnedRules.isEmpty() && workoutMemory.isBlank()) {
+            logLearnedMemory("")
+            return ""
+        }
+        val memoryBlock = buildString {
             if (state.learnedRules.isNotEmpty()) {
                 append(" Mutable prompt memory from prior wins: ")
                 state.learnedRules.take(MAX_PROMPT_LEARNED_RULES).forEachIndexed { index, memory ->
@@ -579,6 +708,8 @@ object GeminiAdaptiveMemoryStore {
                 append(workoutMemory)
             }
         }.trim()
+        logLearnedMemory(memoryBlock)
+        return memoryBlock
     }
 
     private fun buildWorkoutMemoryBlock(
@@ -611,35 +742,67 @@ object GeminiAdaptiveMemoryStore {
         current: GeminiSignalSnapshot,
         pendingAdvice: GeminiAdviceMemory
     ) {
-        if (!shouldLearnFrom(pendingAdvice)) return
-        if (pendingAdvice.generatedAtEpochMs <= previous.capturedAtEpochMs) return
-        if (current.capturedAtEpochMs <= pendingAdvice.generatedAtEpochMs) return
-        if (prefs.getString(K_LAST_PROMOTED_SIGNATURE, null) == pendingAdvice.signature) return
+        if (!shouldLearnFrom(pendingAdvice)) {
+            Log.d(GEMINI_UTILITY_TAG, "Learned memory skipped: advice did not pass learnability checks.")
+            return
+        }
+        val baseline = pendingAdvice.baselineSignalSnapshot ?: previous
+        if (current.capturedAtEpochMs <= pendingAdvice.generatedAtEpochMs) {
+            Log.d(
+                GEMINI_UTILITY_TAG,
+                "Learned memory skipped: current signal is not newer than the generated advice."
+            )
+            return
+        }
+        if (baseline.capturedAtEpochMs > pendingAdvice.generatedAtEpochMs) {
+            Log.d(
+                GEMINI_UTILITY_TAG,
+                "Learned memory skipped: baseline snapshot is newer than the advice timestamp."
+            )
+            return
+        }
+        if (prefs.getString(K_LAST_PROMOTED_SIGNATURE, null) == pendingAdvice.signature) {
+            Log.d(GEMINI_UTILITY_TAG, "Learned memory skipped: pending advice was already promoted.")
+            return
+        }
 
         val improvements = mutableListOf<String>()
-        if (current.recoveryEfficacy - previous.recoveryEfficacy >= 0.05f) {
+        if (current.recoveryEfficacy - baseline.recoveryEfficacy >= 0.05f) {
             improvements += "better recovery"
         }
-        if (previous.avgInjuryRisk - current.avgInjuryRisk >= 0.04f) {
+        if (baseline.avgInjuryRisk - current.avgInjuryRisk >= 0.04f) {
             improvements += "lower injury risk"
         }
-        if (current.highReadinessCount > previous.highReadinessCount) {
+        if (current.highReadinessCount > baseline.highReadinessCount) {
             improvements += "more muscles ready to push"
         }
-        if (current.cautionCount < previous.cautionCount) {
+        if (current.cautionCount < baseline.cautionCount) {
             improvements += "less fatigue pressure"
         }
-        if (current.avgLoadScore - previous.avgLoadScore >= 0.05f) {
+        if (current.avgLoadScore - baseline.avgLoadScore >= 0.05f) {
             improvements += "higher training readiness"
         }
-        if (improvements.isEmpty()) return
+        if (improvements.isEmpty()) {
+            Log.d(
+                GEMINI_UTILITY_TAG,
+                "Learned memory skipped: no positive signal improvements were detected against the baseline snapshot."
+            )
+            return
+        }
 
         val memory = buildLearnedApproach(pendingAdvice, improvements.distinct())
-        if (memory.isBlank()) return
+        if (memory.isBlank()) {
+            Log.d(GEMINI_UTILITY_TAG, "Learned memory skipped: learned approach text was blank.")
+            return
+        }
         updatePromptState(prefs) { current ->
             val learned = promoteRule(current.learnedRules, memory, MAX_PROMPT_LEARNED_RULES)
             current.copy(learnedRules = learned)
         }
+        Log.d(
+            GEMINI_UTILITY_TAG,
+            "Learned memory promoted from signals: $memory | improvements=${improvements.distinct().joinToString()}"
+        )
         prefs.edit()
             .putString(K_LAST_PROMOTED_SIGNATURE, pendingAdvice.signature)
             .apply()
@@ -676,33 +839,66 @@ object GeminiAdaptiveMemoryStore {
     ): String? {
         val workoutName = current.workoutName.ifBlank { pendingAdvice.workoutName }
         val type = pendingAdvice.adviceType
+        val previousVolumeUnits = (previous.weight ?: 0.0) * (previous.reps ?: 0) * (previous.sets ?: 0)
+        val currentVolumeUnits = (current.weight ?: 0.0) * (current.reps ?: 0) * (current.sets ?: 0)
+        val weightIncreased = current.weight != null &&
+            previous.weight != null &&
+            current.weight > previous.weight + 0.24
+        val repsImproved = current.reps != null &&
+            previous.reps != null &&
+            current.reps > previous.reps
+        val setsImproved = current.sets != null &&
+            previous.sets != null &&
+            current.sets > previous.sets
+        val rawPerformanceImproved = weightIncreased || repsImproved || setsImproved ||
+            (previousVolumeUnits > 0.0 && currentVolumeUnits > previousVolumeUnits * 1.04)
+        val rawPerformanceDropped = current.weight != null &&
+            previous.weight != null &&
+            current.weight < previous.weight - 0.24 ||
+            (current.reps != null && previous.reps != null && current.reps < previous.reps) ||
+            (current.sets != null && previous.sets != null && current.sets < previous.sets) ||
+            (previousVolumeUnits > 0.0 && currentVolumeUnits < previousVolumeUnits * 0.96)
         val strengthDropped = current.strengthChangePct != null &&
             previous.strengthChangePct != null &&
-            current.strengthChangePct < previous.strengthChangePct - 3.0
+            current.strengthChangePct < previous.strengthChangePct - 3.0 ||
+            rawPerformanceDropped
         val strengthImproved = current.strengthChangePct != null &&
             previous.strengthChangePct != null &&
-            current.strengthChangePct > previous.strengthChangePct + 2.0
+            current.strengthChangePct > previous.strengthChangePct + 2.0 ||
+            rawPerformanceImproved
         val fatigueUp = current.fatigue != null &&
             pendingAdvice.fatigueAtGeneration != null &&
             current.fatigue >= pendingAdvice.fatigueAtGeneration + 2
         val fatigueDown = current.fatigue != null &&
             pendingAdvice.fatigueAtGeneration != null &&
             current.fatigue <= pendingAdvice.fatigueAtGeneration - 2
+        val intensityControlled = current.intensityScore != null &&
+            pendingAdvice.intensityAtGeneration != null &&
+            current.intensityScore <= pendingAdvice.intensityAtGeneration + 1
+        val intensityImproved = current.intensityScore != null &&
+            pendingAdvice.intensityAtGeneration != null &&
+            current.intensityScore >= pendingAdvice.intensityAtGeneration
         val intensitySuffered = current.rpe != null &&
             pendingAdvice.rpeAtGeneration != null &&
             current.rpe >= pendingAdvice.rpeAtGeneration + 1 &&
-            (fatigueUp || current.phase.equals("Cooling Down", ignoreCase = true))
+            (fatigueUp || current.phase.equals("Cooling Down", ignoreCase = true)) ||
+            (current.intensityScore != null &&
+                pendingAdvice.intensityAtGeneration != null &&
+                current.intensityScore < pendingAdvice.intensityAtGeneration - 1)
         val movedIntoCooling = current.phase.equals("Cooling Down", ignoreCase = true) ||
             current.phase.equals("Deload Window", ignoreCase = true)
         val movedIntoPeaking = current.phase.equals("Peaking", ignoreCase = true)
         val volumeImproved = current.volumeChangePct != null &&
             previous.volumeChangePct != null &&
-            current.volumeChangePct > previous.volumeChangePct + 5.0
+            current.volumeChangePct > previous.volumeChangePct + 5.0 ||
+            currentVolumeUnits > previousVolumeUnits * 1.06
 
         return when (type) {
             "load_up" -> when {
                 strengthDropped || intensitySuffered || movedIntoCooling || fatigueUp ->
                     "For $workoutName, avoid aggressive weight increases after ${pendingAdvice.phaseAtGeneration.lowercase()} signals because intensity dropped or fatigue lingered."
+                weightIncreased && rawPerformanceImproved && !fatigueUp && intensityControlled ->
+                    "For $workoutName, weight jumps work when the next session still holds reps and session intensity together."
                 movedIntoPeaking && strengthImproved && !fatigueUp ->
                     "For $workoutName, small weight increases work when the trend is peaking and fatigue stays controlled."
                 else -> null
@@ -719,6 +915,8 @@ object GeminiAdaptiveMemoryStore {
             "volume_up" -> when {
                 fatigueUp || movedIntoCooling ->
                     "For $workoutName, avoid adding volume when fatigue is already climbing."
+                setsImproved && volumeImproved && !fatigueUp && intensityImproved ->
+                    "For $workoutName, extra sets work when intensity stays solid and recovery does not slide."
                 volumeImproved && !fatigueUp ->
                     "For $workoutName, extra volume works when recovery stays stable."
                 else -> null
@@ -727,6 +925,8 @@ object GeminiAdaptiveMemoryStore {
             "maintain" -> when {
                 fatigueDown && !strengthDropped ->
                     "For $workoutName, holding load steady works well when fatigue is elevated."
+                rawPerformanceImproved && intensityControlled ->
+                    "For $workoutName, the user performs well when the session starts from a steady baseline before pushing harder."
                 else -> null
             }
 
@@ -954,6 +1154,7 @@ class GeminiUtilityViewModel(application: Application) : AndroidViewModel(applic
                 val result = when (providerUsed) {
                     AiModelProvider.EDGE_ON_DEVICE -> {
                         loadModel()
+                        logSystemPrompt("edge_on_device", promptEnvelope.systemInstruction)
                         llmInference?.generateResponse(promptEnvelope.edgePrompt).orEmpty()
                     }
 
@@ -1214,6 +1415,7 @@ class GeminiUtilityViewModel(application: Application) : AndroidViewModel(applic
         val endpoint = "$baseUrl/chat/completions"
         val safeMaxTokens = maxTokens.coerceIn(16, 300)
         val temperatureRange = temperature.coerceIn(0.5, 0.9)
+        logSystemPrompt("local_network", systemPrompt)
 
         val payload = JSONObject().apply {
             put("model", config.selectedModel)
@@ -1276,6 +1478,7 @@ class GeminiUtilityViewModel(application: Application) : AndroidViewModel(applic
         val safeMaxTokens = maxTokens.coerceIn(16, 300)
         val temperatureRange = temperature.coerceIn(0.5, 0.9)
         val endpoint = "$GOOGLE_AI_STUDIO_ENDPOINT?key=$safeKey"
+        logSystemPrompt("google_ai_studio", systemPrompt)
         val payload = JSONObject().apply {
             put(
                 "system_instruction",

@@ -40,7 +40,9 @@ fun DocumentSnapshot.toWorkout(): Workout {
         // Default new fields to null for error case
         trainingEnvironment = null,
         sessionRpe = null,
-        systemicDrainScore = null
+        systemicDrainScore = null,
+        intensityScore = null,
+        timingFatigueScore = null
     )
 
     val tempId = this.id.hashCode()
@@ -82,6 +84,8 @@ fun DocumentSnapshot.toWorkout(): Workout {
         // --- NEW SMART ALGO FIELDS ---
         trainingEnvironment = data["trainingEnvironment"] as? String,
         sessionRpe = (data["sessionRpe"] as? Number)?.toInt(),
-        systemicDrainScore = (data["systemicDrainScore"] as? Number)?.toFloat()
+        systemicDrainScore = (data["systemicDrainScore"] as? Number)?.toFloat(),
+        intensityScore = (data["intensityScore"] as? Number)?.toInt(),
+        timingFatigueScore = (data["timingFatigueScore"] as? Number)?.toInt()
     )
 }
