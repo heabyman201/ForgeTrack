@@ -10,7 +10,6 @@ import com.forgecompose.workouttracker.profile.*
 import com.forgecompose.workouttracker.ui.components.*
 import com.forgecompose.workouttracker.workout.*
 
-import android.os.SystemClock
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Animatable
@@ -65,7 +64,6 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -114,37 +112,6 @@ import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.cos
 import kotlin.math.min
 import kotlin.math.sin
-
-private const val MIN_AUTO_REST_TIME_MILLIS = 15_000L
-private const val MIN_AUTO_REST_SHAVE_MILLIS = 5_000L
-private const val MAX_AUTO_REST_SHAVE_MILLIS = 30_000L
-
-private fun millisToTimeParts(totalMillis: Long): Triple<Long, Long, Long> {
-    val safeMillis = totalMillis.coerceAtLeast(0L)
-    val hours = safeMillis / (1000L * 60L * 60L)
-    val minutes = (safeMillis / (1000L * 60L)) % 60L
-    val seconds = (safeMillis / 1000L) % 60L
-    return Triple(hours, minutes, seconds)
-}
-
-private fun timePartsToMillis(hours: Long, minutes: Long, seconds: Long): Long {
-    return ((hours * 60L * 60L) + (minutes * 60L) + seconds) * 1000L
-}
-
-private fun calculateAdaptiveRestTime(currentRestMillis: Long, observedRestMillis: Long, skipped: Boolean): Long {
-    val safeCurrentRest = currentRestMillis.coerceAtLeast(MIN_AUTO_REST_TIME_MILLIS)
-    if (!skipped) return safeCurrentRest
-
-    val earlyExitMillis = (safeCurrentRest - observedRestMillis).coerceAtLeast(0L)
-    if (earlyExitMillis < MIN_AUTO_REST_SHAVE_MILLIS) return safeCurrentRest
-
-    val shavedMillis = (earlyExitMillis / 2L)
-        .coerceIn(MIN_AUTO_REST_SHAVE_MILLIS, MAX_AUTO_REST_SHAVE_MILLIS)
-    val adjustedRestMillis = (safeCurrentRest - shavedMillis)
-        .coerceAtLeast(MIN_AUTO_REST_TIME_MILLIS)
-    val (hours, minutes, seconds) = millisToTimeParts(adjustedRestMillis)
-    return timePartsToMillis(hours, minutes, seconds)
-}
 
 @Composable
 fun RestAdviceSection(
@@ -289,28 +256,16 @@ fun RestScreen(
 
     val initialTotal = rememberSaveable { ConnectedWorkout.restTime.longValue }
     val autoRestTimeEnabled = remember { isAutoRestTimeEnabled(context) }
-    val restStartedAtMillis = rememberSaveable { SystemClock.elapsedRealtime() }
-    var observedRestMillis by rememberSaveable { mutableLongStateOf(0L) }
     var restOutcomeHandled by rememberSaveable { mutableStateOf(false) }
     PreventBackGesture()
 
-    LaunchedEffect(autoRestTimeEnabled) {
-        if (!autoRestTimeEnabled) return@LaunchedEffect
-        while (isActive && ConnectedWorkout.currentMode.value == WorkoutMode.RESTING) {
-            delay(1000)
-            observedRestMillis += 1000L
-        }
-    }
-
     fun applyAutoRestAdjustment(skipped: Boolean) {
-        if (!autoRestTimeEnabled || restOutcomeHandled) return
+        if (restOutcomeHandled) return
         restOutcomeHandled = true
-        val elapsedMillis = (SystemClock.elapsedRealtime() - restStartedAtMillis).coerceAtLeast(0L)
-        val trackedRestMillis = maxOf(observedRestMillis, elapsedMillis).coerceAtLeast(1000L)
-        ConnectedWorkout.restTime.longValue = calculateAdaptiveRestTime(
+        ConnectedWorkout.restTime.longValue = AutoRestTimer.finishRest(
             currentRestMillis = initialTotal,
-            observedRestMillis = trackedRestMillis,
-            skipped = skipped
+            skipped = skipped,
+            autoAdjustEnabled = autoRestTimeEnabled
         )
         ConnectedWorkout.saveSnapshot(context)
     }

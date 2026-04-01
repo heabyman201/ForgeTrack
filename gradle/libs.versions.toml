@@ -8,7 +8,7 @@ connectClientVersion = "1.1.0"
 coreKtxVersion = "1.6.1"
 googlePlayServicesWearable = "19.0.0"
 kotlin = "2.2.0"
-coreKtx = "1.16.0"
+coreKtx = "1.17.0"
 junit = "4.13.2"
 junitVersion = "1.2.1"
 espressoCore = "3.6.1"
@@ -127,4 +127,3 @@ kotlinKapt = { id = "org.jetbrains.kotlin.kapt" }
 android-test = { id = "com.android.test", version.ref = "agp" }
 baselineprofile = { id = "androidx.baselineprofile", version.ref = "baselineprofile" }
 google-gms-google-services = { id = "com.google.gms.google-services", version.ref = "googleGmsGoogleServices" }
-

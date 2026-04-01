@@ -1495,6 +1495,7 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
         if (CurrentReps.intValue >= GoalReps.intValue && CurrentSets.intValue >= GoalSets.intValue) {
             triggerSetGoal()
         } else {
+            AutoRestTimer.startRest()
             ConnectedWorkout.currentMode.value = WorkoutMode.RESTING
             navController.navigate("RestScreen") { popUpTo("RestScreen") { inclusive = true } }
         }
@@ -2241,10 +2242,15 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                                         if (!showCountdown) {
                                             incrementTime()
                                             haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                            ConnectedWorkout.restTime.longValue = AutoRestTimer.finishSet(
+                                                currentRestMillis = ConnectedWorkout.restTime.longValue,
+                                                autoAdjustEnabled = isAutoRestTimeEnabled(context)
+                                            )
                                             ConnectedWorkout.recordSetCompletionTimestamp()
                                             CurrentReps.intValue += 10
                                             CurrentSets.intValue += 1
                                             EnterRestMode()
+                                            ConnectedWorkout.saveSnapshot(context)
                                         }
                                     },
                                 contentAlignment = Alignment.Center
@@ -5256,6 +5262,7 @@ object ConnectedWorkout {
 
     fun clearSetTimingData() {
         setCompletionTimestamps.clear()
+        AutoRestTimer.reset()
     }
 
     fun saveSnapshot(context: Context) {
