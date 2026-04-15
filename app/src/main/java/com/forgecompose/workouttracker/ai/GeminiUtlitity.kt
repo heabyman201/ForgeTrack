@@ -1511,6 +1511,7 @@ class GeminiUtilityViewModel(application: Application) : AndroidViewModel(applic
                 "generationConfig",
                 JSONObject().apply {
                     put("temperature", temperatureRange)
+
                     put("maxOutputTokens", safeMaxTokens)
                 }
             )

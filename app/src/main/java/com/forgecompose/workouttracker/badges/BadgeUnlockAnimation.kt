@@ -102,7 +102,10 @@ fun BadgeUnlockAnimation(
     var particles by remember { mutableStateOf(emptyList<Particle>()) }
 
     LaunchedEffect(Unit) {
-        particles = generateParticles(ParticlePalette.GOLDEN, count = 1200)
+        particles = generateParticles(
+            listOf(Color(0xFFFFD700), Color(0xFFFFC107), Color(0xFFFFE082), Color(0xFFFFF8E1), Color(0xFFFFB300), Color.White),
+            count = 1200
+        )
 
         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
 
@@ -384,30 +387,10 @@ fun BadgeUnlockAnimation(
 }
 
 private fun generateParticles(
-    palette: ParticlePalette,
+    colors: List<Color>,
     count: Int = 800
 ): List<Particle> {
     val rng = Random(System.currentTimeMillis())
-
-    val colors = when (palette) {
-        ParticlePalette.CRIMSON -> listOf(
-            Color(0xFFDC143C),
-            Color(0xFFD50000),
-            Color(0xFFFF1744),
-            Color(0xFFB71C1C),
-            Color(0xFFFF8A80),
-            Color.White
-        )
-        ParticlePalette.GOLDEN -> listOf(
-            Color(0xFFFFD700),
-            Color(0xFFFFC107),
-            Color(0xFFFFE082),
-            Color(0xFFFFF8E1),
-            Color(0xFFFFB300),
-            Color.White
-        )
-    }
-
     return List(count) {
         val angle = rng.nextDouble(0.0, 2 * PI)
         val speed = rng.nextFloat() * 1600f + 700f

@@ -80,280 +80,280 @@ enum class ColorThemeApp(val themeName: String, val colors: ColorSchemeAppTheme)
     Ocean(
         "Ocean",
         ColorSchemeAppTheme(
-            primary = Color(0xFF00B4D8),
-            secondary = Color(0xFF0077B6),
-            tertiary = Color(0xFF03045E),
-            background = Color(0xFF020A14)
+            primary = Color(0xFF00D4FF),
+            secondary = Color(0xFF0096C7),
+            tertiary = Color(0xFF023E8A),
+            background = Color(0xFF010D1A)
         )
     ),
     DeepSea(
         "Deep Sea",
         ColorSchemeAppTheme(
-            primary = Color(0xFF48CAE4),
-            secondary = Color(0xFF0077B6),
-            tertiary = Color(0xFF023E8A),
-            background = Color(0xFF01060E)
+            primary = Color(0xFF00FFD2),
+            secondary = Color(0xFF00B4A6),
+            tertiary = Color(0xFF006D77),
+            background = Color(0xFF010C0B)
         )
     ),
     Frost(
         "Frost",
         ColorSchemeAppTheme(
-            primary = Color(0xFF80ED99),
-            secondary = Color(0xFF57CC99),
-            tertiary = Color(0xFF22577A),
-            background = Color(0xFF051014)
+            primary = Color(0xFFB8F0FF),
+            secondary = Color(0xFF5BC0DE),
+            tertiary = Color(0xFF1A6B8A),
+            background = Color(0xFF040E14)
         )
     ),
     Forest(
         "Forest",
         ColorSchemeAppTheme(
-            primary = Color(0xFF95D5B2),
-            secondary = Color(0xFF40916C),
-            tertiary = Color(0xFF1B4332),
-            background = Color(0xFF050F08)
+            primary = Color(0xFF52D468),
+            secondary = Color(0xFF2A9D4E),
+            tertiary = Color(0xFF1A4731),
+            background = Color(0xFF030D06)
         )
     ),
     Zen(
         "Zen",
         ColorSchemeAppTheme(
-            primary = Color(0xFFA3B18A),
-            secondary = Color(0xFF588157),
-            tertiary = Color(0xFF344E41),
-            background = Color(0xFF0B100C)
+            primary = Color(0xFFB8C9A3),
+            secondary = Color(0xFF8FAF72),
+            tertiary = Color(0xFF4D6B3E),
+            background = Color(0xFF0B100A)
         )
     ),
     Sunset(
         "Sunset",
         ColorSchemeAppTheme(
-            primary = Color(0xFFFF9E00),
-            secondary = Color(0xFFFF6D00),
-            tertiary = Color(0xFF9D0208),
-            background = Color(0xFF110202)
+            primary = Color(0xFFFFB627),
+            secondary = Color(0xFFFF6B35),
+            tertiary = Color(0xFFCC3300),
+            background = Color(0xFF110400)
         )
     ),
     Ember(
         "Ember",
         ColorSchemeAppTheme(
-            primary = Color(0xFFFAA307),
-            secondary = Color(0xFFF48C06),
-            tertiary = Color(0xFFDC2F02),
-            background = Color(0xFF120300)
+            primary = Color(0xFFFFC107),
+            secondary = Color(0xFFFF6D00),
+            tertiary = Color(0xFFBF360C),
+            background = Color(0xFF0A0100)
         )
     ),
     Campfire(
         "Campfire",
         ColorSchemeAppTheme(
-            primary = Color(0xFFFFBA08),
-            secondary = Color(0xFFE85D04),
-            tertiary = Color(0xFF6A040F),
-            background = Color(0xFF0F0400)
+            primary = Color(0xFFFFEB3B),
+            secondary = Color(0xFFFF5722),
+            tertiary = Color(0xFF7B2D00),
+            background = Color(0xFF090200)
         )
     ),
     Void(
         "Void",
         ColorSchemeAppTheme(
-            primary = Color(0xFFE0E1DD),
-            secondary = Color(0xFF778DA9),
-            tertiary = Color(0xFF415A77),
-            background = Color(0xFF0D131A)
+            primary = Color(0xFFE8EDF2),
+            secondary = Color(0xFF8BA7BF),
+            tertiary = Color(0xFF3D5A73),
+            background = Color(0xFF080D12)
         )
     ),
     Midnight(
         "Midnight",
         ColorSchemeAppTheme(
-            primary = Color(0xFF9D4EDD),
-            secondary = Color(0xFF5A189A),
-            tertiary = Color(0xFF240046),
-            background = Color(0xFF0A0014)
+            primary = Color(0xFFBB86FC),
+            secondary = Color(0xFF7C3AED),
+            tertiary = Color(0xFF3B0764),
+            background = Color(0xFF07000F)
         )
     ),
     Twilight(
         "Twilight",
         ColorSchemeAppTheme(
-            primary = Color(0xFFBDE0FE),
-            secondary = Color(0xFFA2D2FF),
-            tertiary = Color(0xFFCDB4DB),
-            background = Color(0xFF120D1A)
+            primary = Color(0xFFC7D2FE),
+            secondary = Color(0xFFE879F9),
+            tertiary = Color(0xFF6B21A8),
+            background = Color(0xFF0D0818)
         )
     ),
     Cyber(
         "Cyber",
         ColorSchemeAppTheme(
-            primary = Color(0xFF00FFCC),
+            primary = Color(0xFF00FFAA),
             secondary = Color(0xFF00B3FF),
-            tertiary = Color(0xFF7A00FF),
-            background = Color(0xFF050510)
+            tertiary = Color(0xFF4400CC),
+            background = Color(0xFF03020D)
         )
     ),
     Synthwave(
         "Synthwave",
         ColorSchemeAppTheme(
-            primary = Color(0xFFFF00FF),
-            secondary = Color(0xFF00FFFF),
-            tertiary = Color(0xFF330066),
-            background = Color(0xFF0A0012)
+            primary = Color(0xFFFF2D78),
+            secondary = Color(0xFFBF00FF),
+            tertiary = Color(0xFF2D0066),
+            background = Color(0xFF08000F)
         )
     ),
     Retro(
         "Retro",
         ColorSchemeAppTheme(
-            primary = Color(0xFFF4A261),
-            secondary = Color(0xFFE76F51),
+            primary = Color(0xFFFFBF00),
+            secondary = Color(0xFFE85D04),
             tertiary = Color(0xFF2A9D8F),
-            background = Color(0xFF141A1C)
+            background = Color(0xFF111411)
         )
     ),
     Noir(
         "Noir",
         ColorSchemeAppTheme(
             primary = Color(0xFFFFFFFF),
-            secondary = Color(0xFF888888),
-            tertiary = Color(0xFF333333),
+            secondary = Color(0xFFAAAAAA),
+            tertiary = Color(0xFF555555),
             background = Color(0xFF000000)
         )
     ),
     Ink(
         "Ink",
         ColorSchemeAppTheme(
-            primary = Color(0xFFF8F9FA),
-            secondary = Color(0xFF6C757D),
-            tertiary = Color(0xFF343A40),
-            background = Color(0xFF111315)
+            primary = Color(0xFFF5F0E8),
+            secondary = Color(0xFF8D99AE),
+            tertiary = Color(0xFF3D4452),
+            background = Color(0xFF0E0F11)
         )
     ),
     Slate(
         "Slate",
         ColorSchemeAppTheme(
-            primary = Color(0xFF94A1B2),
-            secondary = Color(0xFF72757E),
+            primary = Color(0xFFAEC6CF),
+            secondary = Color(0xFF708090),
             tertiary = Color(0xFF2CB67D),
-            background = Color(0xFF16161A)
+            background = Color(0xFF0E1117)
         )
     ),
     Storm(
         "Storm",
         ColorSchemeAppTheme(
-            primary = Color(0xFF8E9AAF),
-            secondary = Color(0xFFCBC0D3),
-            tertiary = Color(0xFFEFD3D7),
-            background = Color(0xFF181A20)
+            primary = Color(0xFFB0C4D8),
+            secondary = Color(0xFF7E9CB5),
+            tertiary = Color(0xFF6247AA),
+            background = Color(0xFF0A0D12)
         )
     ),
     Mint(
         "Mint",
         ColorSchemeAppTheme(
-            primary = Color(0xFF74C69D),
-            secondary = Color(0xFF40916C),
-            tertiary = Color(0xFF1B4332),
-            background = Color(0xFF07140B)
+            primary = Color(0xFF3DFFC0),
+            secondary = Color(0xFF00C896),
+            tertiary = Color(0xFF006D58),
+            background = Color(0xFF010D09)
         )
     ),
     OldPaper(
         "Old Paper",
         ColorSchemeAppTheme(
-            primary = Color(0xFFD4A373),
-            secondary = Color(0xFFFAEDCD),
-            tertiary = Color(0xFFFEFAE0),
-            background = Color(0xFF2C241B)
+            primary = Color(0xFFE8C47A),
+            secondary = Color(0xFFC4976A),
+            tertiary = Color(0xFF7A5C3A),
+            background = Color(0xFF1A140D)
         )
     ),
     Coffee(
         "Coffee",
         ColorSchemeAppTheme(
-            primary = Color(0xFFD4A373),
-            secondary = Color(0xFFCCD5AE),
-            tertiary = Color(0xFFE9EDC9),
-            background = Color(0xFF1A1410)
+            primary = Color(0xFFD4956A),
+            secondary = Color(0xFF8B5E3C),
+            tertiary = Color(0xFF4A2C1A),
+            background = Color(0xFF0E0905)
         )
     ),
     Vampire(
         "Vampire",
         ColorSchemeAppTheme(
-            primary = Color(0xFFFF0000),
-            secondary = Color(0xFF8B0000),
-            tertiary = Color(0xFF4A0000),
-            background = Color(0xFF0A0000)
+            primary = Color(0xFFFF1A1A),
+            secondary = Color(0xFF990000),
+            tertiary = Color(0xFF3D0000),
+            background = Color(0xFF080000)
         )
     ),
     PastelNight(
         "Pastel Night",
         ColorSchemeAppTheme(
-            primary = Color(0xFFBDB2FF),
-            secondary = Color(0xFFFFC6FF),
-            tertiary = Color(0xFF9BF6FF),
-            background = Color(0xFF100F1A)
+            primary = Color(0xFFCFB7FF),
+            secondary = Color(0xFFFFAFD2),
+            tertiary = Color(0xFF7FDDFF),
+            background = Color(0xFF0C0A14)
         )
     ),
     Neon(
         "Neon",
         ColorSchemeAppTheme(
             primary = Color(0xFF39FF14),
-            secondary = Color(0xFFFF073A),
-            tertiary = Color(0xFF001EFF),
-            background = Color(0xFF050505)
+            secondary = Color(0xFFFF0090),
+            tertiary = Color(0xFF0000FF),
+            background = Color(0xFF020202)
         )
     ),
     Galaxy(
         "Galaxy",
         ColorSchemeAppTheme(
-            primary = Color(0xFFB388EB),
-            secondary = Color(0xFFF7AEF8),
-            tertiary = Color(0xFF8093F1),
-            background = Color(0xFF080016)
+            primary = Color(0xFFD4A8FF),
+            secondary = Color(0xFFF875AA),
+            tertiary = Color(0xFF4D6DFF),
+            background = Color(0xFF050008)
         )
     ),
     Abyss(
         "Abyss",
         ColorSchemeAppTheme(
-            primary = Color(0xFF00FFB2),
-            secondary = Color(0xFF00A2FF),
-            tertiary = Color(0xFF002766),
-            background = Color(0xFF00050A)
+            primary = Color(0xFF00FFE5),
+            secondary = Color(0xFF00BFFF),
+            tertiary = Color(0xFF00174D),
+            background = Color(0xFF000309)
         )
     ),
     Volcano(
         "Volcano",
         ColorSchemeAppTheme(
-            primary = Color(0xFFFF3300),
-            secondary = Color(0xFFFF9900),
-            tertiary = Color(0xFF990000),
-            background = Color(0xFF0F0000)
+            primary = Color(0xFFFF4500),
+            secondary = Color(0xFFFF8C00),
+            tertiary = Color(0xFF660000),
+            background = Color(0xFF080000)
         )
     ),
     Aurora(
         "Aurora",
         ColorSchemeAppTheme(
-            primary = Color(0xFF00FFA3),
-            secondary = Color(0xFF00E1FF),
-            tertiary = Color(0xFF9D00FF),
-            background = Color(0xFF020914)
+            primary = Color(0xFF00FF88),
+            secondary = Color(0xFF00D4E8),
+            tertiary = Color(0xFF7C00E8),
+            background = Color(0xFF010712)
         )
     ),
     Matrix(
         "Matrix",
         ColorSchemeAppTheme(
             primary = Color(0xFF00FF41),
-            secondary = Color(0xFF008F11),
-            tertiary = Color(0xFF003B00),
-            background = Color(0xFF000500)
+            secondary = Color(0xFF00CC33),
+            tertiary = Color(0xFF005500),
+            background = Color(0xFF000200)
         )
     ),
     Lavender(
         "Lavender",
         ColorSchemeAppTheme(
-            primary = Color(0xFFD8B4E2),
-            secondary = Color(0xFFAFA2FF),
-            tertiary = Color(0xFF7E78D2),
-            background = Color(0xFF0F0B1E)
+            primary = Color(0xFFE0AAFF),
+            secondary = Color(0xFF9D4EDD),
+            tertiary = Color(0xFF4A0E8F),
+            background = Color(0xFF0A0614)
         )
     ),
     Gold(
         "Gold",
         ColorSchemeAppTheme(
             primary = Color(0xFFFFD700),
-            secondary = Color(0xFFDAA520),
-            tertiary = Color(0xFFB8860B),
-            background = Color(0xFF141000)
+            secondary = Color(0xFFC9960C),
+            tertiary = Color(0xFF7A5800),
+            background = Color(0xFF0C0900)
         )
     ),
     Custom(

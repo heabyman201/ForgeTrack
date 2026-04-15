@@ -76,9 +76,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
@@ -114,7 +111,6 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
@@ -134,115 +130,16 @@ import kotlin.math.sign
 data class TaskbarItem(
     val route: String,
     val icon: ImageVector,
-    val label: String,
+    val label: String = "",
     val id: String = route
 )
-
-private fun taskbarLabelForRoute(route: String): String = when (route) {
-    "HomeScreen" -> "Home"
-    "WorkoutSelector" -> "Plan"
-    "MuscleGroup" -> "Muscles"
-    "UserProfile" -> "Profile"
-    else -> route
-}
-
-@Composable
-private fun NativeTaskbar(
-    navController: NavController,
-    currentRoute: String?,
-    backgroundColor: Color,
-    primaryColor: Color,
-    iconAlpha: Float,
-    taskbarCornerRadius: Dp,
-    taskbarHaptics: TaskbarHaptics
-) {
-    val containerShape = remember(taskbarCornerRadius) { RoundedCornerShape(taskbarCornerRadius) }
-    val items = remember {
-        listOf(
-            TaskbarItem("HomeScreen", Icons.Filled.Home, taskbarLabelForRoute("HomeScreen")),
-            TaskbarItem("WorkoutSelector", Icons.Filled.AddCircle, taskbarLabelForRoute("WorkoutSelector")),
-            TaskbarItem("MuscleGroup", Icons.Filled.FitnessCenter, taskbarLabelForRoute("MuscleGroup")),
-            TaskbarItem("UserProfile", Icons.Filled.Person, taskbarLabelForRoute("UserProfile"))
-        )
-    }
-
-    Box(
-        modifier = Modifier
-            .padding(horizontal = 10.dp, vertical = 6.dp)
-            .navigationBarsPadding()
-            .imePadding()
-            .fillMaxWidth()
-            .clip(containerShape)
-            .background(
-                Brush.verticalGradient(
-                    listOf(
-                        colorLerp(backgroundColor, Color.Black, 0.12f),
-                        colorLerp(backgroundColor, Color.Black, 0.26f)
-                    )
-                )
-            )
-            .border(
-                width = 1.dp,
-                brush = Brush.verticalGradient(
-                    listOf(
-                        Color.White.copy(alpha = 0.16f),
-                        Color.White.copy(alpha = 0.05f)
-                    )
-                ),
-                shape = containerShape
-            )
-    ) {
-        NavigationBar(
-            modifier = Modifier.fillMaxWidth(),
-            containerColor = Color.Transparent,
-            tonalElevation = 0.dp
-        ) {
-            items.forEach { item ->
-                val selected = currentRoute == item.route
-                NavigationBarItem(
-                    selected = selected,
-                    onClick = {
-                        taskbarHaptics.navTap(item.route)
-                        if (selected) return@NavigationBarItem
-                        navController.navigate(item.route) {
-                            popUpTo(navController.graph.startDestinationId)
-                            launchSingleTop = true
-                        }
-                    },
-                    icon = {
-                        Icon(
-                            imageVector = item.icon,
-                            contentDescription = item.label
-                        )
-                    },
-                    label = {
-                        Text(
-                            text = item.label,
-                            fontSize = 11.sp,
-                            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
-                            maxLines = 1
-                        )
-                    },
-                    alwaysShowLabel = true,
-                    colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = Color.White,
-                        selectedTextColor = Color.White,
-                        unselectedIconColor = Color.White.copy(alpha = iconAlpha * 0.82f),
-                        unselectedTextColor = Color.White.copy(alpha = 0.62f),
-                        indicatorColor = primaryColor.copy(alpha = 0.22f)
-                    )
-                )
-            }
-        }
-    }
-}
 
 private class TaskbarHaptics(
     context: Context,
     private val fallback: HapticFeedback
 ) {
     private val appContext = context.applicationContext
-    private val vibrator: Vibrator? by lazy(LazyThreadSafetyMode.NONE) {
+    private val vibrator: Vibrator? by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             appContext.getSystemService(VibratorManager::class.java)?.defaultVibrator
         } else {
@@ -385,7 +282,6 @@ fun FloatingTaskbar(
     val primaryColor = theme.primary
     val secondaryColor = theme.secondary
     val backgroundColor = theme.background
-    val taskbarCornerRadius = if (cornerRadius > 18.dp) 18.dp else cornerRadius
 
     val animationsEnabled = performanceOptions.taskbarAnimations
     val taskbarBlurRadius = if (performanceOptions.blurEnabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) 8.dp else 0.dp
@@ -410,7 +306,7 @@ fun FloatingTaskbar(
                 var showStopConfirm by remember { mutableStateOf(false) }
                 val t = 0f
                 val heightAnim = 80.dp * (1f - t) + 260.dp * t
-                val radiusAnim = taskbarCornerRadius * (1f - 0.35f * t)
+                val radiusAnim = cornerRadius * (1f - 0.6f * t)
                 val containerShape = RoundedCornerShape(radiusAnim)
                 val cornerRpx = with(density) { radiusAnim.toPx() }
                 var neonPhase by remember { mutableStateOf(0f) }
@@ -427,7 +323,7 @@ fun FloatingTaskbar(
                 }
                     Box(
                         modifier = Modifier
-                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                            .padding(horizontal = 16.dp, vertical = 10.dp)
                             .navigationBarsPadding()
                             .imePadding()
                             .fillMaxWidth()
@@ -571,35 +467,550 @@ fun FloatingTaskbar(
                 var isDismissedByUser by remember { mutableStateOf(false) }
                 val offsetY = remember { Animatable(0f) }
                 val scope = rememberCoroutineScope()
-                val buttonSize = 56.dp
+                val buttonSize = 44.dp
                 val navBackStackEntry by navController.currentBackStackEntryAsState()
                 val currentRoute = navBackStackEntry?.destination?.route
                 val haptic = LocalHapticFeedback.current
                 val taskbarHaptics = rememberTaskbarHaptics(ctx, haptic)
 
-                AnimatedVisibility(
-                    visible = baseIsVisible,
-                    enter = if (animationsEnabled)
-                        slideInVertically(initialOffsetY = { it }, animationSpec = spring(0.8f, Spring.StiffnessLow)) + fadeIn(tween(320))
-                    else fadeIn(tween(0)),
-                    exit = if (animationsEnabled)
-                        fadeOut(tween(220, easing = CubicBezierEasing(0.4f, 0f, 0.2f, 1f)))
-                    else fadeOut(tween(0))
-                ) {
-                    NativeTaskbar(
-                        navController = navController,
-                        currentRoute = currentRoute,
-                        backgroundColor = backgroundColor,
-                        primaryColor = primaryColor,
-                        iconAlpha = iconAlpha,
-                        taskbarCornerRadius = taskbarCornerRadius,
-                        taskbarHaptics = taskbarHaptics
-                    )
-                }
-                return@AnimatedContent
+                Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.BottomCenter) {
+                    AnimatedVisibility(
+                        visible = baseIsVisible && !isDismissedByUser,
+                        enter = if (animationsEnabled)
+                            slideInVertically(initialOffsetY = { it }, animationSpec = spring(0.8f, Spring.StiffnessLow)) + fadeIn(tween(400))
+                        else fadeIn(tween(0)),
+                        exit = if (animationsEnabled) fadeOut(tween(450, easing = CubicBezierEasing(0.4f, 0f, 0.2f, 1f))) else fadeOut(tween(0))
+                    ) {
+                        val prefs = remember { ctx.getSharedPreferences("taskbar_prefs", Context.MODE_PRIVATE) }
+                        val allItemsMap = remember {
+                            mapOf(
+                                "HomeScreen" to (Icons.Filled.Home to "Home"),
+                                "WorkoutSelector" to (Icons.Filled.AddCircle to "Start"),
+                                "MuscleGroup" to (Icons.Filled.FitnessCenter to "Muscles"),
+                                "UserProfile" to (Icons.Filled.Person to "Profile")
+                            )
+                        }
 
+                        val items = remember { mutableStateListOf<TaskbarItem>() }
 
+                        LaunchedEffect(Unit) {
+                            val savedOrder = prefs.getString("order", null)
+                            if (savedOrder != null) {
+                                val keys = savedOrder.split(",")
+                                val orderedItems = keys.mapNotNull { key ->
+                                    allItemsMap[key]?.let { (icon, label) -> TaskbarItem(key, icon, label) }
                                 }
+                                if (orderedItems.size == 4) {
+                                    items.clear()
+                                    items.addAll(orderedItems)
+                                } else {
+                                    items.clear()
+                                    allItemsMap.forEach { (k, v) -> items.add(TaskbarItem(k, v.first, v.second)) }
+                                }
+                            } else {
+                                items.clear()
+                                allItemsMap.forEach { (k, v) -> items.add(TaskbarItem(k, v.first, v.second)) }
+                            }
+                        }
+
+                        val containerShape = remember(cornerRadius) { RoundedCornerShape(cornerRadius) }
+                        val accent = primaryColor
+                        val pos = remember { Animatable(Offset.Zero, Offset.VectorConverter) }
+                        val squish = remember { Animatable(1f) }
+                        val skew = remember { Animatable(0f) }
+                        val sharedInteraction = remember { MutableInteractionSource() }
+                        val isPressed by sharedInteraction.collectIsPressedAsState()
+
+                        val routeOrder = items.map { it.route }
+
+                        fun routeIndex(r: String?) = routeOrder.indexOf(r).let { if (it >= 0) it else 1 }
+                        var prevRoute by remember { mutableStateOf(currentRoute) }
+                        LaunchedEffect(currentRoute) {
+                            if (animationsEnabled) {
+                                val from = routeIndex(prevRoute)
+                                val to = routeIndex(currentRoute)
+                                val dir = (to - from).coerceIn(-1, 1)
+
+
+                                val velocity = 480f * dir
+                                val tiltForce = 0.035f * dir
+                                val kickBack = 14f * dir
+
+
+                                pos.snapTo(Offset(-kickBack, 0f))
+                                skew.snapTo(tiltForce)
+                                squish.snapTo(0.975f)
+
+                                launch {
+                                    pos.animateTo(
+                                        targetValue = Offset.Zero,
+
+                                        animationSpec = spring(
+                                            dampingRatio = 0.92f,
+                                            stiffness = 220f
+                                        ),
+                                        initialVelocity = Offset(velocity, 0f)
+                                    )
+                                }
+                                launch {
+                                    skew.animateTo(
+                                        targetValue = 0f,
+
+                                        animationSpec = spring(
+                                            dampingRatio = 0.92f,
+                                            stiffness = 240f
+                                        )
+                                    )
+                                }
+                                launch {
+                                    squish.animateTo(
+                                        targetValue = 1f,
+                                        animationSpec = spring(
+                                            dampingRatio = 0.9f,
+                                            stiffness = 260f
+                                        )
+                                    )
+                                }
+                            } else {
+                                pos.snapTo(Offset.Zero)
+                                skew.snapTo(0f)
+                                squish.snapTo(1f)
+                            }
+                            prevRoute = currentRoute
+                        }
+                        val animationScope = rememberCoroutineScope()
+                        val pressedProgress = remember { Animatable(0f) }
+                        LaunchedEffect(isPressed) {
+                            val target = if (isPressed) 1f else 0f
+                            if (animationsEnabled) animationScope.launch { pressedProgress.animateTo(target, spring(0.9f, Spring.StiffnessLow)) } else pressedProgress.snapTo(target)
+                        }
+                        var boxSize by remember { mutableStateOf(IntSize.Zero) }
+                        val density2 = LocalDensity.current
+                        val cornerRpx2 = with(density2) { cornerRadius.toPx() }
+
+                        val borderColor = Color.White.copy(alpha = 0.08f)
+
+                        var dragPreviewIndex by remember { mutableStateOf<Int?>(null) }
+                        var dragProgress by remember { mutableStateOf(0f) }
+
+                        var draggingItemIndex by remember { mutableStateOf<Int?>(null) }
+                        var draggingItemOffset by remember { mutableStateOf(0f) }
+
+                        val infiniteTransition = rememberInfiniteTransition(label = "jiggle")
+                        val jiggleRotation by infiniteTransition.animateFloat(
+                            initialValue = -1.1f,
+                            targetValue = 1.1f,
+                            animationSpec = infiniteRepeatable(
+                                animation = tween(180, easing = LinearEasing),
+                                repeatMode = RepeatMode.Reverse
+                            ),
+                            label = "rotation"
+                        )
+
+                        val isReordering = draggingItemIndex != null
+                        val containerBorderColor by animateColorAsState(
+                            if (isReordering) primaryColor else Color(0x26FFFFFF),
+                            label = "border"
+                        )
+
+                        Box(
+                            modifier = Modifier
+                                .padding(horizontal = 16.dp, vertical = 10.dp)
+                                .navigationBarsPadding()
+                                .imePadding()
+                                .fillMaxWidth()
+                                .height(80.dp)
+                                .onGloballyPositioned { boxSize = it.size }
+                                .graphicsLayer { translationY = offsetY.value }
+                                .pointerInput(Unit) {
+                                    detectDragGestures(
+                                        onDragEnd = {
+                                            scope.launch {
+                                                val threshold = boxSize.height * 0.6f
+                                                if (offsetY.value > threshold) {
+                                                    offsetY.animateTo(boxSize.height * 1.5f, if (animationsEnabled) spring(0.85f, Spring.StiffnessLow) else tween(0))
+                                                    isDismissedByUser = true
+                                                    offsetY.snapTo(0f)
+                                                } else {
+                                                    offsetY.animateTo(0f, if (animationsEnabled) spring(dampingRatio = 0.8f, stiffness = Spring.StiffnessLow) else tween(0))
+                                                }
+                                            }
+                                        }
+                                    ) { change, dragAmount ->
+                                        change.consume()
+                                        scope.launch { offsetY.snapTo((offsetY.value + dragAmount.y).coerceAtLeast(0f)) }
+                                    }
+                                }
+                        ) {
+                            Box(
+                            modifier = Modifier
+                                .matchParentSize()
+                                .clip(containerShape)
+                                .background(
+                                    colorLerp(
+                                        backgroundColor,
+                                        Color.Black,
+                                        0.32f
+                                    )
+                                )
+                                .then(if (taskbarBlurRadius > 0.dp) Modifier.blur(taskbarBlurRadius) else Modifier)
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .matchParentSize()
+                                    .clip(containerShape)
+                                    .indication(sharedInteraction, null)
+                                    .graphicsLayer {
+                                        translationX = pos.value.x
+                                        translationY = pos.value.y
+                                        val s = squish.value
+                                        val baseScaleX = 1f + (s - 1f) * 1.2f
+                                        val baseScaleY = 1f - (s - 1f) * 0.7f
+                                        val p = pressedProgress.value
+                                        val pressScale = lerp(1f, 0.98f, p)
+                                        scaleX = baseScaleX * pressScale
+                                        scaleY = baseScaleY * pressScale
+                                        rotationZ = skew.value * 6f
+                                        compositingStrategy = CompositingStrategy.Offscreen
+                                        clip = true
+                                        shadowElevation = 0f
+                                    }
+                                    .drawWithCache {
+                                        val bg = Brush.verticalGradient(
+                                            listOf(
+                                                colorLerp(backgroundColor, Color.Black, 0.18f),
+                                                colorLerp(backgroundColor, Color.Black, 0.38f)
+                                            )
+                                        )
+                                        val accentWash = Brush.horizontalGradient(
+                                            listOf(
+                                                secondaryColor.copy(alpha = if (isReordering) 0.08f else 0.03f),
+                                                primaryColor.copy(alpha = if (isReordering) 0.06f else 0.02f),
+                                                Color.Transparent
+                                            )
+                                        )
+                                        val border = Brush.verticalGradient(
+                                            listOf(
+                                                containerBorderColor.copy(alpha = if (isReordering) 0.55f else 0.20f),
+                                                Color.White.copy(alpha = 0.03f)
+                                            )
+                                        )
+                                        onDrawBehind {
+                                            drawRoundRect(brush = bg, cornerRadius = CornerRadius(cornerRpx2, cornerRpx2))
+                                            drawRoundRect(brush = accentWash, cornerRadius = CornerRadius(cornerRpx2, cornerRpx2))
+                                            drawRoundRect(brush = border, style = Stroke(width = if(isReordering) 2.dp.toPx() else 1.dp.toPx()), cornerRadius = CornerRadius(cornerRpx2, cornerRpx2))
+                                        }
+                                    }
+                            ) {
+                                val pillRadius = 22.dp
+                                Row(
+                                    modifier = Modifier
+                                        .matchParentSize()
+                                        .clip(containerShape)
+                                        .border(width = 0.5.dp, color = borderColor, shape = RoundedCornerShape(32.dp))
+                                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    items.forEachIndexed { index, item ->
+                                        key(item.id) {
+                                            val route = item.route
+                                            val icon = item.icon
+                                            val selected = currentRoute == route
+                                            val glowTarget by animateFloatAsState(targetValue = if (selected) 1f else 0f, animationSpec = if (animationsEnabled) tween(260, easing = CubicBezierEasing(0.2f, 0.8f, 0.2f, 1f)) else tween(0), label = "")
+                                            val baseScale by animateFloatAsState(targetValue = if (selected) 1.025f else 1f, animationSpec = if (animationsEnabled) spring(0.88f, Spring.StiffnessLow) else tween(0), label = "")
+                                            val pressSquish by animateFloatAsState(targetValue = if (selected && isPressed) 0.985f else 1f, animationSpec = if (animationsEnabled) spring(0.85f, Spring.StiffnessMedium) else tween(0), label = "")
+                                            val burst = remember(route) { Animatable(0f) }
+
+                                            val isTargetPreview = dragPreviewIndex == index
+                                            val isCurrentSelectedPreviewing = selected && dragPreviewIndex != null
+                                            val extraScaleTarget = if (isTargetPreview) 1f + 0.22f * dragProgress else 1f
+                                            val extraScaleSelected = if (isCurrentSelectedPreviewing && selected) 1f + 0.1f * dragProgress else 1f
+
+                                            val isBeingDragged = draggingItemIndex == index
+                                            val reorderScale by animateFloatAsState(if (isBeingDragged) 1.12f else 1f, label = "reorderScale")
+                                            val reorderOffset = if (isBeingDragged) draggingItemOffset else 0f
+
+                                            val rotation = if (isReordering && !isBeingDragged) jiggleRotation else 0f
+
+                                            Column(
+                                                modifier = Modifier
+                                                    .weight(1f)
+                                                    .padding(horizontal = 4.dp)
+                                                    .zIndex(if (isBeingDragged) 10f else 0f)
+                                                    .offset { IntOffset(reorderOffset.roundToInt(), 0) }
+                                                    .graphicsLayer {
+                                                        val burstScale = 1f + 0.07f * burst.value
+                                                        val s = (baseScale * pressSquish) * burstScale * extraScaleTarget * extraScaleSelected * reorderScale
+                                                        scaleX = s
+                                                        scaleY = (baseScale / pressSquish) * burstScale * extraScaleTarget * extraScaleSelected * reorderScale
+                                                        shadowElevation = if(isBeingDragged) 12.dp.toPx() else 0f
+                                                        rotationZ = rotation
+                                                    }
+                                                    .pointerInput(Unit) {
+                                                        val densityLocal = this
+                                                        val reorderThreshold = with(densityLocal) { 40.dp.toPx() }
+
+                                                        detectDragGesturesAfterLongPress(
+                                                            onDragStart = {
+                                                                draggingItemIndex = index
+                                                                taskbarHaptics.reorderStart()
+                                                            },
+                                                            onDragEnd = {
+                                                                draggingItemIndex = null
+                                                                draggingItemOffset = 0f
+                                                            },
+                                                            onDragCancel = {
+                                                                draggingItemIndex = null
+                                                                draggingItemOffset = 0f
+                                                            }
+                                                        ) { change, dragAmount ->
+                                                            change.consume()
+                                                            draggingItemOffset += dragAmount.x
+
+                                                            val currentOffset = draggingItemOffset
+                                                            val direction = if (currentOffset > 0) 1 else -1
+
+                                                            if (kotlin.math.abs(currentOffset) > reorderThreshold) {
+                                                                val nextIndex = index + direction
+                                                                if (nextIndex in items.indices) {
+                                                                    val itemToMove = items[index]
+                                                                    items.removeAt(index)
+                                                                    items.add(nextIndex, itemToMove)
+
+                                                                    val newOrder = items.joinToString(",") { it.route }
+                                                                    prefs.edit().putString("order", newOrder).apply()
+
+                                                                    draggingItemIndex = nextIndex
+                                                                    draggingItemOffset = 0f
+                                                                    taskbarHaptics.reorderStep()
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                    .clickable(indication = null, interactionSource = sharedInteraction) {
+                                                        if (selected) return@clickable
+                                                        navController.navigate(route) {
+                                                            popUpTo(navController.graph.startDestinationId)
+                                                            launchSingleTop = true
+                                                        }
+                                                        taskbarHaptics.navTap(route)
+                                                        if (animationsEnabled) {
+                                                            scope.launch {
+                                                                burst.snapTo(1f)
+                                                                burst.animateTo(0f, spring(0.88f, Spring.StiffnessMedium))
+                                                            }
+                                                            scope.launch {
+                                                                val tapNudge = if (route.hashCode() % 2 == 0) 3f else -3f
+                                                                pos.snapTo(Offset(tapNudge, 0f))
+                                                                squish.snapTo(0.992f)
+                                                                skew.snapTo(if (tapNudge >= 0f) 0.012f else -0.012f)
+                                                                launch { pos.animateTo(Offset.Zero, spring(dampingRatio = 0.9f, stiffness = Spring.StiffnessLow)) }
+                                                                launch { squish.animateTo(1f, spring(dampingRatio = 0.9f, stiffness = Spring.StiffnessLow)) }
+                                                                launch { skew.animateTo(0f, spring(dampingRatio = 0.9f, stiffness = Spring.StiffnessLow)) }
+                                                            }
+                                                        }
+                                                    },
+                                                horizontalAlignment = Alignment.CenterHorizontally,
+                                                verticalArrangement = Arrangement.Center
+                                            ) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(buttonSize)
+                                                        .clip(RoundedCornerShape(pillRadius))
+                                                        .background(
+                                                            if (selected)
+                                                                Brush.verticalGradient(
+                                                                    0f to Color.White.copy(alpha = 0.10f),
+                                                                    0.35f to primaryColor.copy(alpha = 0.12f),
+                                                                    1f to secondaryColor.copy(alpha = 0.09f)
+                                                                )
+                                                            else Brush.verticalGradient(0f to Color.Transparent, 1f to Color.Transparent)
+                                                        )
+                                                        .border(
+                                                            width = if (selected) 1.25.dp else 1.dp,
+                                                            brush = if (selected) {
+                                                                Brush.verticalGradient(
+                                                                    listOf(
+                                                                        Color.White.copy(alpha = 0.24f),
+                                                                        primaryColor.copy(alpha = 0.28f)
+                                                                    )
+                                                                )
+                                                            } else Brush.linearGradient(listOf(Color.Transparent, Color.Transparent)),
+                                                            shape = RoundedCornerShape(pillRadius)
+                                                        ),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    Box(
+                                                        Modifier
+                                                            .matchParentSize()
+                                                            .drawWithCache {
+                                                                val r = size.minDimension / 2f
+                                                                val glowRadius = size.width.coerceAtLeast(size.height) * 1.35f
+                                                                val outerGlowRadius = glowRadius * 1.25f
+                                                                val glow = Brush.radialGradient(
+                                                                    listOf(
+                                                                        Color.White.copy(alpha = 0.09f * glowTarget),
+                                                                        accent.copy(alpha = 0.18f * glowTarget),
+                                                                        accent.copy(alpha = 0.08f * glowTarget),
+                                                                        Color.Transparent
+                                                                    ),
+                                                                    center = Offset(size.width / 2f, size.height / 2f),
+                                                                    radius = glowRadius
+                                                                )
+                                                                val outerGlow = Brush.radialGradient(
+                                                                    listOf(
+                                                                        accent.copy(alpha = 0.10f * glowTarget),
+                                                                        accent.copy(alpha = 0.04f * glowTarget),
+                                                                        Color.Transparent
+                                                                    ),
+                                                                    center = Offset(size.width / 2f, size.height / 2f),
+                                                                    radius = outerGlowRadius
+                                                                )
+                                                                val activeStroke = Brush.verticalGradient(
+                                                                    listOf(
+                                                                        primaryColor.copy(alpha = 0.75f * glowTarget),
+                                                                        secondaryColor.copy(alpha = 0.35f * glowTarget)
+                                                                    )
+                                                                )
+                                                                onDrawBehind {
+                                                                    if (selected) {
+                                                                        drawRoundRect(brush = outerGlow, topLeft = Offset.Zero, size = size, cornerRadius = CornerRadius(r, r))
+                                                                        drawRoundRect(brush = glow, topLeft = Offset.Zero, size = size, cornerRadius = CornerRadius(r, r))
+                                                                        drawRoundRect(
+                                                                            brush = activeStroke,
+                                                                            topLeft = Offset(size.width * 0.12f, size.height - 5.dp.toPx()),
+                                                                            size = androidx.compose.ui.geometry.Size(size.width * 0.76f, 2.5.dp.toPx()),
+                                                                            cornerRadius = CornerRadius(999f, 999f)
+                                                                        )
+                                                                    }
+                                                                }
+                                                            }
+                                                    )
+                                                    Icon(
+                                                        imageVector = icon,
+                                                        contentDescription = null,
+                                                        tint = if (selected) Color.White else Color.White.copy(alpha = iconAlpha * 0.82f),
+                                                        modifier = Modifier.size(22.dp)
+                                                    )
+                                                }
+                                                Spacer(modifier = Modifier.height(3.dp))
+                                                Text(
+                                                    text = item.label,
+                                                    fontSize = 9.sp,
+                                                    color = if (selected) Color.White else Color.White.copy(alpha = iconAlpha * 0.65f),
+                                                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                                                    maxLines = 1,
+                                                    style = MaterialTheme.typography.labelSmall
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    AnimatedVisibility(
+                        visible = baseIsVisible && isDismissedByUser && currentRoute == "HomeScreen",
+                        enter = if (animationsEnabled) fadeIn(tween(300, delayMillis = 250)) + scaleIn(spring(0.8f, Spring.StiffnessLow)) else fadeIn(tween(0)),
+                        exit = if (animationsEnabled) fadeOut(tween(350)) + scaleOut(tween(350)) else fadeOut(tween(0))
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .navigationBarsPadding()
+                                .imePadding()
+                                .fillMaxWidth()
+                                .height(80.dp)
+                                .pointerInput(Unit) {
+                                    detectVerticalDragGestures { change, dragAmount ->
+                                        change.consume()
+                                        if (dragAmount < -5) {
+                                            taskbarHaptics.restoreTaskbar()
+                                            isDismissedByUser = false
+                                        }
+                                    }
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            ExtendedFloatingActionButton(
+                                onClick = {
+                                    if (workoutPresets.isNotEmpty()) {
+                                        val suggestedPreset = workoutPresets.random()
+                                        workout.value = suggestedPreset.name
+                                        ctx.startActivity(Intent(ctx, WorkoutActivity::class.java))
+                                        taskbarHaptics.randomWorkoutLaunch()
+                                        isDismissedByUser = false
+                                    }
+                                },
+                                text = { Text("Random Workout") },
+                                icon = { Icon(Icons.Filled.AutoAwesome, contentDescription = "Suggest Workout") },
+                                containerColor = Color.Transparent,
+                                contentColor = Color.White,
+                                elevation = FloatingActionButtonDefaults.elevation(0.dp, 0.dp, 0.dp, 0.dp),
+                                modifier = Modifier
+                                    .clip(FloatingActionButtonDefaults.extendedFabShape)
+                                    .background(
+                                        Brush.horizontalGradient(
+                                            colors = listOf(
+                                                Color.White.copy(alpha = 0.10f),
+                                                secondaryColor.copy(alpha = 0.16f),
+                                                backgroundColor.copy(alpha = 0.92f)
+                                            )
+                                        )
+                                    )
+                                    .border(
+                                        width = 1.dp,
+                                        brush = Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.18f), Color.White.copy(alpha = 0.05f))),
+                                        shape = FloatingActionButtonDefaults.extendedFabShape
+                                    )
+                            )
+                        }
+                    }
+                    AnimatedVisibility(
+                        visible = baseIsVisible && isDismissedByUser && currentRoute != "HomeScreen",
+                        enter = if (animationsEnabled) fadeIn(tween(700, easing = CubicBezierEasing(0.2f, 0.8f, 0.2f, 1f))) else fadeIn(tween(0)),
+                        exit = if (animationsEnabled) fadeOut(tween(400, easing = CubicBezierEasing(0.4f, 0f, 0.2f, 1f))) else fadeOut(tween(0))
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .navigationBarsPadding()
+                                .imePadding()
+                                .fillMaxWidth()
+                                .height(60.dp)
+                                .pointerInput(Unit) {
+                                    detectVerticalDragGestures { change, dragAmount ->
+                                        change.consume()
+                                        if (dragAmount < -5) {
+                                            taskbarHaptics.restoreTaskbar()
+                                            isDismissedByUser = false
+                                        }
+                                    }
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .width(48.dp)
+                                    .height(6.dp)
+                                    .clip(RoundedCornerShape(999.dp))
+                                    .background(
+                                        Brush.verticalGradient(
+                                            listOf(
+                                                Color.White.copy(alpha = 0.24f),
+                                                Color.White.copy(alpha = 0.10f)
+                                            )
+                                        )
+                                    )
+                                    .border(
+                                        width = 0.75.dp,
+                                        color = Color.White.copy(alpha = 0.10f),
+                                        shape = RoundedCornerShape(999.dp)
+                                    )
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }

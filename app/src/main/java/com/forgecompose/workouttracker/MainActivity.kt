@@ -1487,7 +1487,8 @@ fun WorkoutListScreen(
                     introBrush = introBrush,
                     introAlpha = 1f - introProgress,
                     enableWaves = stages.after600ms && shouldAnimateBackdrop,
-                    enableAnimation = stages.after600ms && shouldAnimateBackdrop
+                    enableAnimation = stages.after600ms && shouldAnimateBackdrop,
+                    showSmallOrbs = true
                 )
                 Column(
                     modifier = Modifier
@@ -1750,10 +1751,10 @@ fun WorkoutListScreen(
                                                     verticalAlignment = Alignment.CenterVertically,
                                                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                                                 ) {
-                                                    ExerciseGlyphBadge(
-                                                        workoutName = workoutName,
-                                                        accent = theme.primary
-                                                    )
+//                                                    ExerciseGlyphBadge(
+//                                                        workoutName = workoutName,
+//                                                        accent = theme.primary
+//                                                    )
                                                     Column(
                                                         modifier = Modifier.weight(1f),
                                                         verticalArrangement = Arrangement.spacedBy(6.dp)
@@ -1823,8 +1824,8 @@ fun WorkoutListScreen(
                                                     val chipBackground = if (isFavorite) {
                                                         Brush.horizontalGradient(
                                                             listOf(
-                                                                theme.primary.copy(alpha = 0.95f),
-                                                                theme.secondary.copy(alpha = 0.82f)
+                                                                theme.primary.copy(alpha = 0.6f),
+                                                                theme.secondary.copy(alpha = 0.35f)
                                                             )
                                                         )
                                                     } else {

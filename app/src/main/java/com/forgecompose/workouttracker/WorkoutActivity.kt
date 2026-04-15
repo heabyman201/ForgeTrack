@@ -361,8 +361,10 @@ fun MainScreen(viewModel: WorkoutListViewModel,badgeViewModel: BadgeViewModel) {
     }
 
 
+
+    val navAppearance by AppearanceOptionsManagerAppTheme.flow(context).collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
     NavHost(navController = navController, startDestination = "GoalScreen",
-        modifier = Modifier.background(Color(0xFF0D0404))) {
+        modifier = Modifier.background(navAppearance.colors.background)) {
         composable(
             route = "GoalScreen",
             enterTransition = {
@@ -548,11 +550,11 @@ fun AdviceSection(
             brush = Brush.linearGradient(
                 listOf(
                     appearanceOptions.colors.primary.copy(alpha = 0.4f * glow),
-                    Color(0xFF8B0000).copy(alpha = 0.25f)
+                    appearanceOptions.colors.tertiary.copy(alpha = 0.30f)
                 )
             )
         ),
-        color = Color(0xFF120707).copy(alpha = 0.75f)
+        color = appearanceOptions.colors.background.copy(alpha = 0.75f)
     ) {
         Box(
             modifier = Modifier
@@ -609,8 +611,8 @@ fun AdviceSection(
                         modifier = Modifier
                             .fillMaxWidth()
                             .heightIn(min = 4.dp),
-                        color = Color(0xFF8B0000),
-                        trackColor = Color.Black.copy(alpha = 0.3f)
+                        color = appearanceOptions.colors.primary,
+                        trackColor = appearanceOptions.colors.background.copy(alpha = 0.4f)
                     )
                 }
             }
@@ -850,7 +852,8 @@ fun DistanceProgressTracker(
     modifier: Modifier = Modifier,
     currentDistance: Double,
     goalDistance: Double,
-    hype: Float
+    hype: Float,
+    theme: ColorSchemeAppTheme
 ) {
 
     val progress = remember(currentDistance, goalDistance) {
@@ -877,9 +880,9 @@ fun DistanceProgressTracker(
     )
 
 
-    val progressStartColor = lerp(Color(0xFFB71C1C), Color(0xFFFF5A5A), hype)
-    val progressEndColor = lerp(Color(0xFF8B0000), Color(0xFFD32F2F), hype)
-    val flagColor = Color(0xFFDC143C)
+    val progressStartColor = lerp(theme.secondary, theme.primary, hype)
+    val progressEndColor = lerp(theme.tertiary, theme.secondary, hype)
+    val flagColor = theme.primary
 
     Surface(
         modifier = modifier
@@ -2127,7 +2130,8 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                         DistanceProgressTracker(
                             currentDistance = currentDistance.value,
                             goalDistance = GoalDistance.value,
-                            hype = hype
+                            hype = hype,
+                            theme = theme
                         )
                         Spacer(modifier = Modifier.height(10.dp))
                         WorkoutLiveHeartRateCard(
@@ -2183,8 +2187,8 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
                                 ).copy(alpha = (0.70f + 0.22f * hype).coerceIn(0f, 1f))
                             } else {
                                 lerp(
-                                    theme.tertiary,
-                                    theme.secondary,
+                                    theme.background,
+                                    theme.background,
                                     riseEffectProgress
                                 ).copy(alpha = (0.45f + 0.30f * hype).coerceIn(0f, 1f))
                             },
@@ -3188,23 +3192,23 @@ private fun DrawScope.drawCircularProgress(
 
 
 @Composable
-private fun distancePillBackground(): Brush = Brush.linearGradient(
+private fun distancePillBackground(theme: ColorSchemeAppTheme): Brush = Brush.linearGradient(
     listOf(
-        Crimson.copy(alpha = 0.85f),
-        Crimson.copy(alpha = 0.65f)
+        theme.secondary.copy(alpha = 0.85f),
+        theme.primary.copy(alpha = 0.55f)
     )
 )
 
 @Composable
-private fun distanceIconBackground(pressed: Boolean): Brush {
-    val start = if (pressed) Crimson.copy(alpha = 0.25f) else Crimson.copy(alpha = 0.20f)
-    val end = if (pressed) Crimson.copy(alpha = 0.12f) else Crimson.copy(alpha = 0.10f)
+private fun distanceIconBackground(pressed: Boolean, theme: ColorSchemeAppTheme): Brush {
+    val start = if (pressed) theme.primary.copy(alpha = 0.25f) else theme.primary.copy(alpha = 0.12f)
+    val end = if (pressed) theme.primary.copy(alpha = 0.12f) else theme.secondary.copy(alpha = 0.08f)
     return Brush.radialGradient(listOf(start, end))
 }
 
 @Composable
-private fun distanceIconTint(pressed: Boolean): Color {
-    val target = if (pressed) Crimson.copy(alpha = 1f) else Crimson.copy(alpha = 0.9f)
+private fun distanceIconTint(pressed: Boolean, theme: ColorSchemeAppTheme): Color {
+    val target = if (pressed) theme.primary else theme.primary.copy(alpha = 0.85f)
     val animated by animateColorAsState(targetValue = target, animationSpec = tween(160, easing = FastOutSlowInEasing), label = "distanceIconTint")
     return animated
 }
@@ -3215,6 +3219,9 @@ fun DistanceSelector(
     value: Double,
     onValueChange: (Double) -> Unit,
 ) {
+    val context = LocalContext.current
+    val appearanceOptions by AppearanceOptionsManagerAppTheme.flow(context).collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
+    val theme = appearanceOptions.colors
     val haptics = LocalHapticFeedback.current
     val display = remember(value) { String.format("%.1f", value.coerceIn(0.0, 99.9)) }
 
@@ -3253,14 +3260,14 @@ fun DistanceSelector(
                     .size(44.dp)
                     .scale(decScale)
                     .clip(CircleShape)
-                    .border(1.dp, Color.Red.copy(alpha = 0.15f), CircleShape)
-                    .background(distanceIconBackground(decPressed)),
+                    .border(1.dp, theme.primary.copy(alpha = 0.25f), CircleShape)
+                    .background(distanceIconBackground(decPressed, theme)),
                 interactionSource = decInteraction
             ) {
                 Icon(
                     imageVector = Icons.Default.Clear,
                     contentDescription = "Decrement $label",
-                    tint = distanceIconTint(decPressed)
+                    tint = distanceIconTint(decPressed, theme)
                 )
             }
 
@@ -3283,7 +3290,7 @@ fun DistanceSelector(
                     .width(110.dp)
                     .heightIn(min = 56.dp)
                     .clip(CircleShape)
-                    .background(distancePillBackground()),
+                    .background(distancePillBackground(theme)),
                 textStyle = TextStyle(
                     fontSize = 28.sp,
                     fontWeight = FontWeight.Bold,
@@ -3296,9 +3303,9 @@ fun DistanceSelector(
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedContainerColor = Color.Transparent,
                     unfocusedContainerColor = Color.Transparent,
-                    focusedBorderColor = Crimson.copy(alpha = 0.8f),
+                    focusedBorderColor = theme.primary.copy(alpha = 0.85f),
                     unfocusedBorderColor = Color.White.copy(alpha = 0.25f),
-                    cursorColor = Crimson
+                    cursorColor = theme.primary
                 )
             )
 
@@ -3321,14 +3328,14 @@ fun DistanceSelector(
                     .size(44.dp)
                     .scale(incScale)
                     .clip(CircleShape)
-                    .border(1.dp, Color.Red.copy(alpha = 0.15f), CircleShape)
-                    .background(distanceIconBackground(incPressed)),
+                    .border(1.dp, theme.primary.copy(alpha = 0.25f), CircleShape)
+                    .background(distanceIconBackground(incPressed, theme)),
                 interactionSource = incInteraction
             ) {
                 Icon(
                     imageVector = Icons.Default.Add,
                     contentDescription = "Increment $label",
-                    tint = distanceIconTint(incPressed)
+                    tint = distanceIconTint(incPressed, theme)
                 )
             }
         }
@@ -3669,8 +3676,8 @@ fun RowScope.SegmentedButton(
 private fun stepperPillBackground(themeColors: ColorSchemeAppTheme): Brush {
     return Brush.linearGradient(
         listOf(
-            themeColors.secondary.copy(alpha = 0.85f),
-            themeColors.primary.copy(alpha = 0.55f)
+            themeColors.secondary.copy(alpha = 0.35f),
+            themeColors.secondary.copy(alpha = 0.35f)
         )
     )
 }
@@ -4552,7 +4559,7 @@ private fun SetDetailTextField(
             unfocusedContainerColor = Color.Black.copy(alpha = 0.2f),
             focusedLabelColor = Color.White.copy(alpha = 0.7f),
             unfocusedLabelColor = Color.White.copy(alpha = 0.5f),
-            cursorColor = Color(0xFF9BE7FF)
+            cursorColor = Color.White.copy(alpha = 0.8f)
         ),
         textStyle = TextStyle(
             fontSize = 16.sp,
@@ -4587,7 +4594,10 @@ data class WorkoutCompletionSummary(
 )
 
  enum class ParticleType { CIRCLE, SQUARE, SHARD }
- enum class ParticlePalette { CRIMSON, GOLDEN }
+ private val goldenParticleColors = listOf(
+    Color(0xFFFFD700), Color(0xFFFFC107), Color(0xFFFFE082),
+    Color(0xFFFFF8E1), Color(0xFFFFB300), Color.White
+)
 
 @Composable
 fun GoalCompletionAnimation(
@@ -4629,9 +4639,16 @@ fun GoalCompletionAnimation(
 
     LaunchedEffect(Unit) {
         particles = if (prFlags.any) {
-            generateParticles(ParticlePalette.GOLDEN, count = 1100)
+            generateParticles(goldenParticleColors, count = 1100)
         } else {
-            generateParticles(ParticlePalette.CRIMSON, count = 600)
+            generateParticles(
+                listOf(
+                    theme.primary, theme.secondary,
+                    theme.primary.copy(alpha = 0.7f), theme.secondary.copy(alpha = 0.6f),
+                    Color.White, Color.White.copy(alpha = 0.8f)
+                ),
+                count = 600
+            )
         }
 
         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -4737,6 +4754,10 @@ fun GoalCompletionAnimation(
         }
     }
 
+    val backdropOrbs = remember {
+        generateWorkoutBackdropOrbs(count = 8)
+    }
+
     val finishButtonAlpha by animateFloatAsState(
         targetValue = if (showFinishButton) 1f else 0f,
         animationSpec = tween(durationMillis = 350, easing = FastOutSlowInEasing),
@@ -4767,6 +4788,7 @@ fun GoalCompletionAnimation(
         } else {
             Box(modifier = Modifier.fillMaxSize()) {
                 Canvas(modifier = Modifier.fillMaxSize()) {
+                    drawWorkoutBackdropOrbs(backdropOrbs, size, theme)
                     val time = animationTime.value * 2.5f
 
                     if (lightBurst.value > 0f) {
@@ -4881,13 +4903,13 @@ fun GoalCompletionAnimation(
                                     val spikeBrush = if (prFlags.any) {
                                         Brush.linearGradient(listOf(Color(0xFFFFF8E1), Color(0xFFFFD700), Color(0xFFFFB300)))
                                     } else {
-                                        Brush.linearGradient(listOf(Color(0xFFDC143C), Color(0xFF8B0000)))
+                                        Brush.linearGradient(listOf(theme.primary, theme.secondary))
                                     }
 
                                     drawPath(path = spikePath, brush = spikeBrush)
 
                                     drawCircle(
-                                        color = if (prFlags.any) Color(0xFFFFD700) else Color(0xFFFF1744),
+                                        color = if (prFlags.any) Color(0xFFFFD700) else theme.primary,
                                         radius = 3.dp.toPx() * ornamentProgress.value,
                                         center = Offset(endX, endY),
                                         alpha = ornamentProgress.value
@@ -4915,7 +4937,7 @@ fun GoalCompletionAnimation(
                         val crownBrush = if (prFlags.any) {
                             Brush.linearGradient(listOf(Color(0xFFFFF8E1), Color(0xFFFFD700), Color(0xFFFFB300)))
                         } else {
-                            Brush.linearGradient(listOf(Color(0xFFD50000), Color(0xFFDC143C), Color(0xFFB71C1C)))
+                            Brush.linearGradient(listOf(theme.primary, theme.secondary, theme.tertiary))
                         }
 
                         drawPath(path = crownPath, brush = crownBrush)
@@ -4923,7 +4945,7 @@ fun GoalCompletionAnimation(
                         drawPath(
                             path = crownPath,
                             style = Stroke(width = 4.dp.toPx(), join = StrokeJoin.Round),
-                            color = if (prFlags.any) Color(0xFFFFF8E1) else Color(0xFFFF8A80)
+                            color = if (prFlags.any) Color(0xFFFFF8E1) else theme.primary.copy(alpha = 0.65f)
                         )
                     }
                 }
@@ -4997,6 +5019,61 @@ fun GoalCompletionAnimation(
                 }
             }
         }
+    }
+}
+
+private data class WorkoutBackdropOrb(
+    val x: Float,
+    val y: Float,
+    val radius: Float,
+    val alpha: Float
+)
+
+private fun generateWorkoutBackdropOrbs(count: Int): List<WorkoutBackdropOrb> {
+    return List(count) {
+        val topCluster = Random.nextBoolean()
+        val x = Random.nextFloat()
+        val y = if (topCluster) {
+            Random.nextFloat() * 0.42f
+        } else {
+            0.40f + Random.nextFloat() * 0.58f
+        }
+
+        WorkoutBackdropOrb(
+            x = x,
+            y = y.coerceIn(0f, 1f),
+            radius = 120f + Random.nextFloat() * 360f,
+            alpha = 0.08f + Random.nextFloat() * 0.18f
+        )
+    }
+}
+
+private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawWorkoutBackdropOrbs(
+    orbs: List<WorkoutBackdropOrb>,
+    size: Size,
+    theme: ColorSchemeAppTheme
+) {
+    orbs.forEachIndexed { index, orb ->
+        val tint = when (index % 3) {
+            0 -> theme.primary
+            1 -> theme.secondary
+            else -> theme.tertiary
+        }
+        val center = Offset(orb.x * size.width, orb.y * size.height)
+
+        drawCircle(
+            brush = Brush.radialGradient(
+                colors = listOf(
+                    tint.copy(alpha = orb.alpha),
+                    tint.copy(alpha = orb.alpha * 0.45f),
+                    Color.Transparent
+                ),
+                center = center,
+                radius = orb.radius
+            ),
+            center = center,
+            radius = orb.radius
+        )
     }
 }
 
@@ -5134,29 +5211,10 @@ private fun SummaryStatCard(
 }
 
 private fun generateParticles(
-    palette: ParticlePalette,
+    colors: List<Color>,
     count: Int = 600
 ): List<Particle> {
     val rng = Random(System.currentTimeMillis())
-
-    val colors = when (palette) {
-        ParticlePalette.CRIMSON -> listOf(
-            Color(0xFFDC143C),
-            Color(0xFFD50000),
-            Color(0xFFFF1744),
-            Color(0xFFB71C1C),
-            Color(0xFFFF8A80),
-            Color.White
-        )
-        ParticlePalette.GOLDEN -> listOf(
-            Color(0xFFFFD700),
-            Color(0xFFFFC107),
-            Color(0xFFFFE082),
-            Color(0xFFFFF8E1),
-            Color(0xFFFFB300),
-            Color.White
-        )
-    }
 
     return List(count) {
         val angle = rng.nextDouble(0.0, 2 * PI)

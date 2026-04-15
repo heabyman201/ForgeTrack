@@ -507,7 +507,7 @@ fun GoalScreen(navController: NavController, viewModel: WorkoutListViewModel) {
                                     val intensePulse = 0.65f + 0.35f * sin(animationClock * 2 * PI.toFloat() / 8f)
                                     val glowIntensity = 0.7f + 0.3f * sin(animationClock * 2 * PI.toFloat() / 6f)
 
-                                    val containerColor = theme.secondary.copy(alpha = 0.4f + intensePulse * 0.2f)
+                                    val containerColor = theme.background.copy(alpha = 0.4f + intensePulse * 0.2f)
                                     val borderBrush = Brush.linearGradient(
                                         colors = listOf(
                                             theme.primary.copy(alpha = 0.8f + intensePulse * 0.2f),
