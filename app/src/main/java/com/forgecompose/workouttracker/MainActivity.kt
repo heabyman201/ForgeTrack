@@ -1904,6 +1904,7 @@ fun WorkoutListScreen(
                                     allWorkouts = currentState.workouts
                                 )
                             }
+                            Spacer(Modifier.height(100.dp))
                         }
                         is WorkoutListUiState.Error -> {
                             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
