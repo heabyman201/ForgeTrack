@@ -37,10 +37,106 @@ private const val AI_ADVICE_VISIBLE_MS = 8_000L
 private const val SCIENCE_FACT_VISIBLE_MS = 5_000L
 private const val MAX_PROMPT_LEARNED_RULES = 6
 private const val MAX_PROMPT_WORKOUT_RULES = 4
+private const val MAX_INTENT_HISTORY = 5
 private const val GOOGLE_AI_STUDIO_MODEL = "gemini-3.1-flash-lite-preview"
 private const val GEMINI_UTILITY_TAG = "GeminiUtility"
 private const val GOOGLE_AI_STUDIO_ENDPOINT =
     "https://generativelanguage.googleapis.com/v1beta/models/$GOOGLE_AI_STUDIO_MODEL:generateContent"
+
+enum class CoachingIntent(val id: String) {
+    NEXT_EXERCISE("next_exercise"),
+    LAST_FEEDBACK("last_feedback"),
+    PHASE_STRATEGY("phase_strategy"),
+    MOTIVATIONAL("motivational"),
+    RECOVERY_GUIDANCE("recovery"),
+    TECHNIQUE_REFINEMENT("technique");
+
+    companion object {
+        fun fromId(id: String) = entries.firstOrNull { it.id == id } ?: MOTIVATIONAL
+    }
+}
+
+private fun selectCoachingIntentWeighted(
+    contextPrompt: String,
+    state_intentHistory: List<String>,
+    state_intentWins: Map<String, Int>,
+    signalSnapshot: GeminiSignalSnapshot?,
+    workoutPhase: String?
+): CoachingIntent {
+    val isLiveWorkout = contextPrompt.contains("active workout", ignoreCase = true)
+    val recentIds = state_intentHistory.takeLast(2).toSet()
+
+    val weights = CoachingIntent.entries.associateWith { intent ->
+        var w = 1.0f + (state_intentWins[intent.id] ?: 0) * 0.35f
+        if (intent.id in recentIds) w *= 0.12f
+        w
+    }.toMutableMap()
+
+    signalSnapshot?.let { snap ->
+        if (snap.avgInjuryRisk > 0.55f || snap.cautionCount >= 2) {
+            weights[CoachingIntent.RECOVERY_GUIDANCE] = weights[CoachingIntent.RECOVERY_GUIDANCE]!! * 2.6f
+            weights[CoachingIntent.PHASE_STRATEGY] = weights[CoachingIntent.PHASE_STRATEGY]!! * 1.4f
+        }
+        if (snap.recoveryEfficacy > 0.65f && snap.avgLoadScore > 0.6f) {
+            weights[CoachingIntent.NEXT_EXERCISE] = weights[CoachingIntent.NEXT_EXERCISE]!! * 2.1f
+            weights[CoachingIntent.TECHNIQUE_REFINEMENT] = weights[CoachingIntent.TECHNIQUE_REFINEMENT]!! * 1.5f
+        }
+        if (snap.highReadinessCount >= 2) {
+            weights[CoachingIntent.MOTIVATIONAL] = weights[CoachingIntent.MOTIVATIONAL]!! * 1.4f
+        }
+    }
+
+    if (workoutPhase != null) {
+        when {
+            workoutPhase.contains("Peaking", ignoreCase = true) -> {
+                weights[CoachingIntent.NEXT_EXERCISE] = weights[CoachingIntent.NEXT_EXERCISE]!! * 1.9f
+                weights[CoachingIntent.TECHNIQUE_REFINEMENT] = weights[CoachingIntent.TECHNIQUE_REFINEMENT]!! * 1.5f
+            }
+            workoutPhase.contains("Deload", ignoreCase = true) || workoutPhase.contains("Cooling", ignoreCase = true) -> {
+                weights[CoachingIntent.RECOVERY_GUIDANCE] = weights[CoachingIntent.RECOVERY_GUIDANCE]!! * 2.2f
+                weights[CoachingIntent.PHASE_STRATEGY] = weights[CoachingIntent.PHASE_STRATEGY]!! * 1.7f
+            }
+            workoutPhase.contains("Recovering", ignoreCase = true) -> {
+                weights[CoachingIntent.LAST_FEEDBACK] = weights[CoachingIntent.LAST_FEEDBACK]!! * 1.7f
+                weights[CoachingIntent.PHASE_STRATEGY] = weights[CoachingIntent.PHASE_STRATEGY]!! * 1.3f
+            }
+        }
+    }
+
+    if (isLiveWorkout) {
+        weights[CoachingIntent.NEXT_EXERCISE] = 0f
+        weights[CoachingIntent.PHASE_STRATEGY] = 0f
+        weights[CoachingIntent.LAST_FEEDBACK] = weights[CoachingIntent.LAST_FEEDBACK]!! * 2.0f
+        weights[CoachingIntent.MOTIVATIONAL] = weights[CoachingIntent.MOTIVATIONAL]!! * 1.8f
+    }
+
+    val totalWeight = weights.values.sum()
+    if (totalWeight <= 0f) return CoachingIntent.MOTIVATIONAL
+    var pick = (Math.random() * totalWeight).toFloat()
+    for ((intent, w) in weights) {
+        pick -= w
+        if (pick <= 0f) return intent
+    }
+    return CoachingIntent.MOTIVATIONAL
+}
+
+private fun intentInstruction(intent: CoachingIntent, workoutName: String): String {
+    val name = workoutName.ifBlank { "this exercise" }
+    return when (intent) {
+        CoachingIntent.NEXT_EXERCISE ->
+            "Coaching focus: recommend a specific next exercise or movement to pair with $name. Name the exercise, propose a rep/set target, and explain the muscle balance or progression reason."
+        CoachingIntent.LAST_FEEDBACK ->
+            "Coaching focus: give targeted feedback on the athlete's most recent $name performance. Name one thing that went well, one thing to sharpen, and end with a single precise cue."
+        CoachingIntent.PHASE_STRATEGY ->
+            "Coaching focus: frame every line around the current training phase for $name. Peaking means push and maximize; deload means hold and absorb; recovering means patience and quality over load."
+        CoachingIntent.MOTIVATIONAL ->
+            "Coaching focus: make each line emotionally charged and personally anchored to $name. Reference a metric, a streak, or a gap the athlete is closing. No generic hype."
+        CoachingIntent.RECOVERY_GUIDANCE ->
+            "Coaching focus: every line should address smart recovery, active rest, or injury prevention for $name. Reference fatigue signals, soreness accumulation, or deload tactics specifically."
+        CoachingIntent.TECHNIQUE_REFINEMENT ->
+            "Coaching focus: each line is a distinct form cue, breathing note, or mind-muscle tip for $name. Be biomechanically precise — one actionable cue per line."
+    }
+}
 
 private fun logSystemPrompt(source: String, systemPrompt: String) {
     Log.d(GEMINI_UTILITY_TAG, "System prompt [$source]: $systemPrompt")
@@ -176,6 +272,7 @@ private data class GeminiAdviceMemory(
     val contextPrompt: String,
     val payloadSummary: String,
     val advice: String,
+    val intentId: String? = null,
     val baselineSignalSnapshot: GeminiSignalSnapshot? = null
 ) {
     fun toJson(): JSONObject = JSONObject().apply {
@@ -184,6 +281,7 @@ private data class GeminiAdviceMemory(
         put("contextPrompt", contextPrompt)
         put("payloadSummary", payloadSummary)
         put("advice", advice)
+        if (intentId != null) put("intentId", intentId)
         if (baselineSignalSnapshot != null) {
             put("baselineSignalSnapshot", baselineSignalSnapshot.toJson())
         }
@@ -203,6 +301,7 @@ private data class GeminiAdviceMemory(
                     contextPrompt = json.optString("contextPrompt"),
                     payloadSummary = json.optString("payloadSummary"),
                     advice = json.optString("advice"),
+                    intentId = json.optString("intentId").takeIf { it.isNotBlank() },
                     baselineSignalSnapshot = json.optJSONObject("baselineSignalSnapshot")?.toString()
                         ?.let(GeminiSignalSnapshot::fromJson)
                 )
@@ -343,7 +442,9 @@ object GeminiAdaptiveMemoryStore {
         val learnedRules: List<String> = emptyList(),
         val workoutRules: Map<String, List<String>> = emptyMap(),
         val mutationCount: Int = 0,
-        val lastMutatedAtEpochMs: Long = 0L
+        val lastMutatedAtEpochMs: Long = 0L,
+        val intentHistory: List<String> = emptyList(),
+        val intentWins: Map<String, Int> = emptyMap()
     ) {
         fun toJson(): JSONObject = JSONObject().apply {
             put("version", version)
@@ -355,6 +456,10 @@ object GeminiAdaptiveMemoryStore {
                     put(workout, JSONArray(rules))
                 }
             })
+            put("intentHistory", JSONArray(intentHistory))
+            put("intentWins", JSONObject().apply {
+                intentWins.forEach { (intentId, wins) -> put(intentId, wins) }
+            })
         }
 
         fun normalized(): PromptState {
@@ -362,9 +467,11 @@ object GeminiAdaptiveMemoryStore {
             val cleanedWorkout = workoutRules
                 .mapValues { (_, rules) -> cleanRuleList(rules, MAX_PROMPT_WORKOUT_RULES) }
                 .filterValues { it.isNotEmpty() }
+            val cleanedHistory = intentHistory.takeLast(MAX_INTENT_HISTORY)
             return copy(
                 learnedRules = cleanedLearned,
-                workoutRules = cleanedWorkout
+                workoutRules = cleanedWorkout,
+                intentHistory = cleanedHistory
             )
         }
 
@@ -401,12 +508,33 @@ object GeminiAdaptiveMemoryStore {
                             }
                         }
                     }
+                    val intentHistory = buildList {
+                        val arr = json.optJSONArray("intentHistory")
+                        if (arr != null) {
+                            for (i in 0 until arr.length()) {
+                                val v = arr.optString(i).trim()
+                                if (v.isNotBlank()) add(v)
+                            }
+                        }
+                    }
+                    val intentWins = buildMap {
+                        val obj = json.optJSONObject("intentWins")
+                        if (obj != null) {
+                            val keys = obj.keys()
+                            while (keys.hasNext()) {
+                                val k = keys.next()
+                                if (k.isNotBlank()) put(k, obj.optInt(k, 0))
+                            }
+                        }
+                    }
                     PromptState(
                         version = json.optInt("version", 1),
                         learnedRules = learned,
                         workoutRules = workoutRules,
                         mutationCount = json.optInt("mutationCount", 0),
-                        lastMutatedAtEpochMs = json.optLong("lastMutatedAtEpochMs", 0L)
+                        lastMutatedAtEpochMs = json.optLong("lastMutatedAtEpochMs", 0L),
+                        intentHistory = intentHistory,
+                        intentWins = intentWins
                     ).normalized()
                 }.getOrNull()
             }
@@ -512,12 +640,39 @@ object GeminiAdaptiveMemoryStore {
         return rules
     }
 
+    fun selectAndRecordIntent(
+        context: Context,
+        contextPrompt: String,
+        payload: List<String>
+    ): CoachingIntent {
+        val prefs = prefs(context)
+        val state = readPromptState(prefs)
+        val signalSnapshot = GeminiSignalSnapshot.fromJson(prefs.getString(K_LAST_SIGNAL_SNAPSHOT, null))
+        val workoutName = inferWorkoutName(contextPrompt, payload)
+        val workoutPhase = workoutName?.let {
+            readWorkoutTrendFromPrefs(prefs, normalizeWorkoutName(it))?.phase
+        }
+        val intent = selectCoachingIntentWeighted(
+            contextPrompt = contextPrompt,
+            state_intentHistory = state.intentHistory,
+            state_intentWins = state.intentWins,
+            signalSnapshot = signalSnapshot,
+            workoutPhase = workoutPhase
+        )
+        updatePromptState(prefs) { current ->
+            current.copy(intentHistory = (current.intentHistory + intent.id).takeLast(MAX_INTENT_HISTORY))
+        }
+        Log.d(GEMINI_UTILITY_TAG, "Selected coaching intent: ${intent.id}")
+        return intent
+    }
+
     fun rememberGeneratedAdvice(
         context: Context,
         systemPrompt: String,
         contextPrompt: String,
         payload: List<String>,
-        advice: String
+        advice: String,
+        intent: CoachingIntent? = null
     ) {
         if (advice.isBlank()) return
         val prefs = prefs(context)
@@ -529,6 +684,7 @@ object GeminiAdaptiveMemoryStore {
             contextPrompt = contextPrompt,
             payloadSummary = payload.filter { it.isNotBlank() }.joinToString(" | "),
             advice = advice,
+            intentId = intent?.id,
             baselineSignalSnapshot = baselineSignalSnapshot
         )
         Log.d(
@@ -797,11 +953,16 @@ object GeminiAdaptiveMemoryStore {
         }
         updatePromptState(prefs) { current ->
             val learned = promoteRule(current.learnedRules, memory, MAX_PROMPT_LEARNED_RULES)
-            current.copy(learnedRules = learned)
+            val wins = if (pendingAdvice.intentId != null) {
+                val m = current.intentWins.toMutableMap()
+                m[pendingAdvice.intentId] = (m[pendingAdvice.intentId] ?: 0) + 1
+                m.toMap()
+            } else current.intentWins
+            current.copy(learnedRules = learned, intentWins = wins)
         }
         Log.d(
             GEMINI_UTILITY_TAG,
-            "Learned memory promoted from signals: $memory | improvements=${improvements.distinct().joinToString()}"
+            "Learned memory promoted from signals: $memory | improvements=${improvements.distinct().joinToString()} | intent=${pendingAdvice.intentId ?: "unknown"}"
         )
         prefs.edit()
             .putString(K_LAST_PROMOTED_SIGNATURE, pendingAdvice.signature)
@@ -1049,6 +1210,7 @@ data class GeminiGeneratorState(
     val isLoading: Boolean,
     val isModelReady: Boolean,
     val hasAdvice: Boolean,
+    val selectedIntent: CoachingIntent,
     val generateBatch: (v1: String, v2: String, v3: String) -> Unit,
     val generateBatchWithLimit: (v1: String, v2: String, v3: String, maxTokens: Int) -> Unit,
     val nextAdvice: () -> Unit
@@ -1073,6 +1235,8 @@ class GeminiUtilityViewModel(application: Application) : AndroidViewModel(applic
     var isLoading by mutableStateOf(false)
         private set
     var hasAdvice by mutableStateOf(false)
+        private set
+    var currentIntent by mutableStateOf(CoachingIntent.MOTIVATIONAL)
         private set
 
     private val adviceList = mutableListOf<String>()
@@ -1146,10 +1310,16 @@ class GeminiUtilityViewModel(application: Application) : AndroidViewModel(applic
             try {
                 val persona = dynamicModel.personaConfig.value.mode
                 providerUsed = PersonaPrefs.readModelProvider()
+                val selectedIntent = GeminiAdaptiveMemoryStore.selectAndRecordIntent(
+                    getApplication(),
+                    contextPrompt,
+                    listOf(v1, v2, v3)
+                )
+                withContext(Dispatchers.Main) { currentIntent = selectedIntent }
                 val promptEnvelope = when (providerUsed) {
-                    AiModelProvider.EDGE_ON_DEVICE -> buildEdgeBatchPrompt(persona, contextPrompt, v1, v2, v3)
-                    AiModelProvider.LOCAL_NETWORK -> buildLocalBatchPrompt(persona, contextPrompt, v1, v2, v3)
-                    AiModelProvider.GOOGLE_AI_STUDIO -> buildAiStudioBatchPrompt(persona, contextPrompt, v1, v2, v3)
+                    AiModelProvider.EDGE_ON_DEVICE -> buildEdgeBatchPrompt(persona, contextPrompt, v1, v2, v3, selectedIntent)
+                    AiModelProvider.LOCAL_NETWORK -> buildLocalBatchPrompt(persona, contextPrompt, v1, v2, v3, selectedIntent)
+                    AiModelProvider.GOOGLE_AI_STUDIO -> buildAiStudioBatchPrompt(persona, contextPrompt, v1, v2, v3, selectedIntent)
                 }
                 val result = when (providerUsed) {
                     AiModelProvider.EDGE_ON_DEVICE -> {
@@ -1198,7 +1368,8 @@ class GeminiUtilityViewModel(application: Application) : AndroidViewModel(applic
                                 systemPrompt = promptEnvelope.systemInstruction,
                                 contextPrompt = contextPrompt,
                                 payload = listOf(v1, v2, v3),
-                                advice = finalAdvice
+                                advice = finalAdvice,
+                                intent = selectedIntent
                             )
                             GeminiAdaptiveMemoryStore.rememberGeneratedWorkoutAdvice(
                                 getApplication<Application>(),
@@ -1253,8 +1424,9 @@ class GeminiUtilityViewModel(application: Application) : AndroidViewModel(applic
         context: String,
         v1: String,
         v2: String,
-        v3: String
-    ): PromptEnvelope = buildLocalBatchPrompt(persona, context, v1, v2, v3)
+        v3: String,
+        intent: CoachingIntent
+    ): PromptEnvelope = buildLocalBatchPrompt(persona, context, v1, v2, v3, intent)
 
     private fun startAdviceRotation() {
         if (rotationJob?.isActive == true) return 
@@ -1341,7 +1513,7 @@ class GeminiUtilityViewModel(application: Application) : AndroidViewModel(applic
         }
     }
 
-    private fun buildEdgeBatchPrompt(persona: String, context: String, v1: String, v2: String, v3: String): PromptEnvelope {
+    private fun buildEdgeBatchPrompt(persona: String, context: String, v1: String, v2: String, v3: String, intent: CoachingIntent): PromptEnvelope {
         val workoutName = inferWorkoutName(context, listOf(v1, v2, v3)).orEmpty()
         val adaptiveBlock = GeminiAdaptiveMemoryStore.buildPromptMemoryBlock(
             getApplication<Application>(),
@@ -1356,6 +1528,8 @@ class GeminiUtilityViewModel(application: Application) : AndroidViewModel(applic
                 append(' ')
                 append(loadInstruction)
             }
+            append(' ')
+            append(intentInstruction(intent, workoutName))
             if (adaptiveBlock.isNotBlank()) {
                 append(' ')
                 append(adaptiveBlock)
@@ -1370,7 +1544,7 @@ class GeminiUtilityViewModel(application: Application) : AndroidViewModel(applic
         )
     }
 
-    private fun buildLocalBatchPrompt(persona: String, context: String, v1: String, v2: String, v3: String): PromptEnvelope {
+    private fun buildLocalBatchPrompt(persona: String, context: String, v1: String, v2: String, v3: String, intent: CoachingIntent): PromptEnvelope {
         val workoutName = inferWorkoutName(context, listOf(v1, v2, v3)).orEmpty()
         val localBoost = if (persona == "girlfriend_like") {
             " Dial intensity up: be dramatic, jealous-flavored, clingy-in-tone, and emotionally overwhelming while still giving practical fitness guidance."
@@ -1391,6 +1565,8 @@ class GeminiUtilityViewModel(application: Application) : AndroidViewModel(applic
                 append(' ')
                 append(loadInstruction)
             }
+            append(' ')
+            append(intentInstruction(intent, workoutName))
             if (adaptiveBlock.isNotBlank()) {
                 append(' ')
                 append(adaptiveBlock)
@@ -1590,6 +1766,7 @@ fun useGeminiAdviceGenerator(
     val isLoading = viewModel.isLoading
     val isReady by viewModel.isModelReady.collectAsState()
     val hasAdvice = viewModel.hasAdvice
+    val selectedIntent = viewModel.currentIntent
 
     LaunchedEffect(Unit) {
         viewModel.refreshModelReadiness()
@@ -1600,6 +1777,7 @@ fun useGeminiAdviceGenerator(
         isLoading = isLoading,
         isModelReady = isReady,
         hasAdvice = hasAdvice,
+        selectedIntent = selectedIntent,
         generateBatch = { v1, v2, v3 -> viewModel.generateAdviceBatch(contextPrompt, v1, v2, v3) },
         generateBatchWithLimit = { v1, v2, v3, maxTokens ->
             viewModel.generateAdviceBatch(contextPrompt, v1, v2, v3, maxTokens)
