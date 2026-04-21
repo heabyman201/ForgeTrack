@@ -10,6 +10,7 @@ import com.forgecompose.workouttracker.profile.*
 import com.forgecompose.workouttracker.ui.components.*
 import com.forgecompose.workouttracker.workout.*
 
+import android.app.Activity
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Animatable
@@ -59,6 +60,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -66,7 +68,6 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -88,6 +89,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -253,6 +255,25 @@ fun RestScreen(
 ) {
     val context = LocalContext.current
     val haptics = LocalHapticFeedback.current
+    val view = LocalView.current
+
+    // Cap the display refresh rate at 24 fps for this screen; the timer text
+    // only changes once a second and the ring animation doesn't need 120 Hz.
+    DisposableEffect(Unit) {
+        val window = (view.context as? Activity)?.window
+        if (window != null) {
+            val attrs = window.attributes
+            attrs.preferredRefreshRate = 24f
+            window.attributes = attrs
+        }
+        onDispose {
+            if (window != null) {
+                val attrs = window.attributes
+                attrs.preferredRefreshRate = 0f   // restore: let system choose
+                window.attributes = attrs
+            }
+        }
+    }
 
     val initialTotal = rememberSaveable { ConnectedWorkout.restTime.longValue }
     val autoRestTimeEnabled = remember { isAutoRestTimeEnabled(context) }
@@ -558,173 +579,169 @@ private fun RestCountdownSection(
     }
 
     val safeTotal = initialTotal.coerceAtLeast(1L)
-    val progress = (1f - (remaining.toFloat() / safeTotal.toFloat())).coerceIn(0f, 1f)
-    val animatedProgress by animateFloatAsState(
-        targetValue = progress,
-        animationSpec = tween(800, easing = FastOutSlowInEasing),
-        label = "rest_progress"
-    )
-    val glowRaw by remember(animatedProgress) {
+    // Only recomputed when `remaining` changes (once per second). The smooth
+    // animation lives entirely inside RestTimerCanvas so this composable does
+    // NOT recompose every frame.
+    val progressTarget by remember {
         derivedStateOf {
-            lerp(0.45f, 0.70f, animatedProgress.coerceIn(0f, 1f))
+            (1f - (remaining.toFloat() / safeTotal.toFloat())).coerceIn(0f, 1f)
         }
     }
 
-    RestCountdownRing(
-        modifier = modifier,
-        progress = animatedProgress,
-        glowRaw = glowRaw,
-        remaining = remaining
-    )
+    Box(modifier = modifier, contentAlignment = Alignment.Center) {
+        RestTimerCanvas(progressTarget = progressTarget)
+        RestTimerText(remaining = remaining)
+    }
 }
 
+// Canvas-only leaf — recomposes just once per second (when progressTarget
+// changes). The Animatable smooths progress between ticks; its value is read
+// inside onDrawWithContent (draw phase), so no extra recomposition occurs
+// during the 800 ms animation window.
 @Composable
-private fun RestCountdownRing(
-    progress: Float,
-    glowRaw: Float,
+private fun RestTimerCanvas(
+    progressTarget: Float,
+    modifier: Modifier = Modifier
+) {
+    val animatedProgress = remember { Animatable(progressTarget) }
+    LaunchedEffect(progressTarget) {
+        animatedProgress.animateTo(
+            targetValue = progressTarget,
+            animationSpec = tween(800, easing = FastOutSlowInEasing)
+        )
+    }
+
+    Canvas(
+        modifier = modifier
+            .fillMaxSize()
+            .drawWithCache {
+                val w = size.width
+                val h = size.height
+                val cx = w / 2f
+                val cy = h / 2f
+                val center = Offset(cx, cy)
+                val stroke = 18f
+                val radius = min(w, h) / 2f - stroke
+
+                // Static geometry — cached until size changes.
+                val bgBrush = Brush.radialGradient(
+                    listOf(Color(0xFF0A1420), Color(0xFF0F1E2E)),
+                    center = center,
+                    radius = radius * 1.2f
+                )
+                val arcBrush = Brush.sweepGradient(
+                    0f to Color(0xFF3B9CF8),
+                    0.28f to Color(0xFF54C7FF),
+                    0.64f to Color(0xFF9CEBFF),
+                    1f to Color(0xFF3B9CF8),
+                    center = center
+                )
+                val arcRectTopLeft = Offset(cx - radius, cy - radius)
+                val arcRectSize = Size(radius * 2, radius * 2)
+                val deg2rad = (Math.PI / 180.0).toFloat()
+                val innerR = radius - stroke * 0.6f
+                val outerR = radius + stroke * 0.6f
+                val tickSegments: List<Pair<Offset, Offset>> =
+                    (0..100 step 10).map { i ->
+                        val ang = (i * 3.6f - 90f) * deg2rad
+                        val c = cos(ang)
+                        val s = sin(ang)
+                        Offset(cx + c * innerR, cy + s * innerR) to
+                                Offset(cx + c * outerR, cy + s * outerR)
+                    }
+
+                onDrawWithContent {
+                    // Reading animatedProgress.value here (draw phase) causes
+                    // a draw-only invalidation each animation frame — never a
+                    // full recomposition.
+                    val p = animatedProgress.value
+                    val glow = lerp(0.45f, 0.70f, p)
+
+                    drawCircle(
+                        brush = bgBrush,
+                        radius = radius,
+                        center = center,
+                        style = Stroke(width = stroke, cap = StrokeCap.Round)
+                    )
+                    drawCircle(
+                        color = Color(0xFF7BD1FF).copy(alpha = 0.10f + 0.07f * glow),
+                        radius = radius,
+                        center = center,
+                        style = Stroke(width = stroke * 2.2f, cap = StrokeCap.Round)
+                    )
+                    tickSegments.forEachIndexed { idx, (start, end) ->
+                        val major = (idx % 2 == 0)
+                        drawLine(
+                            color = Color(0xFF7BD1FF).copy(alpha = if (major) 0.35f else 0.15f),
+                            start = start,
+                            end = end,
+                            strokeWidth = if (major) 4f else 2f,
+                            cap = StrokeCap.Round
+                        )
+                    }
+                    val sweep = 360f * p
+                    drawArc(
+                        brush = arcBrush,
+                        startAngle = -90f,
+                        sweepAngle = sweep,
+                        useCenter = false,
+                        style = Stroke(width = stroke, cap = StrokeCap.Round),
+                        topLeft = arcRectTopLeft,
+                        size = arcRectSize
+                    )
+                    drawArc(
+                        color = Color(0xFF7BD1FF).copy(alpha = 0.16f + 0.10f * glow),
+                        startAngle = -90f,
+                        sweepAngle = sweep,
+                        useCenter = false,
+                        style = Stroke(width = stroke * 1.7f, cap = StrokeCap.Round),
+                        topLeft = arcRectTopLeft,
+                        size = arcRectSize
+                    )
+                    if (p > 0f) {
+                        val capAng = (sweep - 90f) * deg2rad
+                        val capCenter = Offset(cx + cos(capAng) * radius, cy + sin(capAng) * radius)
+                        drawCircle(
+                            brush = Brush.radialGradient(
+                                listOf(Color(0xFFB2EBFF), Color.Transparent),
+                                center = capCenter,
+                                radius = 26f
+                            ),
+                            center = capCenter,
+                            radius = 26f * (0.7f + 0.3f * glow),
+                            alpha = 0.85f
+                        )
+                        drawCircle(color = Color(0xFFCCF4FF), center = capCenter, radius = 6f)
+                    }
+                }
+            }
+    ) {}
+}
+
+// Text-only leaf — recomposes exactly once per second when `remaining` ticks.
+// Completely isolated from the canvas animation above.
+@Composable
+private fun RestTimerText(
     remaining: Long,
     modifier: Modifier = Modifier
 ) {
-    val progressState by rememberUpdatedState(progress.coerceIn(0f, 1f))
-    val glowState by rememberUpdatedState(glowRaw.coerceIn(0f, 1f))
     val seconds = (remaining / 1000) % 60
     val minutes = (remaining / (1000 * 60)) % 60
-    val hours = (remaining / (1000 * 60 * 60))
-
-    Box(
-        modifier = modifier,
-        contentAlignment = Alignment.Center
-    ) {
-        Canvas(
-            modifier = Modifier
-                .fillMaxSize()
-                .drawWithCache {
-                    val w = size.width
-                    val h = size.height
-                    val cx = w / 2f
-                    val cy = h / 2f
-                    val center = Offset(cx, cy)
-
-                    val stroke = 18f
-                    val radius = min(w, h) / 2f - stroke
-
-                    val bgBrush = Brush.radialGradient(
-                        listOf(Color(0xFF0A1420), Color(0xFF0F1E2E)),
-                        center = center,
-                        radius = radius * 1.2f
-                    )
-                    val arcBrush = Brush.sweepGradient(
-                        0f to Color(0xFF3B9CF8),
-                        0.28f to Color(0xFF54C7FF),
-                        0.64f to Color(0xFF9CEBFF),
-                        1f to Color(0xFF3B9CF8),
-                        center = center
-                    )
-
-                    val arcRectTopLeft = Offset(cx - radius, cy - radius)
-                    val arcRectSize = Size(radius * 2, radius * 2)
-
-                    val deg2rad = (Math.PI / 180.0).toFloat()
-                    val innerR = radius - stroke * 0.6f
-                    val outerR = radius + stroke * 0.6f
-                    val tickSegments: List<Pair<Offset, Offset>> =
-                        (0..100 step 10).map { i ->
-                            val ang = (i * 3.6f - 90f) * deg2rad
-                            val c = cos(ang)
-                            val s = sin(ang)
-                            val start = Offset(cx + c * innerR, cy + s * innerR)
-                            val end = Offset(cx + c * outerR, cy + s * outerR)
-                            start to end
-                        }
-
-                    onDrawWithContent {
-                        drawCircle(
-                            brush = bgBrush,
-                            radius = radius,
-                            center = center,
-                            style = Stroke(width = stroke, cap = StrokeCap.Round)
-                        )
-
-                        drawCircle(
-                            color = Color(0xFF7BD1FF).copy(alpha = 0.10f + 0.07f * glowState),
-                            radius = radius,
-                            center = center,
-                            style = Stroke(width = stroke * 2.2f, cap = StrokeCap.Round)
-                        )
-
-                        tickSegments.forEachIndexed { idx, (start, end) ->
-                            val major = (idx % 2 == 0)
-                            drawLine(
-                                color = Color(0xFF7BD1FF).copy(alpha = if (major) 0.35f else 0.15f),
-                                start = start,
-                                end = end,
-                                strokeWidth = if (major) 4f else 2f,
-                                cap = StrokeCap.Round
-                            )
-                        }
-
-                        val sweep = 360f * progressState
-                        drawArc(
-                            brush = arcBrush,
-                            startAngle = -90f,
-                            sweepAngle = sweep,
-                            useCenter = false,
-                            style = Stroke(width = stroke, cap = StrokeCap.Round),
-                            topLeft = arcRectTopLeft,
-                            size = arcRectSize
-                        )
-
-                        drawArc(
-                            color = Color(0xFF7BD1FF).copy(alpha = 0.16f + 0.10f * glowState),
-                            startAngle = -90f,
-                            sweepAngle = sweep,
-                            useCenter = false,
-                            style = Stroke(width = stroke * 1.7f, cap = StrokeCap.Round),
-                            topLeft = arcRectTopLeft,
-                            size = arcRectSize
-                        )
-
-                        if (progressState > 0f) {
-                            val capAng = ((sweep - 90f) * deg2rad)
-                            val px = cx + cos(capAng) * radius
-                            val py = cy + sin(capAng) * radius
-                            val capCenter = Offset(px, py)
-
-                            drawCircle(
-                                brush = Brush.radialGradient(
-                                    listOf(Color(0xFFB2EBFF), Color.Transparent),
-                                    center = capCenter,
-                                    radius = 26f
-                                ),
-                                center = capCenter,
-                                radius = 26f * (0.7f + 0.3f * glowState),
-                                alpha = 0.85f
-                            )
-                            drawCircle(
-                                color = Color(0xFFCCF4FF),
-                                center = capCenter,
-                                radius = 6f
-                            )
-                        }
-                    }
-                }
-        ) {}
-
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(
-                "REST",
-                style = MaterialTheme.typography.titleLarge,
-                color = Color(0xFF9BE7FF).copy(alpha = 0.9f),
-                fontWeight = FontWeight.Bold
-            )
-            Spacer(Modifier.height(6.dp))
-            Text(
-                String.format("%02d:%02d:%02d", hours, minutes, seconds),
-                style = MaterialTheme.typography.displayMedium,
-                color = MaterialTheme.colorScheme.onBackground,
-                fontWeight = FontWeight.Bold
-            )
-        }
+    val hours = remaining / (1000 * 60 * 60)
+    Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(
+            "REST",
+            style = MaterialTheme.typography.titleLarge,
+            color = Color(0xFF9BE7FF).copy(alpha = 0.9f),
+            fontWeight = FontWeight.Bold
+        )
+        Spacer(Modifier.height(6.dp))
+        Text(
+            String.format("%02d:%02d:%02d", hours, minutes, seconds),
+            style = MaterialTheme.typography.displayMedium,
+            color = MaterialTheme.colorScheme.onBackground,
+            fontWeight = FontWeight.Bold
+        )
     }
 }
 
@@ -737,15 +754,16 @@ private fun RestHeartRateCard(
     var bpm by remember { mutableIntStateOf(0) }
     var sum by remember { mutableFloatStateOf(0f) }
     var count by remember { mutableFloatStateOf(0f) }
-    val avg = if (count > 0f) (sum / count).toInt() else 0
-    val zone = remember(bpm) { restHrZone(bpm) }
+    // derivedStateOf means avg/zone only propagate to children when their
+    // computed value actually changes, not on every bpm tick.
+    val avg by remember { derivedStateOf { if (count > 0f) (sum / count).toInt() else 0 } }
+    val zone by remember { derivedStateOf { restHrZone(bpm) } }
 
     LaunchedEffect(bpVM) {
         bpVM.hr.collect { incoming ->
             if (incoming > 0) latestBpmRef.set(incoming)
         }
     }
-
     LaunchedEffect(Unit) {
         while (isActive) {
             val sampled = latestBpmRef.get()
@@ -769,54 +787,67 @@ private fun RestHeartRateCard(
                 .padding(horizontal = 14.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
+            RestHrReadout(bpm = bpm, avg = avg, zone = zone)
+            RestHrZoneBars(zone = zone)
+        }
+    }
+}
+
+// Recomposes when bpm or avg changes (once per second).
+@Composable
+private fun RestHrReadout(bpm: Int, avg: Int, zone: Int) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = Icons.Default.Favorite,
+            contentDescription = "Heart rate",
+            tint = Color(0xFF7BD1FF)
+        )
+        Spacer(modifier = Modifier.size(8.dp))
+        Text(
+            text = if (bpm > 0) "$bpm BPM" else "-- BPM",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.ExtraBold,
+            color = Color.White
+        )
+        Spacer(modifier = Modifier.weight(1f))
+        Text(
+            text = if (avg > 0) "Avg $avg | Z$zone" else "Avg -- | --",
+            style = MaterialTheme.typography.labelLarge,
+            color = Color.White.copy(alpha = 0.82f)
+        )
+    }
+}
+
+// Recomposes only when the HR zone crosses a threshold — typically once or
+// twice per rest period, not every second.
+@Composable
+private fun RestHrZoneBars(zone: Int) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        for (z in 1..5) {
+            val active = zone > 0 && z == zone
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(
+                        if (active) Color(0xFF3B9CF8).copy(alpha = 0.9f)
+                        else Color(0xFF7BD1FF).copy(alpha = 0.18f)
+                    )
+                    .padding(vertical = 6.dp),
+                contentAlignment = Alignment.Center
             ) {
-                Icon(
-                    imageVector = Icons.Default.Favorite,
-                    contentDescription = "Heart rate",
-                    tint = Color(0xFF7BD1FF)
-                )
-                Spacer(modifier = Modifier.size(8.dp))
                 Text(
-                    text = if (bpm > 0) "$bpm BPM" else "-- BPM",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = Color.White
+                    text = "Z$z",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = Color.White.copy(alpha = if (active) 1f else 0.7f),
+                    fontWeight = if (active) FontWeight.Bold else FontWeight.Medium
                 )
-                Spacer(modifier = Modifier.weight(1f))
-                Text(
-                    text = if (avg > 0) "Avg $avg | Z$zone" else "Avg -- | --",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = Color.White.copy(alpha = 0.82f)
-                )
-            }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                for (z in 1..5) {
-                    val active = bpm > 0 && z == zone
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(
-                                if (active) Color(0xFF3B9CF8).copy(alpha = 0.9f)
-                                else Color(0xFF7BD1FF).copy(alpha = 0.18f)
-                            )
-                            .padding(vertical = 6.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "Z$z",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = Color.White.copy(alpha = if (active) 1f else 0.7f),
-                            fontWeight = if (active) FontWeight.Bold else FontWeight.Medium
-                        )
-                    }
-                }
             }
         }
     }
@@ -824,11 +855,11 @@ private fun RestHeartRateCard(
 
 private fun restHrZone(bpm: Int): Int {
     return when {
-        bpm <= 0 -> 1
+        bpm <= 0  -> 0   // no reading — zone bars stay all-dim
         bpm < 110 -> 1
         bpm < 130 -> 2
         bpm < 150 -> 3
         bpm < 170 -> 4
-        else -> 5
+        else      -> 5
     }
 }
