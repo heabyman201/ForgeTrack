@@ -467,7 +467,7 @@ fun FloatingTaskbar(
                 var isDismissedByUser by remember { mutableStateOf(false) }
                 val offsetY = remember { Animatable(0f) }
                 val scope = rememberCoroutineScope()
-                val buttonSize = 38.dp
+                val buttonSize = 44.dp
                 val navBackStackEntry by navController.currentBackStackEntryAsState()
                 val currentRoute = navBackStackEntry?.destination?.route
                 val haptic = LocalHapticFeedback.current
@@ -703,7 +703,7 @@ fun FloatingTaskbar(
                                         }
                                     }
                             ) {
-                                val pillRadius = 19.dp
+                                val pillRadius = 22.dp
                                 Row(
                                     modifier = Modifier
                                         .matchParentSize()
@@ -821,20 +821,21 @@ fun FloatingTaskbar(
                                                         .clip(RoundedCornerShape(pillRadius))
                                                         .background(
                                                             if (selected)
-                                                                Brush.verticalGradient(
-                                                                    0f to Color.White.copy(alpha = 0.10f),
-                                                                    0.35f to primaryColor.copy(alpha = 0.12f),
-                                                                    1f to secondaryColor.copy(alpha = 0.09f)
+                                                                Brush.radialGradient(
+                                                                    listOf(
+                                                                        primaryColor.copy(alpha = 0.22f),
+                                                                        colorLerp(backgroundColor, Color.Black, 0.65f)
+                                                                    )
                                                                 )
                                                             else Brush.verticalGradient(0f to Color.Transparent, 1f to Color.Transparent)
                                                         )
                                                         .border(
-                                                            width = if (selected) 1.25.dp else 1.dp,
+                                                            width = if (selected) 1.5.dp else 0.dp,
                                                             brush = if (selected) {
                                                                 Brush.verticalGradient(
                                                                     listOf(
-                                                                        Color.White.copy(alpha = 0.24f),
-                                                                        primaryColor.copy(alpha = 0.28f)
+                                                                        primaryColor.copy(alpha = 0.70f),
+                                                                        primaryColor.copy(alpha = 0.35f)
                                                                     )
                                                                 )
                                                             } else Brush.linearGradient(listOf(Color.Transparent, Color.Transparent)),
@@ -868,22 +869,10 @@ fun FloatingTaskbar(
                                                                     center = Offset(size.width / 2f, size.height / 2f),
                                                                     radius = outerGlowRadius
                                                                 )
-                                                                val activeStroke = Brush.verticalGradient(
-                                                                    listOf(
-                                                                        primaryColor.copy(alpha = 0.75f * glowTarget),
-                                                                        secondaryColor.copy(alpha = 0.35f * glowTarget)
-                                                                    )
-                                                                )
                                                                 onDrawBehind {
                                                                     if (selected) {
                                                                         drawRoundRect(brush = outerGlow, topLeft = Offset.Zero, size = size, cornerRadius = CornerRadius(r, r))
                                                                         drawRoundRect(brush = glow, topLeft = Offset.Zero, size = size, cornerRadius = CornerRadius(r, r))
-                                                                        drawRoundRect(
-                                                                            brush = activeStroke,
-                                                                            topLeft = Offset(size.width * 0.12f, size.height - 5.dp.toPx()),
-                                                                            size = androidx.compose.ui.geometry.Size(size.width * 0.76f, 2.5.dp.toPx()),
-                                                                            cornerRadius = CornerRadius(999f, 999f)
-                                                                        )
                                                                     }
                                                                 }
                                                             }
@@ -891,15 +880,15 @@ fun FloatingTaskbar(
                                                     Icon(
                                                         imageVector = icon,
                                                         contentDescription = null,
-                                                        tint = if (selected) Color.White else Color.White.copy(alpha = iconAlpha * 0.82f),
-                                                        modifier = Modifier.size(20.dp)
+                                                        tint = if (selected) primaryColor else Color.White.copy(alpha = iconAlpha * 0.50f),
+                                                        modifier = Modifier.size(22.dp)
                                                     )
                                                 }
                                                 Spacer(modifier = Modifier.height(2.dp))
                                                 Text(
                                                     text = item.label,
-                                                    fontSize = 8.sp,
-                                                    color = if (selected) Color.White else Color.White.copy(alpha = iconAlpha * 0.65f),
+                                                    fontSize = 9.sp,
+                                                    color = if (selected) primaryColor else Color.White.copy(alpha = iconAlpha * 0.48f),
                                                     fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
                                                     maxLines = 1,
                                                     style = MaterialTheme.typography.labelSmall
