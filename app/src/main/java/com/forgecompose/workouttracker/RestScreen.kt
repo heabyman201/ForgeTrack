@@ -260,15 +260,15 @@ fun RestScreen(
     val haptics = LocalHapticFeedback.current
     val view = LocalView.current
 val scope = rememberCoroutineScope()
-    // Cap the display refresh rate at 90 fps for this screen; the timer text
+    // Cap the display refresh rate at 60 fps for this screen; the timer text
     // only changes once a second and the ring animation doesn't need 120 Hz.
     DisposableEffect(Unit) {
         val window = (view.context as? Activity)?.window
         if (window != null) {
             scope.launch(Dispatchers.Main) {
                 val attrs = window.attributes
-                delay(1000)
-                attrs.preferredRefreshRate = 90f
+                delay(1750)
+                attrs.preferredRefreshRate = 60f
                 window.attributes = attrs
             }
         }

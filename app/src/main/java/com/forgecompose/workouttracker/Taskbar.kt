@@ -467,7 +467,7 @@ fun FloatingTaskbar(
                 var isDismissedByUser by remember { mutableStateOf(false) }
                 val offsetY = remember { Animatable(0f) }
                 val scope = rememberCoroutineScope()
-                val buttonSize = 44.dp
+                val buttonSize = 38.dp
                 val navBackStackEntry by navController.currentBackStackEntryAsState()
                 val currentRoute = navBackStackEntry?.destination?.route
                 val haptic = LocalHapticFeedback.current
@@ -513,7 +513,8 @@ fun FloatingTaskbar(
                             }
                         }
 
-                        val containerShape = remember(cornerRadius) { RoundedCornerShape(cornerRadius) }
+                        val effectiveCornerRadius = maxOf(cornerRadius, 32.dp)
+                        val containerShape = remember(effectiveCornerRadius) { RoundedCornerShape(effectiveCornerRadius) }
                         val accent = primaryColor
                         val pos = remember { Animatable(Offset.Zero, Offset.VectorConverter) }
                         val squish = remember { Animatable(1f) }
@@ -586,7 +587,7 @@ fun FloatingTaskbar(
                         }
                         var boxSize by remember { mutableStateOf(IntSize.Zero) }
                         val density2 = LocalDensity.current
-                        val cornerRpx2 = with(density2) { cornerRadius.toPx() }
+                        val cornerRpx2 = with(density2) { effectiveCornerRadius.toPx() }
 
                         val borderColor = Color.White.copy(alpha = 0.08f)
 
@@ -615,11 +616,11 @@ fun FloatingTaskbar(
 
                         Box(
                             modifier = Modifier
-                                .padding(horizontal = 16.dp, vertical = 10.dp)
+                                .padding(horizontal = 24.dp, vertical = 8.dp)
                                 .navigationBarsPadding()
                                 .imePadding()
                                 .fillMaxWidth()
-                                .height(80.dp)
+                                .height(64.dp)
                                 .onGloballyPositioned { boxSize = it.size }
                                 .graphicsLayer { translationY = offsetY.value }
                                 .pointerInput(Unit) {
@@ -702,13 +703,13 @@ fun FloatingTaskbar(
                                         }
                                     }
                             ) {
-                                val pillRadius = 22.dp
+                                val pillRadius = 19.dp
                                 Row(
                                     modifier = Modifier
                                         .matchParentSize()
                                         .clip(containerShape)
                                         .border(width = 0.5.dp, color = borderColor, shape = RoundedCornerShape(32.dp))
-                                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                                        .padding(horizontal = 8.dp, vertical = 6.dp),
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
@@ -736,7 +737,7 @@ fun FloatingTaskbar(
                                             Column(
                                                 modifier = Modifier
                                                     .weight(1f)
-                                                    .padding(horizontal = 4.dp)
+                                                    .padding(horizontal = 2.dp)
                                                     .zIndex(if (isBeingDragged) 10f else 0f)
                                                     .offset { IntOffset(reorderOffset.roundToInt(), 0) }
                                                     .graphicsLayer {
@@ -891,13 +892,13 @@ fun FloatingTaskbar(
                                                         imageVector = icon,
                                                         contentDescription = null,
                                                         tint = if (selected) Color.White else Color.White.copy(alpha = iconAlpha * 0.82f),
-                                                        modifier = Modifier.size(22.dp)
+                                                        modifier = Modifier.size(20.dp)
                                                     )
                                                 }
-                                                Spacer(modifier = Modifier.height(3.dp))
+                                                Spacer(modifier = Modifier.height(2.dp))
                                                 Text(
                                                     text = item.label,
-                                                    fontSize = 9.sp,
+                                                    fontSize = 8.sp,
                                                     color = if (selected) Color.White else Color.White.copy(alpha = iconAlpha * 0.65f),
                                                     fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
                                                     maxLines = 1,
@@ -920,7 +921,7 @@ fun FloatingTaskbar(
                                 .navigationBarsPadding()
                                 .imePadding()
                                 .fillMaxWidth()
-                                .height(80.dp)
+                                .height(64.dp)
                                 .pointerInput(Unit) {
                                     detectVerticalDragGestures { change, dragAmount ->
                                         change.consume()
@@ -976,7 +977,7 @@ fun FloatingTaskbar(
                                 .navigationBarsPadding()
                                 .imePadding()
                                 .fillMaxWidth()
-                                .height(60.dp)
+                                .height(52.dp)
                                 .pointerInput(Unit) {
                                     detectVerticalDragGestures { change, dragAmount ->
                                         change.consume()
