@@ -467,7 +467,7 @@ fun FloatingTaskbar(
                 var isDismissedByUser by remember { mutableStateOf(false) }
                 val offsetY = remember { Animatable(0f) }
                 val scope = rememberCoroutineScope()
-                val buttonSize = 44.dp
+                val buttonSize = 60.dp
                 val navBackStackEntry by navController.currentBackStackEntryAsState()
                 val currentRoute = navBackStackEntry?.destination?.route
                 val haptic = LocalHapticFeedback.current
@@ -620,7 +620,7 @@ fun FloatingTaskbar(
                                 .navigationBarsPadding()
                                 .imePadding()
                                 .fillMaxWidth()
-                                .height(64.dp)
+                                .height(80.dp)
                                 .onGloballyPositioned { boxSize = it.size }
                                 .graphicsLayer { translationY = offsetY.value }
                                 .pointerInput(Unit) {
@@ -703,13 +703,13 @@ fun FloatingTaskbar(
                                         }
                                     }
                             ) {
-                                val pillRadius = 22.dp
+                                val pillRadius = 999.dp
                                 Row(
                                     modifier = Modifier
                                         .matchParentSize()
                                         .clip(containerShape)
-                                        .border(width = 0.5.dp, color = borderColor, shape = RoundedCornerShape(32.dp))
-                                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                                        .border(width = 1.dp, color = Color(0xFF3D1E00).copy(alpha = 0.7f), shape = RoundedCornerShape(999.dp))
+                                        .padding(horizontal = 6.dp, vertical = 6.dp),
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
@@ -821,21 +821,16 @@ fun FloatingTaskbar(
                                                         .clip(RoundedCornerShape(pillRadius))
                                                         .background(
                                                             if (selected)
-                                                                Brush.radialGradient(
-                                                                    listOf(
-                                                                        primaryColor.copy(alpha = 0.22f),
-                                                                        colorLerp(backgroundColor, Color.Black, 0.65f)
-                                                                    )
-                                                                )
-                                                            else Brush.verticalGradient(0f to Color.Transparent, 1f to Color.Transparent)
+                                                                Color(0xFF1E0C00)
+                                                            else Color.Transparent
                                                         )
                                                         .border(
                                                             width = if (selected) 1.5.dp else 0.dp,
                                                             brush = if (selected) {
                                                                 Brush.verticalGradient(
                                                                     listOf(
-                                                                        primaryColor.copy(alpha = 0.70f),
-                                                                        primaryColor.copy(alpha = 0.35f)
+                                                                        primaryColor.copy(alpha = 0.55f),
+                                                                        Color(0xFF5C2A00).copy(alpha = 0.40f)
                                                                     )
                                                                 )
                                                             } else Brush.linearGradient(listOf(Color.Transparent, Color.Transparent)),
@@ -843,56 +838,40 @@ fun FloatingTaskbar(
                                                         ),
                                                     contentAlignment = Alignment.Center
                                                 ) {
-                                                    Box(
-                                                        Modifier
-                                                            .matchParentSize()
-                                                            .drawWithCache {
-                                                                val r = size.minDimension / 2f
-                                                                val glowRadius = size.width.coerceAtLeast(size.height) * 1.35f
-                                                                val outerGlowRadius = glowRadius * 1.25f
-                                                                val glow = Brush.radialGradient(
-                                                                    listOf(
-                                                                        Color.White.copy(alpha = 0.09f * glowTarget),
-                                                                        accent.copy(alpha = 0.18f * glowTarget),
-                                                                        accent.copy(alpha = 0.08f * glowTarget),
-                                                                        Color.Transparent
-                                                                    ),
-                                                                    center = Offset(size.width / 2f, size.height / 2f),
-                                                                    radius = glowRadius
-                                                                )
-                                                                val outerGlow = Brush.radialGradient(
-                                                                    listOf(
-                                                                        accent.copy(alpha = 0.10f * glowTarget),
-                                                                        accent.copy(alpha = 0.04f * glowTarget),
-                                                                        Color.Transparent
-                                                                    ),
-                                                                    center = Offset(size.width / 2f, size.height / 2f),
-                                                                    radius = outerGlowRadius
-                                                                )
-                                                                onDrawBehind {
-                                                                    if (selected) {
-                                                                        drawRoundRect(brush = outerGlow, topLeft = Offset.Zero, size = size, cornerRadius = CornerRadius(r, r))
-                                                                        drawRoundRect(brush = glow, topLeft = Offset.Zero, size = size, cornerRadius = CornerRadius(r, r))
-                                                                    }
-                                                                }
-                                                            }
-                                                    )
-                                                    Icon(
-                                                        imageVector = icon,
-                                                        contentDescription = null,
-                                                        tint = if (selected) primaryColor else Color.White.copy(alpha = iconAlpha * 0.50f),
-                                                        modifier = Modifier.size(22.dp)
+                                                    Column(
+                                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                                        verticalArrangement = Arrangement.Center
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = icon,
+                                                            contentDescription = null,
+                                                            tint = if (selected) primaryColor else Color(0xFF7A7A7A),
+                                                            modifier = Modifier.size(if (selected) 26.dp else 22.dp)
+                                                        )
+                                                        if (selected) {
+                                                            Spacer(modifier = Modifier.height(2.dp))
+                                                            Text(
+                                                                text = item.label,
+                                                                fontSize = 9.sp,
+                                                                color = primaryColor,
+                                                                fontWeight = FontWeight.Bold,
+                                                                maxLines = 1,
+                                                                style = MaterialTheme.typography.labelSmall
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                                if (!selected) {
+                                                    Spacer(modifier = Modifier.height(2.dp))
+                                                    Text(
+                                                        text = item.label,
+                                                        fontSize = 9.sp,
+                                                        color = Color(0xFF7A7A7A),
+                                                        fontWeight = FontWeight.Normal,
+                                                        maxLines = 1,
+                                                        style = MaterialTheme.typography.labelSmall
                                                     )
                                                 }
-                                                Spacer(modifier = Modifier.height(2.dp))
-                                                Text(
-                                                    text = item.label,
-                                                    fontSize = 9.sp,
-                                                    color = if (selected) primaryColor else Color.White.copy(alpha = iconAlpha * 0.48f),
-                                                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                                                    maxLines = 1,
-                                                    style = MaterialTheme.typography.labelSmall
-                                                )
                                             }
                                         }
                                     }
