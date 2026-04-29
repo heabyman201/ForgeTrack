@@ -708,7 +708,7 @@ fun FloatingTaskbar(
                                     modifier = Modifier
                                         .matchParentSize()
                                         .clip(containerShape)
-                                        .border(width = 1.dp, color = Color(0xFF3D1E00).copy(alpha = 0.7f), shape = RoundedCornerShape(999.dp))
+                                        .border(width = 1.dp, color = primaryColor.copy(alpha = 0.15f), shape = RoundedCornerShape(999.dp))
                                         .padding(horizontal = 6.dp, vertical = 6.dp),
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
@@ -821,7 +821,7 @@ fun FloatingTaskbar(
                                                         .clip(RoundedCornerShape(pillRadius))
                                                         .background(
                                                             if (selected)
-                                                                Color(0xFF1E0C00)
+                                                                colorLerp(backgroundColor, Color.Black, 0.65f)
                                                             else Color.Transparent
                                                         )
                                                         .border(
@@ -829,8 +829,8 @@ fun FloatingTaskbar(
                                                             brush = if (selected) {
                                                                 Brush.verticalGradient(
                                                                     listOf(
-                                                                        primaryColor.copy(alpha = 0.55f),
-                                                                        Color(0xFF5C2A00).copy(alpha = 0.40f)
+                                                                        primaryColor.copy(alpha = 0.70f),
+                                                                        primaryColor.copy(alpha = 0.35f)
                                                                     )
                                                                 )
                                                             } else Brush.linearGradient(listOf(Color.Transparent, Color.Transparent)),
@@ -845,7 +845,7 @@ fun FloatingTaskbar(
                                                         Icon(
                                                             imageVector = icon,
                                                             contentDescription = null,
-                                                            tint = if (selected) primaryColor else Color(0xFF7A7A7A),
+                                                            tint = if (selected) primaryColor else Color.White.copy(alpha = iconAlpha * 0.50f),
                                                             modifier = Modifier.size(if (selected) 26.dp else 22.dp)
                                                         )
                                                         if (selected) {
@@ -866,7 +866,7 @@ fun FloatingTaskbar(
                                                     Text(
                                                         text = item.label,
                                                         fontSize = 9.sp,
-                                                        color = Color(0xFF7A7A7A),
+                                                        color = Color.White.copy(alpha = iconAlpha * 0.48f),
                                                         fontWeight = FontWeight.Normal,
                                                         maxLines = 1,
                                                         style = MaterialTheme.typography.labelSmall
