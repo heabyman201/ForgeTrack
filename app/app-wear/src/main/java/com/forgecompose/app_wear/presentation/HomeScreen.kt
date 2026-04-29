@@ -43,6 +43,7 @@ import androidx.wear.compose.material.*
 import androidx.wear.compose.navigation.SwipeDismissableNavHost
 import androidx.wear.compose.navigation.composable
 import androidx.wear.compose.navigation.rememberSwipeDismissableNavController
+import androidx.wear.compose.navigation.currentBackStackEntryAsState
 import com.forgecompose.app_wear.presentation.ConnectedWorkoutWear.workout
 import com.forgecompose.app_wear.presentation.theme.hasHeartRatePermission
 import com.forgecompose.app_wear.presentation.theme.requiredSensorPermissions
@@ -55,10 +56,12 @@ fun WearApp(
 ) {
     val navController = rememberSwipeDismissableNavController()
     val context  = LocalContext.current
+    val navBackStackEntry by navController.currentBackStackEntryAsState()
+    val currentRoute = navBackStackEntry?.destination?.route
 
     WorkoutTrackerTheme {
         Scaffold(
-            timeText = { TimeText() },
+            timeText = { if (currentRoute != "HomeScreen") TimeText() },
             vignette = { Vignette(vignettePosition = VignettePosition.TopAndBottom) }
         ) {
             SwipeDismissableNavHost(

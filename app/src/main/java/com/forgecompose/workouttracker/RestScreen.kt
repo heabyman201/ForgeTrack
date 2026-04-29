@@ -68,6 +68,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -107,8 +108,10 @@ import com.forgecompose.workouttracker.ConnectedWorkout.restTimeRemaining
 import com.forgecompose.workouttracker.ui.theme.WorkoutTrackerTheme
 import com.google.firebase.crashlytics.ktx.crashlytics
 import com.google.firebase.ktx.Firebase
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import java.time.LocalTime
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.cos
@@ -256,15 +259,18 @@ fun RestScreen(
     val context = LocalContext.current
     val haptics = LocalHapticFeedback.current
     val view = LocalView.current
-
-    // Cap the display refresh rate at 24 fps for this screen; the timer text
+val scope = rememberCoroutineScope()
+    // Cap the display refresh rate at 90 fps for this screen; the timer text
     // only changes once a second and the ring animation doesn't need 120 Hz.
     DisposableEffect(Unit) {
         val window = (view.context as? Activity)?.window
         if (window != null) {
-            val attrs = window.attributes
-            attrs.preferredRefreshRate = 24f
-            window.attributes = attrs
+            scope.launch(Dispatchers.Main) {
+                val attrs = window.attributes
+                delay(1000)
+                attrs.preferredRefreshRate = 90f
+                window.attributes = attrs
+            }
         }
         onDispose {
             if (window != null) {

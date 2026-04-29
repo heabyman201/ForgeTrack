@@ -1,0 +1,68 @@
+{
+  "intensity_tiers": [
+    "rest_day",
+    "deload",
+    "moderate",
+    "hard",
+    "pr_attempt"
+  ],
+  "exercise_categories": [
+    "push",
+    "pull",
+    "legs",
+    "upper",
+    "full_body"
+  ],
+  "muscle_groups": [
+    "chest",
+    "back",
+    "shoulders",
+    "biceps",
+    "triceps",
+    "quads",
+    "hamstrings",
+    "glutes"
+  ],
+  "scaler_mean": [
+    7.004368706874078,
+    2.406,
+    6.903470537711327,
+    7.919395049708531,
+    6.874175556780794,
+    4.9167603213957385,
+    4.964176279174891,
+    7.91856416126998,
+    5.931386695834532,
+    5.926412097832117,
+    6.48615,
+    7.000481367844883
+  ],
+  "scaler_scale": [
+    1.1947018227232982,
+    1.6034849547159373,
+    3.1747639256336195,
+    3.6240391817908657,
+    3.169246533503846,
+    2.260514777955311,
+    2.2745936568769753,
+    3.622185754554473,
+    2.7224556737617416,
+    2.745938770716726,
+    3.443473272366147,
+    0.6619475617453385
+  ],
+  "feature_names": [
+    "sleep_hours",
+    "days_since_last",
+    "weekly_vol_chest",
+    "weekly_vol_back",
+    "weekly_vol_shoulders",
+    "weekly_vol_biceps",
+    "weekly_vol_triceps",
+    "weekly_vol_quads",
+    "weekly_vol_hamstrings",
+    "weekly_vol_glutes",
+    "training_week",
+    "avg_sleep_7d"
+  ]
+}

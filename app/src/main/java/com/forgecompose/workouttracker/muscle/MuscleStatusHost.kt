@@ -124,10 +124,27 @@ fun ProfileMuscleStatusRoute(
         label = "introFade"
     )
 
+
     LaunchedEffect(Unit) {
         Firebase.crashlytics.setCustomKey("current_screen", "MuscleStatus")
         showIntro = false
         taskbarOverride.shouldOverrideVisiblity.value = false
+        //Testing Purposes Only
+//        val recommendation = engine.recommend(
+//            sleepHours = 7.5f,
+//            daysSinceLast = 2f,
+//            weeklyVolume = floatArrayOf(8f, 10f, 6f, 4f, 4f, 10f, 6f, 6f),
+//            trainingWeek = 9f,
+//            avgSleep7d = 7.2f,
+//        )
+//
+//        println(recommendation)
+//        WorkoutRecommendation(
+//        intensityTier="hard",
+//        intensityConfidence=0.87f,
+//        exerciseCategory="push",
+//        categoryConfidence=0.72f
+//    )
     }
 
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()

@@ -65,6 +65,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -1466,20 +1467,31 @@ fun WorkoutListScreen(
     WorkoutTrackerTheme {
         Scaffold(
             containerColor = Color.Transparent,
-            modifier = Modifier.fillMaxSize()
-                .graphicsLayer {
-                    renderEffect = if (blurRadiusPx > 0f) {
-                        createBlurEffect(
-                            blurRadiusPx,
-                            blurRadiusPx,
-                            Shader.TileMode.DECAL
-                        ).asComposeRenderEffect()
-                    } else {
-                        null
-                    }
-                }
+            modifier = Modifier.fillMaxSize(),
+            contentWindowInsets = WindowInsets(0),
+            topBar = {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(32.dp)
+                )
+            }
         ) { paddingValues ->
-            Box(modifier = Modifier.fillMaxSize()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        renderEffect = if (blurRadiusPx > 0f) {
+                            createBlurEffect(
+                                blurRadiusPx,
+                                blurRadiusPx,
+                                Shader.TileMode.DECAL
+                            ).asComposeRenderEffect()
+                        } else {
+                            null
+                        }
+                    }
+            ) {
                 AnimatedBackdrop(
                     modifier = Modifier
                         .matchParentSize()
@@ -1508,7 +1520,7 @@ fun WorkoutListScreen(
                             }
                         }
                         is WorkoutListUiState.Success -> {
-                            Spacer(Modifier.height(32.dp))
+                            Spacer(Modifier.height(12.dp))
                             val cardShape20 = remember { RoundedCornerShape(20.dp) }
                             fun formatTime(ms: Long): String {
                                 val hours = ms / (1000 * 60 * 60)

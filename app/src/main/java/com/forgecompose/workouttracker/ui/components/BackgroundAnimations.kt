@@ -53,6 +53,7 @@ fun AnimatedBackdrop(
     val smallOrbs = remember(showSmallOrbs) {
         if (showSmallOrbs) generateSmallBackdropOrbs(count = 5) else emptyList()
     }
+    val currentHour = remember { LocalTime.now().hour }
 
     Canvas(
         modifier = modifier.fillMaxSize()
@@ -72,6 +73,8 @@ fun AnimatedBackdrop(
                 endY = h
             )
         )
+
+        drawTimeBasedSkyOverlay(hour = currentHour, w = w, h = h)
 
         drawBackdropOrbs(
             w = w,
@@ -341,6 +344,132 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawBackdropOrbs(
         )
     }
 }
+private enum class TimeOfDay { NIGHT, DAWN, DAY, SUNSET }
+
+private fun getTimeOfDay(hour: Int): TimeOfDay = when {
+    hour >= 19 || hour < 5 -> TimeOfDay.NIGHT
+    hour < 8               -> TimeOfDay.DAWN
+    hour < 17              -> TimeOfDay.DAY
+    else                   -> TimeOfDay.SUNSET
+}
+
+private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawTimeBasedSkyOverlay(
+    hour: Int,
+    w: Float,
+    h: Float
+) {
+    val topFade = h * 0.44f
+
+    when (getTimeOfDay(hour)) {
+        TimeOfDay.NIGHT -> {
+            // Deep navy ceiling that fades into the scene
+            drawRect(
+                brush = Brush.verticalGradient(
+                    colors = listOf(
+                        Color(0xFF010210).copy(alpha = 0.80f),
+                        Color(0xFF040820).copy(alpha = 0.45f),
+                        Color.Transparent
+                    ),
+                    startY = 0f,
+                    endY = topFade
+                )
+            )
+        }
+
+        TimeOfDay.DAWN -> {
+            // Warm orange-pink horizon bleeding up
+            drawRect(
+                brush = Brush.verticalGradient(
+                    colors = listOf(
+                        Color(0xFFFF6835).copy(alpha = 0.36f),
+                        Color(0xFFFFB09A).copy(alpha = 0.20f),
+                        Color.Transparent
+                    ),
+                    startY = 0f,
+                    endY = topFade
+                )
+            )
+            // Rising-sun glow just below the top edge
+            val sunCenter = Offset(w * 0.50f, h * 0.32f)
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(
+                        Color(0xFFFFE566).copy(alpha = 0.58f),
+                        Color(0xFFFF9A6C).copy(alpha = 0.22f),
+                        Color.Transparent
+                    ),
+                    center = sunCenter,
+                    radius = w * 0.40f
+                ),
+                center = sunCenter,
+                radius = w * 0.40f
+            )
+        }
+
+        TimeOfDay.DAY -> {
+            // Pale golden wash at the top to evoke sunlight
+            drawRect(
+                brush = Brush.verticalGradient(
+                    colors = listOf(
+                        Color(0xFFFFE566).copy(alpha = 0.20f),
+                        Color(0xFFFFF5CC).copy(alpha = 0.09f),
+                        Color.Transparent
+                    ),
+                    startY = 0f,
+                    endY = topFade
+                )
+            )
+            // High, broad sun halo near the top centre
+            val sunCenter = Offset(w * 0.50f, h * 0.03f)
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(
+                        Color(0xFFFFEE88).copy(alpha = 0.30f),
+                        Color(0xFFFFDD44).copy(alpha = 0.10f),
+                        Color.Transparent
+                    ),
+                    center = sunCenter,
+                    radius = w * 0.65f
+                ),
+                center = sunCenter,
+                radius = w * 0.65f
+            )
+        }
+
+        TimeOfDay.SUNSET -> {
+            // Purple-to-deep-magenta sky at the top
+            drawRect(
+                brush = Brush.verticalGradient(
+                    colors = listOf(
+                        Color(0xFF1E0D50).copy(alpha = 0.62f),
+                        Color(0xFF8B1A5A).copy(alpha = 0.32f),
+                        Color(0xFFFF5F35).copy(alpha = 0.10f),
+                        Color.Transparent
+                    ),
+                    startY = 0f,
+                    endY = topFade
+                )
+            )
+            // Sun disc sitting on the lower edge of the top gradient
+            val sunCenter = Offset(w * 0.50f, h * 0.27f)
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(
+                        Color(0xFFFFD060).copy(alpha = 0.72f),
+                        Color(0xFFFF8C42).copy(alpha = 0.34f),
+                        Color(0xFFFF3E6A).copy(alpha = 0.10f),
+                        Color.Transparent
+                    ),
+                    center = sunCenter,
+                    radius = w * 0.46f
+                ),
+                center = sunCenter,
+                radius = w * 0.46f
+            )
+        }
+    }
+}
+
 sealed interface BackdropMode {
     data class PreBaked(val frames: Int = 24) : BackdropMode
     data object Live : BackdropMode
