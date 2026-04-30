@@ -4632,6 +4632,8 @@ fun GoalCompletionAnimation(
     val prPulse = remember { Animatable(1f) }
     val prTextAlpha = remember { Animatable(0f) }
     val prTextScale = remember { Animatable(0.9f) }
+    val raysGlowBurst = remember { Animatable(0f) }
+    val crownEntranceGlow = remember { Animatable(0f) }
     var showFinishButton by remember { mutableStateOf(false) }
     var showSummaryScreen by remember { mutableStateOf(false) }
 
@@ -4663,84 +4665,101 @@ fun GoalCompletionAnimation(
                 showFinishButton = true
             }
             launch {
-                lightBurst.animateTo(1f, tween(100, easing = FastOutSlowInEasing))
-                lightBurst.animateTo(0f, tween(500))
+                lightBurst.animateTo(1f, tween(80, easing = FastOutSlowInEasing))
+                lightBurst.animateTo(0f, tween(600))
             }
 
             if (prFlags.any) {
                 launch {
-                    delay(60)
+                    delay(40)
                     prFlash.snapTo(1f)
-                    prFlash.animateTo(0f, tween(220, easing = FastOutSlowInEasing))
+                    prFlash.animateTo(0f, tween(200, easing = FastOutSlowInEasing))
                 }
                 launch {
-                    delay(80)
+                    delay(60)
                     prShockwave.snapTo(0f)
-                    prShockwave.animateTo(1f, tween(650, easing = FastOutSlowInEasing))
+                    prShockwave.animateTo(1f, tween(700, easing = FastOutSlowInEasing))
                 }
                 launch {
-                    delay(90)
-                    repeat(2) {
-                        prPulse.animateTo(1.12f, tween(120, easing = FastOutSlowInEasing))
-                        prPulse.animateTo(1f, tween(180, easing = FastOutSlowInEasing))
+                    delay(70)
+                    repeat(3) {
+                        prPulse.animateTo(1.15f, tween(110, easing = FastOutSlowInEasing))
+                        prPulse.animateTo(1f, tween(160, easing = FastOutSlowInEasing))
                     }
                 }
                 launch {
-                    delay(180)
-                    prTextAlpha.animateTo(1f, tween(220, easing = FastOutSlowInEasing))
+                    delay(700)
+                    prTextAlpha.animateTo(1f, tween(280, easing = FastOutSlowInEasing))
                 }
                 launch {
-                    delay(180)
-                    prTextScale.snapTo(0.9f)
-                    prTextScale.animateTo(1f, spring(dampingRatio = 0.35f, stiffness = 450f))
+                    delay(700)
+                    prTextScale.snapTo(0.75f)
+                    prTextScale.animateTo(1f, spring(dampingRatio = 0.3f, stiffness = 380f))
                 }
                 launch {
-                    delay(120)
+                    delay(80)
                     haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                    delay(120)
+                    delay(80)
                     haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                 }
             }
 
+            // Crown sweeps in first — dramatic overshoot spring with glow halo flash
             launch {
-                delay(100)
-                iconScale.animateTo(1f, spring(dampingRatio = 0.3f, stiffness = 200f))
+                delay(90)
+                iconScale.snapTo(0f)
+                iconScale.animateTo(1f, spring(dampingRatio = 0.22f, stiffness = 155f))
             }
             launch {
-                delay(100)
-                iconRotation.animateTo(0f, spring(dampingRatio = 0.4f, stiffness = 150f))
+                delay(90)
+                iconRotation.snapTo(-50f)
+                iconRotation.animateTo(0f, spring(dampingRatio = 0.30f, stiffness = 115f))
             }
             launch {
-                delay(150)
-                ornamentProgress.animateTo(1f, spring(dampingRatio = 0.5f, stiffness = 100f))
+                delay(90)
+                crownEntranceGlow.animateTo(1f, tween(130, easing = FastOutSlowInEasing))
+                crownEntranceGlow.animateTo(0f, tween(800, easing = FastOutSlowInEasing))
             }
             launch {
-                delay(200)
-                textAlpha.animateTo(1f, tween(300))
+                delay(90)
+                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+            }
+
+            // Rays cascade out AFTER crown has settled — one-by-one waterfall via tween
+            launch {
+                delay(390)
+                ornamentProgress.snapTo(0f)
+                ornamentProgress.animateTo(1f, tween(durationMillis = 720, easing = FastOutSlowInEasing))
+            }
+            // Massive glow halo on ray burst — blooms then decays
+            launch {
+                delay(390)
+                raysGlowBurst.animateTo(1f, tween(155, easing = FastOutSlowInEasing))
+                raysGlowBurst.animateTo(0f, tween(1150, easing = FastOutSlowInEasing))
             }
             launch {
-                delay(200)
-                textScale.animateTo(1f, spring(dampingRatio = 0.4f, stiffness = 300f))
+                delay(390)
+                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                delay(230)
+                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                delay(190)
+                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            }
+
+            // Text rises in last — after rays have largely settled
+            launch {
+                delay(600)
+                textAlpha.animateTo(1f, tween(430, easing = FastOutSlowInEasing))
             }
             launch {
-                delay(100)
-                repeat(3) {
-                    delay(150)
-                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                }
+                delay(600)
+                textScale.snapTo(0.55f)
+                textScale.animateTo(1f, spring(dampingRatio = 0.36f, stiffness = 250f))
             }
         }
     }
 
     val mainText = "WORKOUT\nCOMPLETE"
-    val styledText = remember(mainText, theme.primary, theme.secondary) {
-        val gradient = Brush.verticalGradient(
-            colors = listOf(theme.primary, theme.secondary, theme.primary)
-        )
-        buildAnnotatedString {
-            withStyle(SpanStyle(brush = gradient)) { append(mainText) }
-        }
-    }
 
     val prLabel = remember(prFlags) {
         when {
@@ -4879,11 +4898,36 @@ fun GoalCompletionAnimation(
                             val ornamentCount = 8 + (sets * 2).coerceAtMost(24)
                             val maxRadius = (w * 0.4f) + (reps * 2f * density).coerceAtMost(w * 0.3f)
                             val baseRadius = w * 0.25f
+                            val burstGlow = raysGlowBurst.value
+                            val rayAccentColor = if (prFlags.any) Color(0xFFFFD700) else theme.primary
+
+                            // Massive radial halo on initial burst — blooms from center and fades
+                            if (burstGlow > 0f) {
+                                val glowRadius = w * (0.45f + 1.15f * burstGlow)
+                                drawCircle(
+                                    brush = Brush.radialGradient(
+                                        colors = listOf(
+                                            rayAccentColor.copy(alpha = burstGlow * 0.72f),
+                                            rayAccentColor.copy(alpha = burstGlow * 0.28f),
+                                            Color.Transparent
+                                        ),
+                                        center = Offset(centerX, centerY),
+                                        radius = glowRadius
+                                    ),
+                                    radius = glowRadius,
+                                    center = Offset(centerX, centerY)
+                                )
+                            }
 
                             rotate(degrees = animationTime.value * 20f) {
                                 for (i in 0 until ornamentCount) {
                                     val angle = (2 * PI / ornamentCount) * i
-                                    val currentRadius = baseRadius + (maxRadius - baseRadius) * ornamentProgress.value
+                                    // Per-ray staggered progress — rays cascade out one by one
+                                    val rawRayProgress = ornamentProgress.value * ornamentCount.toFloat() - i
+                                    val rayProgress = rawRayProgress.coerceIn(0f, 1f)
+                                    if (rayProgress <= 0f) continue
+
+                                    val currentRadius = baseRadius + (maxRadius - baseRadius) * rayProgress
 
                                     val startX = centerX + cos(angle).toFloat() * baseRadius
                                     val startY = centerY + sin(angle).toFloat() * baseRadius
@@ -4906,16 +4950,47 @@ fun GoalCompletionAnimation(
                                         Brush.linearGradient(listOf(theme.primary, theme.secondary))
                                     }
 
-                                    drawPath(path = spikePath, brush = spikeBrush)
+                                    drawPath(path = spikePath, brush = spikeBrush, alpha = rayProgress)
 
+                                    // Tip orb — massively inflated on burst then settles to a small dot
+                                    val tipBaseRadius = 3.dp.toPx() * rayProgress
+                                    val tipBurstRadius = tipBaseRadius + 18.dp.toPx() * burstGlow * rayProgress
+
+                                    if (burstGlow > 0f) {
+                                        // Outer soft glow halo per tip during burst
+                                        drawCircle(
+                                            color = rayAccentColor.copy(alpha = burstGlow * 0.45f * rayProgress),
+                                            radius = tipBurstRadius * 2.4f,
+                                            center = Offset(endX, endY)
+                                        )
+                                    }
                                     drawCircle(
-                                        color = if (prFlags.any) Color(0xFFFFD700) else theme.primary,
-                                        radius = 3.dp.toPx() * ornamentProgress.value,
-                                        center = Offset(endX, endY),
-                                        alpha = ornamentProgress.value
+                                        color = rayAccentColor.copy(alpha = (rayProgress * (0.9f + 0.1f * burstGlow)).coerceIn(0f, 1f)),
+                                        radius = tipBurstRadius.coerceAtLeast(tipBaseRadius),
+                                        center = Offset(endX, endY)
                                     )
                                 }
                             }
+                        }
+
+                        // Crown entrance glow halo — flares on crown appear, decays to nothing
+                        if (crownEntranceGlow.value > 0f) {
+                            val g = crownEntranceGlow.value
+                            val crownGlowColor = if (prFlags.any) Color(0xFFFFD700) else theme.primary
+                            val glowRadius = w * (0.52f + 0.9f * g)
+                            drawCircle(
+                                brush = Brush.radialGradient(
+                                    colors = listOf(
+                                        crownGlowColor.copy(alpha = g * 0.62f),
+                                        crownGlowColor.copy(alpha = g * 0.18f),
+                                        Color.Transparent
+                                    ),
+                                    center = Offset(centerX, centerY),
+                                    radius = glowRadius
+                                ),
+                                radius = glowRadius,
+                                center = Offset(centerX, centerY)
+                            )
                         }
 
                         val crownPath = Path().apply {
@@ -4951,7 +5026,7 @@ fun GoalCompletionAnimation(
                 }
 
                 Text(
-                    text = styledText,
+                    text = mainText,
                     modifier = Modifier
                         .align(Alignment.Center)
                         .offset(y = 60.dp)
@@ -4963,6 +5038,7 @@ fun GoalCompletionAnimation(
                         },
                     textAlign = TextAlign.Center,
                     lineHeight = 50.sp,
+                    color = theme.primary,
                     style = TextStyle(
                         fontSize = 52.sp,
                         fontWeight = FontWeight.Black,

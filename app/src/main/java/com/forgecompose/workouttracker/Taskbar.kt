@@ -848,29 +848,16 @@ fun FloatingTaskbar(
                                                             tint = if (selected) primaryColor else Color(0xFF7A7A7A),
                                                             modifier = Modifier.size(if (selected) 26.dp else 22.dp)
                                                         )
-                                                        if (selected) {
-                                                            Spacer(modifier = Modifier.height(2.dp))
-                                                            Text(
-                                                                text = item.label,
-                                                                fontSize = 9.sp,
-                                                                color = primaryColor,
-                                                                fontWeight = FontWeight.Bold,
-                                                                maxLines = 1,
-                                                                style = MaterialTheme.typography.labelSmall
-                                                            )
-                                                        }
+                                                        Spacer(modifier = Modifier.height(2.dp))
+                                                        Text(
+                                                            text = item.label,
+                                                            fontSize = 9.sp,
+                                                            color = if (selected) primaryColor else Color(0xFF7A7A7A),
+                                                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                                                            maxLines = 1,
+                                                            style = MaterialTheme.typography.labelSmall
+                                                        )
                                                     }
-                                                }
-                                                if (!selected) {
-                                                    Spacer(modifier = Modifier.height(2.dp))
-                                                    Text(
-                                                        text = item.label,
-                                                        fontSize = 9.sp,
-                                                        color = Color(0xFF7A7A7A),
-                                                        fontWeight = FontWeight.Normal,
-                                                        maxLines = 1,
-                                                        style = MaterialTheme.typography.labelSmall
-                                                    )
                                                 }
                                             }
                                         }

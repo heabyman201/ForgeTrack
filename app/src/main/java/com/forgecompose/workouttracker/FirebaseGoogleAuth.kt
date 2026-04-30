@@ -51,7 +51,7 @@ object FirebaseGoogleAuth {
 
         val credentialManager = CredentialManager.create(context.applicationContext)
         val googleIdOption = GetGoogleIdOption.Builder()
-            .setFilterByAuthorizedAccounts(true)
+            .setFilterByAuthorizedAccounts(false)
             .setAutoSelectEnabled(true)
             .setServerClientId(webClientId)
             .build()
