@@ -263,6 +263,81 @@ enum class MuscleGroups(val sizeModifier: Float, val cnsImpact: Float, val local
     LowerBack(1.0f, 0.9f, 0.6f), UpperBack(0.9f, 0.5f, 1.1f)
 }
 
+// Tanaka et al. (2001): HRmax = 208 - 0.7 * age. More accurate than 220 - age.
+private fun tanakaMaxHr(age: Int): Double = 208.0 - 0.7 * age
+
+// Katch-McArdle: BMR = 370 + 21.6 * lean body mass (kg). More accurate than Mifflin-St Jeor
+// when body composition is known because it removes adipose tissue (low metabolic activity).
+private fun katchMcArdleBmr(weightKg: Int, bodyFatPct: Double?): Double {
+    if (bodyFatPct == null || bodyFatPct <= 0.0 || bodyFatPct >= 60.0) return Double.NaN
+    val leanMass = weightKg * (1.0 - bodyFatPct / 100.0)
+    return 370.0 + 21.6 * leanMass
+}
+
+// Karvonen target HR = ((HRmax - RHR) * intensity) + RHR. We invert: given current HR, what is %HRR?
+private fun heartRateReservePct(observedHr: Double, restingHr: Double, maxHr: Double): Double {
+    val reserve = (maxHr - restingHr).coerceAtLeast(1.0)
+    return ((observedHr - restingHr) / reserve).coerceIn(0.0, 1.2)
+}
+
+// Parses a water intake survey answer (e.g. "1-2 Liters", "3 Liters") into liters/day.
+private fun parseWaterIntakeLiters(raw: String): Double {
+    val nums = Regex("""\d+(?:\.\d+)?""").findAll(raw).map { it.value.toDouble() }.toList()
+    if (nums.isEmpty()) return 1.5
+    return nums.average()
+}
+
+// Physical Activity Level (FAO/WHO/UN consensus): sedentary 1.2, light 1.375, moderate 1.55,
+// very active 1.725, extra active 1.9. Derived from session count + cardio preference.
+private fun physicalActivityLevel(daysPerWeek: Int, cardioPref: String): Double {
+    val base = when {
+        daysPerWeek <= 1 -> 1.2
+        daysPerWeek == 2 -> 1.375
+        daysPerWeek in 3..4 -> 1.55
+        daysPerWeek in 5..6 -> 1.725
+        else -> 1.9
+    }
+    val cardioBoost = when {
+        cardioPref.contains("HIIT", true) || cardioPref.contains("Daily", true) -> 0.075
+        cardioPref.contains("Running", true) || cardioPref.contains("Cycling", true) -> 0.05
+        cardioPref.contains("LISS", true) || cardioPref.contains("Walk", true) -> 0.025
+        else -> 0.0
+    }
+    return (base + cardioBoost).coerceIn(1.2, 2.0)
+}
+
+// Renaissance Periodization style volume landmarks (sets/week). Per muscle:
+// MV = maintenance, MEV = minimum effective, MAV = max adaptive (centered target), MRV = max recoverable.
+private data class VolumeLandmarks(val mv: Float, val mev: Float, val mav: Float, val mrv: Float)
+private fun volumeLandmarksFor(muscle: MuscleGroups): VolumeLandmarks = when (muscle) {
+    MuscleGroups.Pecs       -> VolumeLandmarks(8f, 10f, 16f, 22f)
+    MuscleGroups.Delts      -> VolumeLandmarks(8f, 12f, 18f, 26f)
+    MuscleGroups.Biceps     -> VolumeLandmarks(6f, 8f, 14f, 20f)
+    MuscleGroups.Triceps    -> VolumeLandmarks(6f, 8f, 14f, 20f)
+    MuscleGroups.Lats       -> VolumeLandmarks(8f, 10f, 16f, 22f)
+    MuscleGroups.Traps      -> VolumeLandmarks(4f, 8f, 14f, 20f)
+    MuscleGroups.Abs        -> VolumeLandmarks(0f, 8f, 16f, 25f)
+    MuscleGroups.Forearms   -> VolumeLandmarks(2f, 4f, 10f, 16f)
+    MuscleGroups.Quads      -> VolumeLandmarks(8f, 10f, 16f, 20f)
+    MuscleGroups.Hamstrings -> VolumeLandmarks(4f, 6f, 12f, 18f)
+    MuscleGroups.Glutes     -> VolumeLandmarks(0f, 4f, 12f, 16f)
+    MuscleGroups.Calves     -> VolumeLandmarks(6f, 8f, 14f, 22f)
+    MuscleGroups.LowerBack  -> VolumeLandmarks(2f, 4f, 8f, 12f)
+    MuscleGroups.UpperBack  -> VolumeLandmarks(8f, 10f, 18f, 25f)
+}
+
+// Epley estimated 1RM: 1RM = w * (1 + reps/30). Brzycki agrees within ~3% for reps <= 10.
+private fun estimated1RM(weight: Double, reps: Int): Double {
+    if (weight <= 0 || reps <= 0) return 0.0
+    return weight * (1.0 + reps / 30.0)
+}
+
+// Banister TRIMP with sex-neutral weighting: TRIMP = duration * HRR_ratio * 0.64 * exp(1.92 * HRR_ratio)
+private fun banisterTrimp(durationMin: Double, hrrRatio: Double): Double {
+    val r = hrrRatio.coerceIn(0.0, 1.2)
+    return durationMin * r * 0.64 * exp(1.92 * r)
+}
+
 enum class LoadBand { NotTrained, SlightlyTrained, Building, OnTrack, Recovering, Overreached, DeloadRecommended }
 
 data class UserProfile(
@@ -305,37 +380,104 @@ data class RecoveryFactors(
     val survey: SurveyInsights,
     val recentEnvironmentStress: Boolean = false
 ) {
-    private fun getAgeAdjustedRHR(age: Int): Double = 55.0 + (age - 20).coerceAtLeast(0) * 0.3
+    // Adult RHR baseline: ~70 bpm at age 20, drifts up ~0.3 bpm/year, capped near 80.
+    // For aerobically fit individuals subtract via fitness signals later.
+    private fun getAgeAdjustedRHR(age: Int): Double =
+        (60.0 + (age - 20).coerceAtLeast(0) * 0.25).coerceAtMost(82.0)
+
+    // Best-available BMR: Katch-McArdle when body composition is known, else Mifflin-St Jeor.
+    val effectiveBmr: Double by lazy {
+        val km = katchMcArdleBmr(profile.weightKg, bodyFatPercentage)
+        if (km.isFinite()) km else profile.bmr
+    }
+
+    // FFM (kg) used for protein target when BFP is known.
+    private val freeFatMass: Double by lazy {
+        if (bodyFatPercentage != null && bodyFatPercentage > 0.0 && bodyFatPercentage < 60.0)
+            profile.weightKg * (1.0 - bodyFatPercentage / 100.0)
+        else
+            profile.weightKg * 0.82  // assume ~18% bf default
+    }
 
     val recoveryEfficacy: Float by lazy {
         var baseScore = 1.0
 
+        // ---- Sleep: smooth bell curve around 7.5h. Below 6h debt accumulates non-linearly.
+        // Based on Walker (2017) cognitive/recovery curves; <5h ~ 60% capacity, 7.5h optimal.
         val s = sleepHours?.toDouble() ?: 7.5
-        val sleepScore = when {
-            s < 5.0 -> 0.6
-            s < 6.5 -> 0.8 + ((s - 5.0) / 1.5) * 0.2
-            s < 8.5 -> 1.0 + ((s - 6.5) / 2.0) * 0.1
-            else -> 1.1
+        val sleepScore = run {
+            // Asymmetric: steep penalty below 7h, plateau above 8h. Penalize > 10h slightly.
+            val raw = when {
+                s < 5.0 -> 0.55 + (s - 4.0) * 0.07          // 0.55 at 5h floor, 0.62 below
+                s < 7.0 -> 0.62 + (s - 5.0) * 0.18          // 0.62 at 5h → 0.98 at 7h
+                s <= 9.0 -> 1.05 + (1.0 - abs(s - 8.0)) * 0.05  // small bonus for 7-9h
+                s <= 10.0 -> 1.05
+                else -> (1.05 - (s - 10.0) * 0.05).coerceAtLeast(0.85)
+            }
+            // Subjective sleep quality from survey nudges +/- 5%.
+            val qualityAdj = when {
+                survey.sleepQuality.contains("9", true) || survey.sleepQuality.contains("Excellent", true) -> 1.05
+                survey.sleepQuality.contains("5", true) || survey.sleepQuality.contains("Poor", true) -> 0.95
+                else -> 1.0
+            }
+            (raw * qualityAdj).coerceIn(0.5, 1.15)
         }
         baseScore *= sleepScore
 
-        val proteinTarget = if (survey.dietStyle.contains("Cut", true)) 2.2 * profile.weightKg else 1.8 * profile.weightKg
-        val p = proteinGrams ?: (proteinTarget * 0.9)
-        val pRatio = (p / proteinTarget).coerceIn(0.5, 1.5)
+        // ---- Protein vs FFM-aware target. Cutting needs 2.0-2.4 g/kg FFM for muscle retention
+        // (Helms et al 2014); maintenance/bulking 1.6-2.0 g/kg total weight (Morton et al 2018).
+        val proteinTargetG = if (survey.dietStyle.contains("Cut", true))
+            2.3 * freeFatMass
+        else
+            1.8 * profile.weightKg
+        val p = proteinGrams ?: (proteinTargetG * 0.9)
+        val pRatio = (p / proteinTargetG).coerceIn(0.5, 1.5)
 
-        val calsTarget = profile.bmr * when(survey.dietStyle) { "Bulking" -> 1.5; "Cutting" -> 1.2; else -> 1.35 }
+        // ---- TDEE via Mifflin/Katch * activity-adjusted PAL.
+        val daysPerWeek = survey.daysAvailable.filter { it.isDigit() }.toIntOrNull() ?: 3
+        val pal = physicalActivityLevel(daysPerWeek, survey.cardioPreference)
+        val phaseMult = when {
+            survey.goal.contains("Bulk", true) || survey.dietStyle.contains("Bulk", true) -> 1.12
+            survey.goal.contains("Cut", true) || survey.dietStyle.contains("Cut", true) -> 0.82
+            else -> 1.0
+        }
+        val calsTarget = effectiveBmr * pal * phaseMult
         val c = dailyCalories ?: calsTarget
-        val cRatio = (c / calsTarget).coerceIn(0.6, 1.4)
+        val cRatio = (c / calsTarget).coerceIn(0.6, 1.5)
 
-        val nutritionMod = if (cRatio < 0.85) (0.8 * pRatio.pow(0.5)) else (1.0 + (cRatio - 1.0) * 0.2) * pRatio.pow(0.3)
+        // Combined nutrition modifier: protein dominates for repair, calories gate output.
+        // Diminishing return on excess kcal (>110% of target gives only 1.5% per 10%).
+        val nutritionMod = if (cRatio < 0.85)
+            (0.78 + (cRatio - 0.6) * 0.5) * pRatio.pow(0.5)
+        else
+            (1.0 + (cRatio.coerceAtMost(1.1) - 1.0) * 0.15) * pRatio.pow(0.35)
         baseScore *= nutritionMod
 
+        // ---- Hydration via 35 ml/kg target (EFSA / ACSM guidance).
+        val hydrationTargetL = profile.weightKg * 0.035
+        val hydrationActualL = parseWaterIntakeLiters(survey.waterIntake)
+        val hydrationRatio = (hydrationActualL / hydrationTargetL).coerceIn(0.4, 1.4)
+        val hydrationMod = if (hydrationRatio < 0.85) 0.92 + (hydrationRatio - 0.4) * 0.18 else 1.02
+        baseScore *= hydrationMod
+
+        // ---- Cardiovascular stress: HR reserve interpretation (Karvonen).
+        // Elevated RHR vs personal baseline indicates incomplete autonomic recovery (HRV proxy).
+        val hrMax = tanakaMaxHr(profile.age)
         val rhrTarget = getAgeAdjustedRHR(profile.age)
         val rhr = restingHeartRate?.toDouble() ?: rhrTarget
-        val rhrStress = if (rhr > rhrTarget + 10) 0.85 else if (rhr > rhrTarget + 5) 0.95 else 1.05
+        // Compute deviation as fraction of HR reserve (more individualized than fixed bpm).
+        val reserve = (hrMax - rhrTarget).coerceAtLeast(40.0)
+        val rhrDeviationPct = ((rhr - rhrTarget) / reserve).coerceIn(-0.15, 0.4)
+        val rhrStress = (1.05 - rhrDeviationPct * 0.6).coerceIn(0.78, 1.08)
 
-        val spo2 = sleepSpo2 ?: 98.0
-        val spo2Mod = if (spo2 < 93.0) 0.9 else 1.0
+        // SpO2: <90% sleep desat is clinically meaningful; 90-93 mild, 94-97 normal, >=98 optimal.
+        val spo2 = sleepSpo2 ?: 97.5
+        val spo2Mod = when {
+            spo2 < 90.0 -> 0.82
+            spo2 < 94.0 -> 0.93
+            spo2 < 97.0 -> 0.99
+            else -> 1.02
+        }
 
         val reportedStress = when(survey.stressLevel) {
             "High" -> 0.85
@@ -348,10 +490,16 @@ data class RecoveryFactors(
 
         if (recentEnvironmentStress) baseScore *= 0.92
 
-        val ageDampener = if (profile.age > 35) 1.0 - ((profile.age - 35) * 0.008) else 1.0
+        // ---- Age-related recovery decline: ~0.5-1% per year past 30 (Pollock et al).
+        val ageDampener = when {
+            profile.age <= 30 -> 1.0
+            profile.age <= 50 -> 1.0 - ((profile.age - 30) * 0.006)
+            else -> 0.88 - ((profile.age - 50) * 0.009)
+        }.coerceAtLeast(0.7)
         baseScore *= ageDampener
 
-        if (survey.usesCreatine) baseScore *= 1.05
+        // Creatine: ~3-5% recovery/work-capacity benefit per Kreider meta-analysis.
+        if (survey.usesCreatine) baseScore *= 1.04
 
         baseScore.toFloat().coerceIn(0.4f, 1.6f)
     }
@@ -548,7 +696,26 @@ private fun estimateSessionDerivedLoad(workout: WorkoutSummary): SessionDerivedL
     val distance = (workout.distance ?: 0.0).coerceAtLeast(0.0)
     val durationMinutes = (workout.durationMinutes ?: 0f).coerceAtLeast(0f)
 
-    val tonnageUnits = ((sets * reps).toDouble() * weight / 1000.0).toFloat()
+    // Tonnage in metric tonnes; %1RM intensity scales effective stimulus per Helms/Schoenfeld.
+    // Below ~30% 1RM, hypertrophy stimulus drops sharply (Lasevicius 2018, Schoenfeld 2017).
+    val effectiveReps = when {
+        sets > 0 && reps > 0 -> (reps / sets).coerceAtLeast(1)
+        reps > 0 -> reps
+        else -> 0
+    }
+    val oneRm = estimated1RM(weight, effectiveReps)
+    val intensityFraction = if (oneRm > 0.0 && weight > 0.0) (weight / oneRm).coerceIn(0.0, 1.0) else 0.0
+    val tonnageRaw = ((sets * reps).toDouble() * weight / 1000.0).toFloat()
+    // Effective volume curve: stimulus(intensity) = clamp(0.4 + 1.2*x - 0.6*x^2, 0.4, 1.0)
+    // ~1.0 at 60-80% 1RM (hypertrophy zone), tapers slightly above (more CNS, less per rep).
+    val intensityCurve = if (intensityFraction > 0.0) {
+        (0.4 + 1.2 * intensityFraction - 0.6 * intensityFraction * intensityFraction)
+            .coerceIn(0.4, 1.05).toFloat()
+    } else 1.0f
+    val tonnageUnits = tonnageRaw * intensityCurve
+
+    // Endurance: ~0.9 kcal/kg/km running, normalized to 75kg ⇒ ~70kcal/km, scale by 2.5 to align units.
+    // Distance-based stimulus.
     val enduranceUnits = (distance * 2.5).toFloat()
     val durationUnits = durationMinutes / 30f
     val fallbackUnits = if (tonnageUnits == 0f && enduranceUnits == 0f) {
@@ -560,11 +727,24 @@ private fun estimateSessionDerivedLoad(workout: WorkoutSummary): SessionDerivedL
     val volumeUnits = (tonnageUnits + enduranceUnits + durationUnits + fallbackUnits)
         .coerceAtLeast(0.2f)
 
+    // HR strain: prefer Banister TRIMP via heart-rate reserve. Falls back to linear.
     val hrAvg = (workout.heartRateAvg ?: 0).toFloat()
     val hrMax = (workout.heartRateMax ?: 0).toFloat()
-    val hrAvgStrain = if (hrAvg > 0f) ((hrAvg - 95f) / 70f).coerceIn(0f, 1.3f) else 0f
-    val hrPeakStrain = if (hrMax > 0f) ((hrMax - 130f) / 65f).coerceIn(0f, 1.3f) else 0f
-    val hrStrain = (hrAvgStrain * 0.65f + hrPeakStrain * 0.35f).coerceIn(0f, 1.3f)
+    val hrStrain = run {
+        val avg = hrAvg.toDouble()
+        val peak = hrMax.toDouble()
+        val rest = 60.0  // population RHR (no per-user RHR plumbed here)
+        val hrCeiling = if (peak > 0.0) peak else 195.0
+        val hrrAvg = if (avg > 0.0) heartRateReservePct(avg, rest, hrCeiling) else 0.0
+        val hrrPeak = if (peak > 0.0) heartRateReservePct(peak, rest, hrCeiling) else 0.0
+        if (avg > 0.0 && durationMinutes > 0f) {
+            val trimp = banisterTrimp(durationMinutes.toDouble(), hrrAvg)
+            // Normalize TRIMP so an hour at 70% HRR ≈ 1.0 strain.
+            (trimp / 90.0).toFloat().coerceIn(0f, 1.3f)
+        } else if (hrrAvg > 0.0 || hrrPeak > 0.0) {
+            ((hrrAvg * 0.65 + hrrPeak * 0.35).toFloat()).coerceIn(0f, 1.3f)
+        } else 0f
+    }
 
     val rpeNorm = (((workout.sessionRpe ?: workout.fatigueLevel ?: 6) - 4).toFloat() / 6f)
         .coerceIn(0f, 1f)
@@ -572,11 +752,15 @@ private fun estimateSessionDerivedLoad(workout: WorkoutSummary): SessionDerivedL
         .coerceIn(0f, 1f)
     val systemicNorm = ((workout.systemicDrainScore ?: 0f) / 100f).coerceIn(0f, 1f)
 
+    // sRPE method (Foster 2001): session load ≈ duration * RPE. Combined with volume + HR strain.
+    val sRpeLoad = if (durationMinutes > 0f) (durationMinutes / 10f) * (rpeNorm + 0.5f) else 0f
+
     val loadUnits = (
         volumeUnits * (1f + (rpeNorm * 0.45f) + (hrStrain * 0.35f)) +
+            (sRpeLoad * 0.4f) +
             (systemicNorm * 4.5f) +
             (fatigueNorm * 2.5f)
-        ).coerceIn(0.2f, 100f)
+        ).coerceIn(0.2f, 120f)
 
     return SessionDerivedLoad(
         volumeUnits = volumeUnits,
@@ -655,6 +839,41 @@ private fun getAccumulatedLoad(recent: List<WorkoutSummary>, now: Instant, days:
         }
     }
     return accumulator
+}
+
+// Williams et al. (2017): EWMA ACWR is more sensitive than rolling average to acute spikes
+// because recent training is weighted exponentially. lambda = 2/(N+1) gives a half-life ~ 0.7N.
+// Returns weekly-equivalent EWMA load by muscle.
+private fun getEwmaStimulus(
+    recent: List<WorkoutSummary>,
+    now: Instant,
+    halfLifeDays: Float
+): Map<MuscleGroups, Float> {
+    if (recent.isEmpty()) return emptyMap()
+    val k = ln(2.0) / halfLifeDays.toDouble()
+    val accumulator = mutableMapOf<MuscleGroups, Float>().withDefault { 0f }
+    val window = halfLifeDays * 4f  // ignore samples beyond 4 half-lives (<6.25% weight)
+    val start = now.minus(Duration.ofDays(window.toLong().coerceAtLeast(7L)))
+    recent.filter { it.date.isAfter(start) && !it.date.isAfter(now) }.forEach { workout ->
+        val daysAgo = ChronoUnit.HOURS.between(workout.date, now).coerceAtLeast(0L) / 24.0
+        val weight = exp(-k * daysAgo).toFloat()
+        val sessionLoad = estimateSessionDerivedLoad(workout)
+        val tokens = workoutTokens(workout)
+        val tokenCount = tokens.size.coerceAtLeast(1).toFloat()
+        tokens.forEach { t ->
+            muscleMappings.forEach { (regex, impacts) ->
+                if (regex.containsMatchIn(t.lowercase())) {
+                    val share = (sessionLoad.loadUnits / tokenCount) * weight
+                    impacts.forEach { (muscle, ratio) ->
+                        accumulator[muscle] = accumulator.getValue(muscle) + (share * ratio)
+                    }
+                }
+            }
+        }
+    }
+    // Normalize EWMA sum to weekly-equivalent so it lines up with rolling 7-day metrics.
+    val normFactor = 7f / halfLifeDays  // sum of weights ≈ halfLifeDays / ln(2); scale to weekly view
+    return accumulator.mapValues { (_, v) -> v * normFactor }
 }
 
 private fun getMuscleFrequencyPerWeek(recent: List<WorkoutSummary>, now: Instant, days: Long): Map<MuscleGroups, Float> {
@@ -869,67 +1088,94 @@ private fun estimateInjuryRisk(
     val fatigueNorm = (fatigueScore / 60f).coerceIn(0f, 1f)
     val volumeAcwr = if (chronicWeeklyVolume > 0.1f) acuteWeeklyVolume / chronicWeeklyVolume else 1f
     val loadAcwr = if (chronicWeeklyLoad > 0.1f) acuteWeeklyLoad / chronicWeeklyLoad else 1f
-    val combinedAcwr = ((volumeAcwr + loadAcwr) / 2f).coerceIn(0.2f, 3f)
+    // Coupled ACWR: take the worse of the two so a spike in either tonnage or HR-load registers.
+    val combinedAcwr = max(volumeAcwr, loadAcwr).coerceIn(0.2f, 3f)
+    // Hulin et al (2016) "sweet spot" 0.8-1.3, danger zone >=1.5 (~1.5x injury likelihood),
+    // detraining penalty <0.8 (re-loading after layoff is itself injurious).
     val acwrRisk = when {
-        combinedAcwr < 0.75f -> (0.12f + ((0.75f - combinedAcwr) * 0.3f)).coerceAtMost(0.4f)
-        combinedAcwr <= 1.3f -> 0.06f
-        combinedAcwr <= 1.6f -> 0.20f + ((combinedAcwr - 1.3f) * 0.6f)
-        else -> 0.38f + ((combinedAcwr - 1.6f) * 0.45f)
+        combinedAcwr < 0.8f -> (0.10f + ((0.8f - combinedAcwr) * 0.45f)).coerceAtMost(0.45f)
+        combinedAcwr <= 1.3f -> 0.05f  // sweet spot
+        combinedAcwr <= 1.5f -> 0.10f + ((combinedAcwr - 1.3f) * 0.5f)
+        combinedAcwr <= 2.0f -> 0.25f + ((combinedAcwr - 1.5f) * 0.7f)
+        else -> 0.60f + ((combinedAcwr - 2.0f) * 0.5f)
     }.coerceIn(0f, 1f)
 
     val frequencyDelta = frequencyPerWeek - desiredFrequency
     val frequencyRisk = when {
-        frequencyDelta < -1.2f -> 0.2f
-        frequencyDelta <= 1f -> 0.05f
+        frequencyDelta < -1.2f -> 0.18f
+        frequencyDelta <= 1f -> 0.04f
         else -> (0.1f + ((frequencyDelta - 1f) * 0.22f)).coerceAtMost(0.7f)
     }
 
     val recoveryPenalty = (1f - recoveryFactors.recoveryEfficacy).coerceIn(0f, 0.6f)
-    val hrRisk = ((hrStrain - 0.8f).coerceAtLeast(0f) * 0.45f).coerceAtMost(0.45f)
+    // HR strain >0.85 HRR sustained correlates with overtraining markers.
+    val hrRisk = ((hrStrain - 0.85f).coerceAtLeast(0f) * 0.5f).coerceAtMost(0.45f)
 
-    return (
-        (fatigueNorm * 0.35f) +
-            (acwrRisk * 0.35f) +
-            (frequencyRisk * 0.18f) +
-            (recoveryPenalty * 0.2f) +
-            hrRisk
-        ).coerceIn(0f, 1f)
+    // Logistic blend: heavier base on fatigue + ACWR, modulated by recovery.
+    val rawRisk = (fatigueNorm * 0.32f) +
+        (acwrRisk * 0.38f) +
+        (frequencyRisk * 0.15f) +
+        (recoveryPenalty * 0.2f) +
+        hrRisk
+    // Apply mild logistic squashing so risk grows fast in 0.4-0.7 range and saturates near 1.
+    val logistic = 1f / (1f + exp((-3.2f * (rawRisk - 0.5f)).toDouble())).toFloat()
+    val blended = rawRisk * 0.55f + logistic * 0.45f
+    return blended.coerceIn(0f, 1f)
 }
 
 private fun calculateBaseTarget(profile: UserProfile, survey: SurveyInsights, muscle: MuscleGroups, goal: SprintGoal): Float {
-    var target = when {
-        profile.experience.contains("advanced") -> 18f
-        profile.experience.contains("intermediate") || profile.experience.contains("year") -> 14f
-        else -> 10f
+    // Anchor the target between MEV (beginner) and MAV (advanced) per RP guidelines.
+    val landmarks = volumeLandmarksFor(muscle)
+
+    // Experience scales 0..1: beginner ~0, advanced ~1.
+    val expFactor = when {
+        profile.experience.contains("advanced") -> 1.0f
+        profile.experience.contains("intermediate") || profile.experience.contains("year") -> 0.7f
+        profile.experience.contains("start") || profile.experience.contains("beginner") -> 0.2f
+        else -> 0.4f
     }
+    // Beginner: ~MEV+10% of MAV gap. Advanced: ~MAV. Caps below MRV via clamp at end.
+    var target = landmarks.mev * (1f - expFactor * 0.7f) +
+        landmarks.mav * (expFactor * 0.7f + 0.1f)
 
     val daysAvailable = survey.daysAvailable.filter { it.isDigit() }.toIntOrNull() ?: 3
-    val maxRecoverablePerSession = 8f
-    val maxTheoreticalWeekly = daysAvailable * maxRecoverablePerSession * 1.5
-    target = target.coerceAtMost(maxTheoreticalWeekly.toFloat())
+    // Per-session recoverable hard sets ~ 6-10 (Schoenfeld 2017 dose-response).
+    val maxRecoverablePerSession = 9f
+    val maxTheoreticalWeekly = daysAvailable * maxRecoverablePerSession
+    target = target.coerceAtMost(maxTheoreticalWeekly)
 
-    if (profile.preferredStyle == "calisthenics") target *= 1.2f
-    if (survey.goal.contains("Strength")) target *= 0.8f
+    if (profile.preferredStyle == "calisthenics") target *= 1.15f
+    if (survey.goal.contains("Strength", true)) target *= 0.85f
+    if (survey.goal.contains("Endurance", true) && muscle in listOf(
+            MuscleGroups.Quads, MuscleGroups.Hamstrings, MuscleGroups.Calves, MuscleGroups.Glutes
+        )) target *= 1.1f
 
+    // Age-related recoverable volume decline (Doering 2016, Fragala 2019): ~1% per year past 40.
     if (profile.age > 40) {
-        val decay = (profile.age - 40) * 0.2f
-        target = (target - decay).coerceAtLeast(6f)
+        val decay = 1f - ((profile.age - 40) * 0.012f).coerceAtMost(0.35f)
+        target *= decay
     }
 
-    target *= when(muscle) {
-        MuscleGroups.LowerBack -> 0.5f
-        MuscleGroups.Hamstrings -> 0.8f
-        MuscleGroups.Delts, MuscleGroups.Calves, MuscleGroups.Abs -> 1.4f
-        MuscleGroups.Quads -> 1.1f
+    // Recovery self-assessment can shift target ±15%.
+    target *= when {
+        survey.recoverySelfAssessment.contains("Fast", true) -> 1.1f
+        survey.recoverySelfAssessment.contains("Slow", true) -> 0.85f
         else -> 1.0f
     }
 
-    if (profile.importantMuscles.contains(muscle) || survey.focusMuscles.contains(muscle)) {
-        target *= 1.2f
-    }
+    // Stress chronically suppresses recoverable volume (Bartholomew 2008).
+    if (survey.stressLevel == "High") target *= 0.9f
 
+    // Sleep is a hard ceiling: <6h drops MRV materially.
+    val sleepBracket = survey.sleepQuality
+    if (sleepBracket.contains("5", true) || sleepBracket.contains("Poor", true)) target *= 0.88f
+
+    // Priority and sprint focus push target up but never beyond 95% MRV.
+    if (profile.importantMuscles.contains(muscle) || survey.focusMuscles.contains(muscle)) {
+        target *= 1.18f
+    }
     if (goal.isActive && goal.focusMuscles.contains(muscle)) {
-        target *= 1.35f
+        target *= 1.3f
     }
 
     val injuryMap = mapOf(
@@ -947,7 +1193,8 @@ private fun calculateBaseTarget(profile: UserProfile, survey: SurveyInsights, mu
         }
     }
 
-    return target
+    // Final clamp inside the recoverable range so we never prescribe junk volume or below MV.
+    return target.coerceIn(landmarks.mv.coerceAtLeast(2f), landmarks.mrv * 0.95f)
 }
 
 private fun calculateFatigueState(
@@ -966,6 +1213,7 @@ private fun calculateFatigueState(
 
     val hoursSince = ChronoUnit.HOURS.between(lastTrained, now).coerceAtLeast(0)
     val frequencyPressure = ((frequencyPerWeek - 2f) / 2.5f).coerceIn(-0.35f, 0.65f)
+    // Larger muscles take longer to recover (Schoenfeld 2016: legs 48-72h, arms 24-48h).
     val baseHalfLife = 24f * muscle.localRecoverySpeed * (1f + (muscle.sizeModifier * 0.3f))
     val effectiveHalfLife = (
         baseHalfLife *
@@ -973,18 +1221,25 @@ private fun calculateFatigueState(
         ) / (recoveryEfficacy.coerceAtLeast(0.35f) * adaptation.decayAcceleration.coerceAtLeast(1f))
     val clampedHalfLife = effectiveHalfLife.coerceAtLeast(6f)
 
+    // Banister-style two-component model: fast fatigue (residual) + delayed soreness (DOMS).
     val initialFatigue = ((acuteVolume * 8f) + (acuteLoad * 1.8f)) *
         (0.9f + (muscle.cnsImpact * 0.55f) + (hrStrain * 0.25f)) *
         adaptation.fatigueMultiplier
     val residual = (initialFatigue * exp(-(ln(2.0) / clampedHalfLife) * hoursSince)).toFloat()
 
-    val domsCurve = if(hoursSince < 72) {
-        val peakTime = 24f + (muscle.sizeModifier * 10f)
-        val sigma = 12f
+    // DOMS: peaks 24-48h post-exercise (Cheung 2003). Larger muscles peak later.
+    // Repeated bout effect (Nosaka & Clarkson 1995): trained muscles can show 50-80% less DOMS.
+    // adaptation.score (0..0.55) maps to RBE attenuation; fully adapted ≈ 0.55*1.4 = 0.77 reduction.
+    val domsCurve = if (hoursSince < 96) {
+        val peakTime = 30f + (muscle.sizeModifier * 12f)  // ~30-46h depending on muscle size
+        // Asymmetric Gaussian: ramp ~12h, decay ~24h (post-peak fades faster than rise).
+        val sigma = if (hoursSince < peakTime) 14f else 22f
+        val rbeAttenuation = (1f - (adaptation.score * 1.4f)).coerceIn(0.25f, 1f)
         val domsHeight =
             ((acuteVolume * 4.5f) + (acuteLoad * 1.2f)) *
                 (1f / recoveryEfficacy.coerceAtLeast(0.35f)) *
-                adaptation.fatigueMultiplier
+                adaptation.fatigueMultiplier *
+                rbeAttenuation
         domsHeight * exp(-((hoursSince - peakTime).pow(2)) / (2 * sigma.pow(2)))
     } else 0.0
 
@@ -1074,6 +1329,9 @@ suspend fun deriveMuscleLoads(
     val acute24hLoad = getAccumulatedLoad(recent, now, 1)
     val acute7dLoad = getAccumulatedLoad(recent, now, 7)
     val chronic28dLoad = getAccumulatedLoad(recent, now, 28)
+    // EWMA-based load: half-life 7 days for acute, 28 days for chronic. Used for ACWR.
+    val acuteEwmaLoad = getEwmaStimulus(recent, now, halfLifeDays = 7f)
+    val chronicEwmaLoad = getEwmaStimulus(recent, now, halfLifeDays = 28f)
     val muscleFrequency = getMuscleFrequencyPerWeek(recent, now, 14)
     val muscleHrStrain = averageHrStrainByMuscle(recent, now, 14)
     val muscleHistory = collectMuscleHistoryProfile(recent, now, 42)
@@ -1171,12 +1429,15 @@ suspend fun deriveMuscleLoads(
             adaptation
         )
         val desiredFrequency = if (muscle.sizeModifier > 1.2f) 2.0f else 2.6f
+        // Prefer EWMA load for ACWR (Williams 2017): smoother, more spike-sensitive.
+        val ewmaAcuteLoad = acuteEwmaLoad[muscle] ?: acuteWeeklyLoad
+        val ewmaChronicLoad = (chronicEwmaLoad[muscle] ?: chronicWeeklyLoad).coerceAtLeast(0.1f)
         val injuryRisk = estimateInjuryRisk(
             fatigueScore = fatigueScore,
             acuteWeeklyVolume = acuteWeeklyVolume,
             chronicWeeklyVolume = chronicWeeklyVolume,
-            acuteWeeklyLoad = acuteWeeklyLoad,
-            chronicWeeklyLoad = chronicWeeklyLoad,
+            acuteWeeklyLoad = ewmaAcuteLoad,
+            chronicWeeklyLoad = ewmaChronicLoad,
             frequencyPerWeek = frequencyPerWeek,
             desiredFrequency = desiredFrequency,
             hrStrain = hrStrain,
