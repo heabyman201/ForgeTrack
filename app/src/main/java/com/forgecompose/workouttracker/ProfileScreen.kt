@@ -714,9 +714,7 @@ private fun GlowingAvatar(
             null
         } else {
             withContext(Dispatchers.IO) {
-                runCatching {
-                    URL(photoUrl).openStream().use { stream -> BitmapFactory.decodeStream(stream) }
-                }.getOrNull()
+                runCatching { decodeAvatarSampled(photoUrl) }.getOrNull()
             }
         }
     }
@@ -775,6 +773,22 @@ private fun GlowingAvatar(
             )
         }
     }
+}
+
+// Decoded avatar is rendered at ~108.dp; sampling keeps memory bounded for large source images.
+private fun decodeAvatarSampled(url: String, targetPx: Int = 512): Bitmap? {
+    val bytes = URL(url).openStream().use { it.readBytes() }
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+
+    var sample = 1
+    while (bounds.outWidth / (sample * 2) >= targetPx &&
+        bounds.outHeight / (sample * 2) >= targetPx) {
+        sample *= 2
+    }
+    val opts = BitmapFactory.Options().apply { inSampleSize = sample }
+    return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
 }
 
 @Composable
