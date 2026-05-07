@@ -78,8 +78,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.os.BatteryManager
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -118,7 +120,9 @@ data class PerformanceOptions(
     val blurLengthMs: Long,
     val navEffects: Boolean,
     val showBodyHeatmap: Boolean,
-    val maxSuggestions: Int
+    val maxSuggestions: Int,
+    val powerSavingMode: Boolean,
+    val powerSaveThreshold: Float
 ) {
     companion object {
         val Defaults = PerformanceOptions(
@@ -128,7 +132,9 @@ data class PerformanceOptions(
             blurLengthMs = 700L,
             navEffects = true,
             showBodyHeatmap = true,
-            3
+            maxSuggestions = 3,
+            powerSavingMode = false,
+            powerSaveThreshold = 20f
         )
     }
 }
@@ -143,6 +149,8 @@ object PerformanceOptionsManager {
 
     private val keyMaxSuggestions = intPreferencesKey("maxSuggestions")
     private val keyShowBodyHeatmap = booleanPreferencesKey("showBodyHeatmap")
+    private val keyPowerSavingMode = booleanPreferencesKey("powerSavingMode")
+    private val keyPowerSaveThreshold = floatPreferencesKey("powerSaveThreshold")
 
     private val saved = MutableStateFlow(PerformanceOptions.Defaults)
     val current: StateFlow<PerformanceOptions> = saved
@@ -181,8 +189,9 @@ object PerformanceOptionsManager {
                         blurLengthMs = p[keyBlurLengthMs] ?: PerformanceOptions.Defaults.blurLengthMs,
                         navEffects = p[keyNavEffects] ?: PerformanceOptions.Defaults.navEffects,
                         showBodyHeatmap = p[keyShowBodyHeatmap] ?: PerformanceOptions.Defaults.showBodyHeatmap,
-                        maxSuggestions = p[keyMaxSuggestions] ?: PerformanceOptions.Defaults.maxSuggestions
-
+                        maxSuggestions = p[keyMaxSuggestions] ?: PerformanceOptions.Defaults.maxSuggestions,
+                        powerSavingMode = p[keyPowerSavingMode] ?: PerformanceOptions.Defaults.powerSavingMode,
+                        powerSaveThreshold = p[keyPowerSaveThreshold] ?: PerformanceOptions.Defaults.powerSaveThreshold
                     )
                 }
                 .collectLatest { saved.value = it }
@@ -213,12 +222,14 @@ object PerformanceOptionsManager {
         val filter = IntentFilter().apply {
             addAction(Intent.ACTION_SCREEN_ON)
             addAction(Intent.ACTION_SCREEN_OFF)
+            addAction(Intent.ACTION_BATTERY_CHANGED)
         }
         appCtx.registerReceiver(object : BroadcastReceiver() {
             override fun onReceive(context: Context, intent: Intent) {
                 when (intent.action) {
                     Intent.ACTION_SCREEN_ON -> isScreenOn.value = true
                     Intent.ACTION_SCREEN_OFF -> isScreenOn.value = false
+                    Intent.ACTION_BATTERY_CHANGED -> applyPowerSaveIfNeeded(context)
                 }
             }
         }, filter)
@@ -236,6 +247,8 @@ object PerformanceOptionsManager {
             p[keyNavEffects] = v.navEffects
             p[keyShowBodyHeatmap] = v.showBodyHeatmap
             p[keyMaxSuggestions] = v.maxSuggestions
+            p[keyPowerSavingMode] = v.powerSavingMode
+            p[keyPowerSaveThreshold] = v.powerSaveThreshold
         }
         saved.value = v
     }
@@ -271,6 +284,33 @@ object PerformanceOptionsManager {
     suspend fun setShowBodyHeatmap(context: Context, enabled: Boolean) {
         context.perfDataStore.edit { it[keyShowBodyHeatmap] = enabled }
         saved.value = saved.value.copy(showBodyHeatmap = enabled)
+    }
+
+    suspend fun setPowerSavingMode(context: Context, enabled: Boolean) {
+        context.perfDataStore.edit { it[keyPowerSavingMode] = enabled }
+        saved.value = saved.value.copy(powerSavingMode = enabled)
+    }
+
+    suspend fun setPowerSaveThreshold(context: Context, threshold: Float) {
+        context.perfDataStore.edit { it[keyPowerSaveThreshold] = threshold }
+        saved.value = saved.value.copy(powerSaveThreshold = threshold)
+    }
+
+    fun applyPowerSaveIfNeeded(context: Context) {
+        val opts = saved.value
+        if (!opts.powerSavingMode) return
+        val bm = context.getSystemService(Context.BATTERY_SERVICE) as BatteryManager
+        val batteryPct = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY).toFloat()
+        if (batteryPct <= opts.powerSaveThreshold) {
+            CoroutineScope(Dispatchers.IO).launch {
+                set(context, opts.copy(
+                    blurEnabled = false,
+                    taskbarAnimations = false,
+                    movingGradientAndParticles = false,
+                    navEffects = false
+                ))
+            }
+        }
     }
 }
 
@@ -313,6 +353,12 @@ class PerformanceOptionsViewModel(app: Application) : AndroidViewModel(app) {
     }
     fun setShowBodyHeatmap(b: Boolean) = viewModelScope.launch(Dispatchers.IO) {
         PerformanceOptionsManager.setShowBodyHeatmap(ctx, b)
+    }
+    fun setPowerSavingMode(b: Boolean) = viewModelScope.launch(Dispatchers.IO) {
+        PerformanceOptionsManager.setPowerSavingMode(ctx, b)
+    }
+    fun setPowerSaveThreshold(threshold: Float) = viewModelScope.launch(Dispatchers.IO) {
+        PerformanceOptionsManager.setPowerSaveThreshold(ctx, threshold.coerceIn(5f, 50f))
     }
 
 }
@@ -405,6 +451,9 @@ fun PerformanceOptionsScreen(
                 verticalArrangement = Arrangement.spacedBy(24.dp)
             ) {
                 item {
+                    PowerSavingSection(vm = vm, theme = theme, saved = saved)
+                }
+                item {
                    PerformanceSection(
                        vm = vm,
                        navController = navController,
@@ -476,7 +525,7 @@ private fun MaxSuggestionsRow(
             onChangeI = onChange,
             firstText = "Less Suggestions",
             stepSize = 1/2,
-            valueRange = 1f..4f,
+            valueRange = 1f..3f,
             secondText = "More Suggestions",
             theme = theme
         )
@@ -600,6 +649,80 @@ private fun SettingsSectionCardHealth(
         }
     }
 }
+@Composable
+private fun PowerSavingSection(
+    vm: PerformanceOptionsViewModel,
+    theme: ColorSchemeAppTheme,
+    saved: PerformanceOptions
+) {
+    SettingsSectionCardHealth(title = "Power Saving", theme = theme) {
+        PerformanceToggleRow(
+            label = "Auto Power Save",
+            checked = saved.powerSavingMode,
+            icon = Icons.Default.BatteryChargingFull,
+            impacts = listOf(ResourceImpact.BATTERY),
+            enabled = true,
+            theme = theme
+        ) { b -> vm.setPowerSavingMode(b) }
+
+        Spacer(Modifier.height(6.dp))
+
+        PowerSaveThresholdRow(
+            enabled = saved.powerSavingMode,
+            threshold = saved.powerSaveThreshold,
+            onChange = { vm.setPowerSaveThreshold(it) },
+            theme = theme
+        )
+    }
+}
+
+@Composable
+private fun PowerSaveThresholdRow(
+    enabled: Boolean,
+    threshold: Float,
+    onChange: (Float) -> Unit,
+    theme: ColorSchemeAppTheme
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Battery Threshold",
+                style = MaterialTheme.typography.bodyLarge,
+                color = Color.White.copy(alpha = 0.9f)
+            )
+            Text(
+                text = "${threshold.toInt()}%",
+                style = MaterialTheme.typography.labelLarge,
+                color = Color.White.copy(alpha = 0.75f)
+            )
+        }
+        Slider(
+            value = threshold.coerceIn(5f, 50f),
+            onValueChange = { onChange(it) },
+            valueRange = 5f..50f,
+            steps = 8,
+            enabled = enabled,
+            colors = SliderDefaults.colors(
+                activeTrackColor = theme.primary,
+                inactiveTrackColor = theme.secondary,
+                thumbColor = Color.White
+            ),
+            modifier = Modifier.fillMaxWidth()
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text("5%", fontSize = 12.sp, color = Color.White.copy(alpha = 0.6f))
+            Text("50%", fontSize = 12.sp, color = Color.White.copy(alpha = 0.6f))
+        }
+    }
+}
+
 @Composable
 fun PerformanceSection(vm: PerformanceOptionsViewModel, navController: NavController, theme: ColorSchemeAppTheme,
               saved: PerformanceOptions){

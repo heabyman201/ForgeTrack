@@ -366,7 +366,7 @@ fun UserProfileScreen(
                         }
                     }
 
-                    if (stages.after600ms && personalRecords.isNotEmpty()) {
+                    if (stages.after200ms && personalRecords.isNotEmpty()) {
                         item {
                             ProfileSectionCard(
                                 title = "Personal Records",
@@ -388,7 +388,7 @@ fun UserProfileScreen(
                         }
                     }
 
-                    if (stages.after200ms && recentWorkouts.isNotEmpty()) {
+                    if (stages.after100ms && recentWorkouts.isNotEmpty()) {
                         item {
                             ProfileSectionCard(
                                 title = "Recent Activity",
@@ -411,7 +411,7 @@ fun UserProfileScreen(
                         }
                     }
 
-                    if (stages.after200ms) {
+                    if (stages.after400ms) {
                         item {
                             ProfileSectionCard(
                                 title = "Body Stats",

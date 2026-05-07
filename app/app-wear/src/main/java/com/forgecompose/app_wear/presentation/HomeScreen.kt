@@ -4,10 +4,13 @@ import android.content.Intent
 import android.os.Build
 import android.provider.Settings
 import android.net.Uri
+import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -31,9 +34,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.dp
 import androidx.core.app.ActivityCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.wear.ambient.AmbientLifecycleObserver
 import androidx.wear.compose.foundation.lazy.AutoCenteringParams
 import androidx.wear.compose.foundation.lazy.ScalingLazyColumn
 import androidx.wear.compose.foundation.lazy.ScalingLazyColumnDefaults
@@ -322,6 +327,31 @@ fun WearHrMonitorScreen() {
     val err by HrMonitorRuntime.error.collectAsStateWithLifecycle()
     val activity = context as? android.app.Activity
 
+    var isAmbient by remember { mutableStateOf(false) }
+    val componentActivity = context as? ComponentActivity
+    DisposableEffect(componentActivity) {
+        if (componentActivity == null) return@DisposableEffect onDispose {}
+        val observer = AmbientLifecycleObserver(
+            componentActivity,
+            object : AmbientLifecycleObserver.AmbientLifecycleCallback {
+                override fun onEnterAmbient(ambientDetails: AmbientLifecycleObserver.AmbientDetails) {
+                    isAmbient = true
+                }
+                override fun onExitAmbient() {
+                    isAmbient = false
+                }
+                override fun onUpdateAmbient() {}
+            }
+        )
+        componentActivity.lifecycle.addObserver(observer)
+        onDispose { componentActivity.lifecycle.removeObserver(observer) }
+    }
+
+    if (isAmbient) {
+        AmbientHrDisplay(bpm = bpm)
+        return
+    }
+
     val requiredPermissions = remember { requiredSensorPermissions() }
     fun hasRequiredPermissions(): Boolean = hasHeartRatePermission(context)
     fun startService(force: Boolean = false) {
@@ -492,6 +522,36 @@ fun WearHrMonitorScreen() {
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun AmbientHrDisplay(bpm: Int?) {
+    val bpmText = if ((bpm ?: 0) > 0) "${bpm ?: 0}" else "--"
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                text = bpmText,
+                color = Color.White,
+                style = androidx.compose.ui.text.TextStyle(
+                    fontSize = 64.sp,
+                    fontWeight = FontWeight.Thin,
+                    fontFeatureSettings = "tnum"
+                )
+            )
+            Text(
+                text = "BPM",
+                color = Color.White.copy(alpha = 0.5f),
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Light,
+                letterSpacing = 3.sp
+            )
         }
     }
 }

@@ -8,6 +8,7 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import com.forgecompose.app_wear.passive.registerPassiveHr
 import com.forgecompose.app_wear.passive.unregisterPassiveHr
@@ -37,6 +38,13 @@ class HrMonitorService : Service() {
     private var lastUiPushMs: Long = 0L
     private var lastDataLayerBpm: Int? = null
     private var lastDataLayerPushMs: Long = 0L
+    private val wakeLock: PowerManager.WakeLock by lazy {
+        (getSystemService(Context.POWER_SERVICE) as PowerManager)
+            .newWakeLock(
+                PowerManager.PARTIAL_WAKE_LOCK,
+                "WorkoutTracker:HrMonitorWakeLock"
+            )
+    }
 
     override fun onBind(intent: Intent?) = null
 
@@ -120,6 +128,7 @@ class HrMonitorService : Service() {
             return
         }
         HrMonitorRuntime.error.value = null
+        if (!wakeLock.isHeld) wakeLock.acquire()
         collectJob = serviceScope.launch {
             val repo = HrRepository(appContext)
             val sync = WearHrSync(appContext)
@@ -188,6 +197,7 @@ class HrMonitorService : Service() {
     private fun stopMonitoring(endExercise: Boolean, clearRuntime: Boolean) {
         collectJob?.cancel()
         collectJob = null
+        if (wakeLock.isHeld) wakeLock.release()
         serviceScope.launch {
             if (endExercise) {
                 runCatching { HrRepository(applicationContext).endExercise() }
