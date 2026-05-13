@@ -346,7 +346,7 @@ class PerformanceOptionsViewModel(app: Application) : AndroidViewModel(app) {
         PerformanceOptionsManager.setMaxSuggestions(ctx, max)
     }
     fun setBlurLengthMs(ms: Long) = viewModelScope.launch(Dispatchers.IO) {
-        PerformanceOptionsManager.setBlurLengthMs(ctx, ms.coerceIn(300L, 1200L))
+        PerformanceOptionsManager.setBlurLengthMs(ctx, ms.coerceIn(0L, 1200L))
     }
     fun setNavEffectsOn(b: Boolean) = viewModelScope.launch(Dispatchers.IO) {
         PerformanceOptionsManager.setNavEffectsOn(ctx, b)
@@ -595,11 +595,29 @@ private fun BlurLengthRow(
             currentMax = currentMs.toInt(),
             onChangeL = onChange,
             firstText = "Slow",
-            stepSize = 8,
-            valueRange = 300f..1200f,
+            stepSize = 15,
+            valueRange = 0f..1200f,
             secondText = "Fast",
             theme = theme
         )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "0ms will turn off the animation entirely.",
+                style = MaterialTheme.typography.bodyLarge,
+                color = Color.White.copy(alpha = 0.9f)
+            )
+        }
+        Spacer(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(1.dp)
+                .background(Color.White.copy(alpha = 0.1f))
+        )
+
     }
 }
 
@@ -720,6 +738,17 @@ private fun PowerSaveThresholdRow(
             Text("5%", fontSize = 12.sp, color = Color.White.copy(alpha = 0.6f))
             Text("50%", fontSize = 12.sp, color = Color.White.copy(alpha = 0.6f))
         }
+        HorizontalDivider(
+            modifier = Modifier.padding(vertical = 12.dp),
+            color = theme.primary.copy(alpha = 0.4f)
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text("All performance options will be toggled off automatically if the battery is below this level", fontSize = 18.sp, color = Color.White.copy(alpha = 1f))
+        }
+
     }
 }
 

@@ -16,8 +16,13 @@ import android.os.Vibrator
 import android.os.VibratorManager
 import android.util.Log
 import android.widget.Toast
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateDpAsState
@@ -49,6 +54,7 @@ import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
@@ -69,6 +75,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -356,6 +363,9 @@ private fun FeaturePageLayout(page: OnboardingPage.FeatureHighlight) {
     val up by animateDpAsState(0.dp, tween(420, easing = FastOutSlowInEasing), label = "fy")
     val floaty = rememberInfiniteTransition(label = "float")
     val bob by floaty.animateFloat(-4f, 4f, infiniteRepeatable(animation = tween(2200, easing = LinearEasing), repeatMode = RepeatMode.Reverse), label = "bob")
+    val glowAlpha by floaty.animateFloat(0.12f, 0.52f, infiniteRepeatable(animation = tween(1900, easing = FastOutSlowInEasing), repeatMode = RepeatMode.Reverse), label = "glow")
+    val h = LocalHapticFeedback.current
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -367,14 +377,30 @@ private fun FeaturePageLayout(page: OnboardingPage.FeatureHighlight) {
         Spacer(Modifier.height(12.dp))
         Box(
             modifier = Modifier
-                .size(136.dp)
-                .clip(RoundedCornerShape(32.dp))
-                .background(Color.White.copy(alpha = 0.05f))
-                .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(32.dp))
-                .graphicsLayer { translationY = bob },
+                .size(190.dp)
+                .graphicsLayer { translationY = bob }
+                .drawBehind {
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            listOf(Color.White.copy(alpha = glowAlpha), Color.Transparent)
+                        )
+                    )
+                },
             contentAlignment = Alignment.Center
         ) {
-            Icon(page.icon, null, modifier = Modifier.size(84.dp), tint = Color.White)
+            Box(
+                modifier = Modifier
+                    .size(136.dp)
+                    .clip(RoundedCornerShape(32.dp))
+                    .background(Color.White.copy(alpha = 0.05f))
+                    .clickable(
+                        indication = null,
+                        interactionSource = remember { MutableInteractionSource() }
+                    ) { h.performHapticFeedback(HapticFeedbackType.LongPress) },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(page.icon, null, modifier = Modifier.size(84.dp), tint = Color.White)
+            }
         }
         Column(modifier = Modifier.padding(horizontal = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Text(page.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.ExtraBold, color = Color.White, textAlign = TextAlign.Center)
@@ -399,6 +425,19 @@ private fun UserDataCollectionLayout(
     val styles = listOf("Calisthenics", "Weights", "Both")
     val muscles = listOf("Chest", "Arms", "Legs", "Back", "Core", "Shoulders")
     val h = LocalHapticFeedback.current
+    val showExtendedFields = hasChars(name)
+
+    val borderlessColors = OutlinedTextFieldDefaults.colors(
+        focusedBorderColor = Color.Transparent,
+        unfocusedBorderColor = Color.Transparent,
+        focusedTextColor = Color.White,
+        unfocusedTextColor = Color.White,
+        cursorColor = Color.White,
+        focusedLabelColor = Color.White.copy(alpha = 0.5f),
+        unfocusedLabelColor = Color.White.copy(alpha = 0.35f),
+        focusedPlaceholderColor = Color.White.copy(alpha = 0.25f),
+        unfocusedPlaceholderColor = Color.White.copy(alpha = 0.25f),
+    )
 
     Column(
         modifier = Modifier
@@ -410,111 +449,116 @@ private fun UserDataCollectionLayout(
         verticalArrangement = Arrangement.Top
     ) {
         Text("Tell Us About Yourself", style = MaterialTheme.typography.titleLarge, color = Color.White)
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(28.dp))
 
         OutlinedTextField(
             value = name,
-            onValueChange = {
-                onNameChange(it)
-            },
+            onValueChange = onNameChange,
             modifier = Modifier.fillMaxWidth(),
-            label = { Text("Name") },
+            textStyle = MaterialTheme.typography.headlineMedium.copy(
+                color = Color.White,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center
+            ),
+            colors = borderlessColors,
             shape = RoundedCornerShape(24.dp),
             singleLine = true,
-            placeholder = { Text("Enter your name") }
-        )
-
-        Spacer(Modifier.height(12.dp))
-
-        Column(Modifier.fillMaxWidth()) {
-            SwipeNumberField(
-                label = "Age • optional",
-                valueText = age,
-                onValueText = {
-                    onAgeChange(it)
-                },
-                step = 1f,
-                range = 5f..100f
-            )
-        }
-
-        Spacer(Modifier.height(12.dp))
-
-        Column(Modifier.fillMaxWidth()) {
-            SwipeNumberField(
-                label = "Experience (yrs) • optional",
-                valueText = experience,
-                onValueText = {
-                    onExperienceChange(it)
-                },
-                step = 0.5f,
-                range = 0f..40f,
-                decimals = 1
-            )
-        }
-
-        Spacer(Modifier.height(12.dp))
-
-        Column(Modifier.fillMaxWidth()) {
-            SwipeNumberField(
-                label = "Height (cm) • optional",
-                valueText = height,
-                onValueText = {
-                    onHeightChange(it)
-                },
-                step = 1f,
-                range = 80f..240f
-            )
-        }
-
-        Spacer(Modifier.height(12.dp))
-
-        Column(Modifier.fillMaxWidth()) {
-            SwipeNumberField(
-                label = "Weight (kg) • optional",
-                valueText = weight,
-                onValueText = {
-                    onWeightChange(it)
-                },
-                step = 0.5f,
-                range = 20f..300f,
-                decimals = 1
-            )
-        }
-
-        Spacer(Modifier.height(18.dp))
-
-        Text("Preferred Workout Style • optional", style = MaterialTheme.typography.titleMedium, color = Color.White)
-        Spacer(Modifier.height(8.dp))
-        SegmentedSelector(
-            options = styles,
-            selected = preferredStyle,
-            onSelected = {
-                onPreferredStyleChange(it)
-                h.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            label = { Text("Name", style = MaterialTheme.typography.labelLarge) },
+            placeholder = {
+                Text(
+                    "Enter your name",
+                    modifier = Modifier.fillMaxWidth(),
+                    textAlign = TextAlign.Center,
+                    style = MaterialTheme.typography.headlineMedium
+                )
             }
         )
 
-        Spacer(Modifier.height(18.dp))
-
-        Text("Most Important Muscles • optional", style = MaterialTheme.typography.titleMedium, color = Color.White)
-        Spacer(Modifier.height(8.dp))
-        FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.fillMaxWidth()
+        AnimatedVisibility(
+            visible = showExtendedFields,
+            enter = fadeIn(tween(450)) + expandVertically(tween(450)),
+            exit = fadeOut(tween(300)) + shrinkVertically(tween(300))
         ) {
-            muscles.forEach { muscle ->
-                val selected = muscle in importantMuscles
-                Pill(text = muscle, selected = selected) {
-                    if (selected) onImportantMusclesChange(importantMuscles - muscle)
-                    else onImportantMusclesChange(importantMuscles + muscle)
-                    h.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            Column {
+                Spacer(Modifier.height(20.dp))
+
+                SwipeNumberField(
+                    label = "Age • optional",
+                    valueText = age,
+                    onValueText = { onAgeChange(it) },
+                    step = 1f,
+                    range = 5f..100f
+                )
+
+                Spacer(Modifier.height(12.dp))
+
+                SwipeNumberField(
+                    label = "Experience (yrs) • optional",
+                    valueText = experience,
+                    onValueText = { onExperienceChange(it) },
+                    step = 0.5f,
+                    range = 0f..40f,
+                    decimals = 1
+                )
+
+                Spacer(Modifier.height(12.dp))
+
+                SwipeNumberField(
+                    label = "Height (cm) • optional",
+                    valueText = height,
+                    onValueText = { onHeightChange(it) },
+                    step = 1f,
+                    range = 80f..240f
+                )
+
+                Spacer(Modifier.height(12.dp))
+
+                SwipeNumberField(
+                    label = "Weight (kg) • optional",
+                    valueText = weight,
+                    onValueText = { onWeightChange(it) },
+                    step = 0.5f,
+                    range = 20f..300f,
+                    decimals = 1
+                )
+
+                Spacer(Modifier.height(18.dp))
+
+                Text("Preferred Workout Style • optional", style = MaterialTheme.typography.titleMedium, color = Color.White)
+                Spacer(Modifier.height(8.dp))
+                SegmentedSelector(
+                    options = styles,
+                    selected = preferredStyle,
+                    onSelected = {
+                        onPreferredStyleChange(it)
+                        h.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    }
+                )
+
+                Spacer(Modifier.height(18.dp))
+
+                Text("Most Important Muscles • optional", style = MaterialTheme.typography.titleMedium, color = Color.White)
+                Spacer(Modifier.height(8.dp))
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    muscles.forEach { muscle ->
+                        val selected = muscle in importantMuscles
+                        Pill(text = muscle, selected = selected) {
+                            if (selected) onImportantMusclesChange(importantMuscles - muscle)
+                            else onImportantMusclesChange(importantMuscles + muscle)
+                            h.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        }
+                    }
                 }
             }
         }
     }
 }
+
+private fun hasChars(text: String) = text.isNotBlank()
 
 @Composable
 fun HorizontalPagerIndicator(pageCount: Int, currentPage: Int) {
@@ -742,6 +786,17 @@ private fun SwipeNumberField(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(20.dp),
             textStyle = MaterialTheme.typography.titleMedium.copy(color = displayColor, fontWeight = FontWeight.Bold),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = Color.Transparent,
+                unfocusedBorderColor = Color.Transparent,
+                focusedTextColor = displayColor,
+                unfocusedTextColor = displayColor,
+                cursorColor = Color.White,
+                focusedLabelColor = Color.White.copy(alpha = 0.5f),
+                unfocusedLabelColor = Color.White.copy(alpha = 0.35f),
+                focusedPlaceholderColor = Color.White.copy(alpha = 0.25f),
+                unfocusedPlaceholderColor = Color.White.copy(alpha = 0.25f),
+            ),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
             singleLine = true,
             label = { Text("Swipe or tap to edit") },
