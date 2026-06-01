@@ -53,6 +53,9 @@ fun AnimatedBackdrop(
     val smallOrbs = remember(showSmallOrbs) {
         if (showSmallOrbs) generateSmallBackdropOrbs(count = 5) else emptyList()
     }
+    val grain = remember(performanceOptions.navEffects) {
+        if (performanceOptions.navEffects) generateGrain(count = 150) else emptyList()
+    }
     val currentHour = remember { LocalTime.now().hour }
 
     Canvas(
@@ -74,7 +77,13 @@ fun AnimatedBackdrop(
             )
         )
 
+        // Diagonal sheen for a directional sense of light across the flat base
+        drawDirectionalSheen(w = w, h = h, theme = theme)
+
         drawTimeBasedSkyOverlay(hour = currentHour, w = w, h = h)
+
+        // Asymmetric corner depth behind the main orbs
+        drawCornerGlows(w = w, h = h, theme = theme)
 
         drawBackdropOrbs(
             w = w,
@@ -83,6 +92,9 @@ fun AnimatedBackdrop(
             accentColor = theme.secondary,
             highlightColor = theme.tertiary
         )
+
+        // Soft mid-ground aurora band drifting across the middle
+        drawAuroraBand(w = w, h = h, theme = theme)
 
         drawSmallBackdropOrbs(
             orbs = smallOrbs,
@@ -108,6 +120,9 @@ fun AnimatedBackdrop(
                 endY = h
             )
         )
+
+        // Fine grain to dither the gradients and kill colour banding
+        drawGrainOverlay(grain = grain, w = w, h = h)
 
         // 5. Very subtle Vignette to keep focus in the center
         drawRect(
@@ -142,6 +157,9 @@ fun AnimatedBackdropBlue(
     val nightStars = remember(isNight) {
         if (isNight) generateNightStars(count = 56) else emptyList()
     }
+    val grain = remember(performanceOptions.navEffects) {
+        if (performanceOptions.navEffects) generateGrain(count = 150) else emptyList()
+    }
 
     val darkBlueBase = Color(0xFF094F6E)
     val darkTealBase = Color(0xFF061418)
@@ -162,6 +180,10 @@ fun AnimatedBackdropBlue(
             )
         )
 
+        drawDirectionalSheen(w = w, h = h, theme = theme)
+
+        drawCornerGlows(w = w, h = h, theme = theme)
+
         drawBackdropOrbs(
             w = w,
             h = h,
@@ -170,12 +192,16 @@ fun AnimatedBackdropBlue(
             highlightColor = theme.tertiary.compositeOver(darkBlueBase)
         )
 
+        drawAuroraBand(w = w, h = h, theme = theme)
+
         drawNightStars(
             stars = nightStars,
             w = w,
             h = h,
             topBias = 0.52f
         )
+
+        drawGrainOverlay(grain = grain, w = w, h = h)
 
         drawRect(
             brush = Brush.verticalGradient(
@@ -219,6 +245,14 @@ private data class SmallBackdropOrb(
     val alpha: Float
 )
 
+private data class GrainDot(
+    val x: Float,
+    val y: Float,
+    val radius: Float,
+    val alpha: Float,
+    val color: Color
+)
+
 private fun isNightTime(): Boolean {
     val hour = LocalTime.now().hour
     return hour >= 19 || hour < 6
@@ -249,6 +283,21 @@ private fun generateSmallBackdropOrbs(count: Int): List<SmallBackdropOrb> {
             y = y,
             radius = 100f + random.nextFloat() * 160f,
             alpha = 0.06f + random.nextFloat() * 0.10f
+        )
+    }
+}
+
+private fun generateGrain(count: Int): List<GrainDot> {
+    val random = Random(LocalTime.now().toSecondOfDay() * 17L + 7L)
+    return List(count) {
+        // Mix of cool-white and warm specks so the texture isn't monochrome.
+        val warm = random.nextFloat() < 0.25f
+        GrainDot(
+            x = random.nextFloat(),
+            y = random.nextFloat(),
+            radius = 0.5f + random.nextFloat() * 0.9f,
+            alpha = 0.015f + random.nextFloat() * 0.04f,
+            color = if (warm) Color(0xFFFFE7C2) else Color(0xFFE8F1FF)
         )
     }
 }
@@ -316,6 +365,115 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawNightStars(
                 center = Offset(x, y)
             )
         }
+    }
+}
+
+/**
+ * Diagonal linear sheen that gives the flat base a sense of light direction.
+ * Primary bleeds in from the top-left, tertiary anchors the bottom-right.
+ */
+private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawDirectionalSheen(
+    w: Float,
+    h: Float,
+    theme: ColorSchemeAppTheme
+) {
+    drawRect(
+        brush = Brush.linearGradient(
+            colors = listOf(
+                theme.primary.copy(alpha = 0.06f),
+                Color.Transparent,
+                Color.Transparent,
+                theme.tertiary.copy(alpha = 0.08f)
+            ),
+            start = Offset(0f, 0f),
+            end = Offset(w, h)
+        )
+    )
+}
+
+/**
+ * Two opposing corner glows that break the symmetry of the centered orbs and
+ * add depth in the corners the radial vignette would otherwise flatten.
+ */
+private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawCornerGlows(
+    w: Float,
+    h: Float,
+    theme: ColorSchemeAppTheme
+) {
+    val topLeft = Offset(w * 0.05f, h * 0.02f)
+    val topLeftRadius = max(w, h) * 0.75f
+    drawCircle(
+        brush = Brush.radialGradient(
+            colors = listOf(
+                theme.primary.copy(alpha = 0.12f),
+                theme.primary.copy(alpha = 0.04f),
+                Color.Transparent
+            ),
+            center = topLeft,
+            radius = topLeftRadius
+        ),
+        center = topLeft,
+        radius = topLeftRadius
+    )
+
+    val bottomRight = Offset(w * 0.96f, h * 0.94f)
+    val bottomRightRadius = max(w, h) * 0.82f
+    drawCircle(
+        brush = Brush.radialGradient(
+            colors = listOf(
+                theme.tertiary.copy(alpha = 0.16f),
+                theme.tertiary.copy(alpha = 0.05f),
+                Color.Transparent
+            ),
+            center = bottomRight,
+            radius = bottomRightRadius
+        ),
+        center = bottomRight,
+        radius = bottomRightRadius
+    )
+}
+
+/**
+ * A soft, slightly angled colour band drifting across the middle of the screen,
+ * like a faint aurora. Adds a mid-ground layer between the orbs and the stars.
+ */
+private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawAuroraBand(
+    w: Float,
+    h: Float,
+    theme: ColorSchemeAppTheme
+) {
+    drawRect(
+        brush = Brush.linearGradient(
+            colors = listOf(
+                Color.Transparent,
+                theme.secondary.copy(alpha = 0.10f),
+                theme.primary.copy(alpha = 0.07f),
+                theme.secondary.copy(alpha = 0.08f),
+                Color.Transparent
+            ),
+            start = Offset(0f, h * 0.30f),
+            end = Offset(w, h * 0.72f)
+        )
+    )
+}
+
+/**
+ * Scatters very faint dots across the whole surface. This dithers the large
+ * gradients so they read as textured rather than flat, banded fills.
+ */
+private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawGrainOverlay(
+    grain: List<GrainDot>,
+    w: Float,
+    h: Float
+) {
+    if (grain.isEmpty()) return
+
+    grain.forEach { dot ->
+        drawCircle(
+            color = dot.color.copy(alpha = dot.alpha),
+            radius = dot.radius,
+            center = Offset(dot.x * w, dot.y * h)
+        )
     }
 }
 

@@ -50,11 +50,19 @@ import kotlinx.coroutines.launch
 import java.io.IOException
 
 private val Context.appearanceDataStore by preferencesDataStore("appearance_options")
-
+enum class ThemeCharacter(val label: String) {
+    ENERGETIC("Energetic"),
+    DARK("Dark"),
+    MYSTERIOUS("Mysterious"),
+    NOIR("Noir"),
+    LIGHT("Light"),
+    COLOURFUL("Colourful")
+}
 @Immutable
 data class AppearanceOptionsAppTheme(
     val selectedTheme: ColorThemeApp,
-    val customColors: ColorSchemeAppTheme
+    val customColors: ColorSchemeAppTheme,
+    val themeCharacter: ThemeCharacter = ThemeCharacter.ENERGETIC
 ) {
     val colors: ColorSchemeAppTheme
         get() = if (selectedTheme == ColorThemeApp.Custom) customColors else selectedTheme.colors
@@ -62,12 +70,13 @@ data class AppearanceOptionsAppTheme(
     companion object {
         val Defaults = AppearanceOptionsAppTheme(
             selectedTheme = ColorThemeApp.Default,
-            customColors = ColorThemeApp.Default.colors
+            customColors = ColorThemeApp.Default.colors,
+            themeCharacter = ThemeCharacter.ENERGETIC
         )
     }
 }
 
-enum class ColorThemeApp(val themeName: String, val colors: ColorSchemeAppTheme) {
+enum class ColorThemeApp(val themeName: String, val colors: ColorSchemeAppTheme, val character: ThemeCharacter = ThemeCharacter.ENERGETIC) {
     Default(
         "Default",
         ColorSchemeAppTheme(
@@ -75,286 +84,323 @@ enum class ColorThemeApp(val themeName: String, val colors: ColorSchemeAppTheme)
             secondary = Color(0xFF1E1E1E),
             tertiary = Color(0xFF2D1414),
             background = Color(0xFF090909)
-        )
+        ),
+        ThemeCharacter.ENERGETIC
     ),
     Ocean(
         "Ocean",
         ColorSchemeAppTheme(
             primary = Color(0xFF00D4FF),
-            secondary = Color(0xFF0096C7),
-            tertiary = Color(0xFF023E8A),
-            background = Color(0xFF010D1A)
-        )
+            secondary = Color(0xFF141E22),
+            tertiary = Color(0xFF0A2E3D),
+            background = Color(0xFF06090B)
+        ),
+        ThemeCharacter.DARK
+
     ),
     DeepSea(
         "Deep Sea",
         ColorSchemeAppTheme(
             primary = Color(0xFF00FFD2),
-            secondary = Color(0xFF00B4A6),
-            tertiary = Color(0xFF006D77),
-            background = Color(0xFF010C0B)
-        )
+            secondary = Color(0xFF141F1D),
+            tertiary = Color(0xFF0A2E29),
+            background = Color(0xFF06090A)
+        ),
+        ThemeCharacter.DARK
     ),
     Frost(
         "Frost",
         ColorSchemeAppTheme(
             primary = Color(0xFFB8F0FF),
-            secondary = Color(0xFF5BC0DE),
-            tertiary = Color(0xFF1A6B8A),
-            background = Color(0xFF040E14)
-        )
+            secondary = Color(0xFF181E20),
+            tertiary = Color(0xFF1E2C32),
+            background = Color(0xFF07090A)
+        ),
+        ThemeCharacter.DARK
     ),
     Forest(
         "Forest",
         ColorSchemeAppTheme(
             primary = Color(0xFF52D468),
-            secondary = Color(0xFF2A9D4E),
-            tertiary = Color(0xFF1A4731),
-            background = Color(0xFF030D06)
-        )
+            secondary = Color(0xFF161E18),
+            tertiary = Color(0xFF14301D),
+            background = Color(0xFF070A08)
+        ),
+        ThemeCharacter.DARK
     ),
     Zen(
         "Zen",
         ColorSchemeAppTheme(
             primary = Color(0xFFB8C9A3),
-            secondary = Color(0xFF8FAF72),
-            tertiary = Color(0xFF4D6B3E),
-            background = Color(0xFF0B100A)
+            secondary = Color(0xFF1A1E18),
+            tertiary = Color(0xFF252D1E),
+            background = Color(0xFF090A08)
         )
+        ,
+        ThemeCharacter.NOIR
+
     ),
     Sunset(
         "Sunset",
         ColorSchemeAppTheme(
             primary = Color(0xFFFFB627),
-            secondary = Color(0xFFFF6B35),
-            tertiary = Color(0xFFCC3300),
-            background = Color(0xFF110400)
+            secondary = Color(0xFF1E1B14),
+            tertiary = Color(0xFF301E10),
+            background = Color(0xFF0A0704)
         )
+        ,
+        ThemeCharacter.COLOURFUL
+
     ),
     Ember(
         "Ember",
         ColorSchemeAppTheme(
             primary = Color(0xFFFFC107),
-            secondary = Color(0xFFFF6D00),
-            tertiary = Color(0xFFBF360C),
-            background = Color(0xFF0A0100)
-        )
+            secondary = Color(0xFF1E1A12),
+            tertiary = Color(0xFF301F0C),
+            background = Color(0xFF0A0703)
+        ),
+        ThemeCharacter.COLOURFUL
     ),
     Campfire(
         "Campfire",
         ColorSchemeAppTheme(
             primary = Color(0xFFFFEB3B),
-            secondary = Color(0xFFFF5722),
-            tertiary = Color(0xFF7B2D00),
-            background = Color(0xFF090200)
-        )
+            secondary = Color(0xFF1E1D14),
+            tertiary = Color(0xFF302A0F),
+            background = Color(0xFF0A0903)
+        ),
+        ThemeCharacter.COLOURFUL
     ),
     Void(
         "Void",
         ColorSchemeAppTheme(
             primary = Color(0xFFE8EDF2),
-            secondary = Color(0xFF8BA7BF),
-            tertiary = Color(0xFF3D5A73),
-            background = Color(0xFF080D12)
-        )
+            secondary = Color(0xFF1C1E20),
+            tertiary = Color(0xFF272D32),
+            background = Color(0xFF08090A)
+        ),
+        ThemeCharacter.DARK
     ),
     Midnight(
         "Midnight",
         ColorSchemeAppTheme(
             primary = Color(0xFFBB86FC),
-            secondary = Color(0xFF7C3AED),
-            tertiary = Color(0xFF3B0764),
-            background = Color(0xFF07000F)
-        )
+            secondary = Color(0xFF1B1822),
+            tertiary = Color(0xFF251733),
+            background = Color(0xFF09070C)
+        ),
+        ThemeCharacter.MYSTERIOUS
     ),
     Twilight(
         "Twilight",
         ColorSchemeAppTheme(
             primary = Color(0xFFC7D2FE),
-            secondary = Color(0xFFE879F9),
-            tertiary = Color(0xFF6B21A8),
-            background = Color(0xFF0D0818)
-        )
+            secondary = Color(0xFF1A1A22),
+            tertiary = Color(0xFF281A33),
+            background = Color(0xFF09080C)
+        ),
+        ThemeCharacter.MYSTERIOUS
     ),
     Cyber(
         "Cyber",
         ColorSchemeAppTheme(
             primary = Color(0xFF00FFAA),
-            secondary = Color(0xFF00B3FF),
-            tertiary = Color(0xFF4400CC),
-            background = Color(0xFF03020D)
-        )
+            secondary = Color(0xFF141E1B),
+            tertiary = Color(0xFF0F2E2A),
+            background = Color(0xFF06090A)
+        ),
+        ThemeCharacter.ENERGETIC
     ),
     Synthwave(
         "Synthwave",
         ColorSchemeAppTheme(
             primary = Color(0xFFFF2D78),
-            secondary = Color(0xFFBF00FF),
-            tertiary = Color(0xFF2D0066),
-            background = Color(0xFF08000F)
-        )
+            secondary = Color(0xFF1E1419),
+            tertiary = Color(0xFF301022),
+            background = Color(0xFF0A0407)
+        ),
+        ThemeCharacter.COLOURFUL
     ),
     Retro(
         "Retro",
         ColorSchemeAppTheme(
             primary = Color(0xFFFFBF00),
-            secondary = Color(0xFFE85D04),
-            tertiary = Color(0xFF2A9D8F),
-            background = Color(0xFF111411)
-        )
+            secondary = Color(0xFF1E1B14),
+            tertiary = Color(0xFF302510),
+            background = Color(0xFF0A0804)
+        ),
+        ThemeCharacter.COLOURFUL
     ),
     Noir(
         "Noir",
         ColorSchemeAppTheme(
             primary = Color(0xFFFFFFFF),
-            secondary = Color(0xFFAAAAAA),
-            tertiary = Color(0xFF555555),
-            background = Color(0xFF000000)
-        )
+            secondary = Color(0xFF1E1E1E),
+            tertiary = Color(0xFF2C2C2C),
+            background = Color(0xFF070707)
+        ),
+        ThemeCharacter.NOIR
     ),
     Ink(
         "Ink",
         ColorSchemeAppTheme(
             primary = Color(0xFFF5F0E8),
-            secondary = Color(0xFF8D99AE),
-            tertiary = Color(0xFF3D4452),
-            background = Color(0xFF0E0F11)
-        )
+            secondary = Color(0xFF1E1D1A),
+            tertiary = Color(0xFF2C2922),
+            background = Color(0xFF0A0908)
+        ),
+        ThemeCharacter.NOIR
     ),
     Slate(
         "Slate",
         ColorSchemeAppTheme(
             primary = Color(0xFFAEC6CF),
-            secondary = Color(0xFF708090),
-            tertiary = Color(0xFF2CB67D),
-            background = Color(0xFF0E1117)
-        )
+            secondary = Color(0xFF1A1E20),
+            tertiary = Color(0xFF242D32),
+            background = Color(0xFF08090A)
+        ),
+        ThemeCharacter.DARK
     ),
     Storm(
         "Storm",
         ColorSchemeAppTheme(
             primary = Color(0xFFB0C4D8),
-            secondary = Color(0xFF7E9CB5),
-            tertiary = Color(0xFF6247AA),
-            background = Color(0xFF0A0D12)
-        )
+            secondary = Color(0xFF1A1D20),
+            tertiary = Color(0xFF232B33),
+            background = Color(0xFF08090B)
+        ),
+        ThemeCharacter.DARK
     ),
     Mint(
         "Mint",
         ColorSchemeAppTheme(
             primary = Color(0xFF3DFFC0),
-            secondary = Color(0xFF00C896),
-            tertiary = Color(0xFF006D58),
-            background = Color(0xFF010D09)
-        )
+            secondary = Color(0xFF141E1B),
+            tertiary = Color(0xFF0F2E27),
+            background = Color(0xFF060A09)
+        ),
+        ThemeCharacter.ENERGETIC
     ),
     OldPaper(
         "Old Paper",
         ColorSchemeAppTheme(
             primary = Color(0xFFE8C47A),
-            secondary = Color(0xFFC4976A),
-            tertiary = Color(0xFF7A5C3A),
-            background = Color(0xFF1A140D)
-        )
+            secondary = Color(0xFF1E1B15),
+            tertiary = Color(0xFF302616),
+            background = Color(0xFF0C0906)
+        ),
+        ThemeCharacter.NOIR
     ),
     Coffee(
         "Coffee",
         ColorSchemeAppTheme(
             primary = Color(0xFFD4956A),
-            secondary = Color(0xFF8B5E3C),
-            tertiary = Color(0xFF4A2C1A),
-            background = Color(0xFF0E0905)
-        )
+            secondary = Color(0xFF1E1813),
+            tertiary = Color(0xFF301F14),
+            background = Color(0xFF0A0705)
+        ),
+        ThemeCharacter.NOIR
     ),
     Vampire(
         "Vampire",
         ColorSchemeAppTheme(
             primary = Color(0xFFFF1A1A),
-            secondary = Color(0xFF990000),
-            tertiary = Color(0xFF3D0000),
-            background = Color(0xFF080000)
-        )
+            secondary = Color(0xFF1E1414),
+            tertiary = Color(0xFF301010),
+            background = Color(0xFF0A0505)
+        ),
+        ThemeCharacter.DARK
     ),
     PastelNight(
         "Pastel Night",
         ColorSchemeAppTheme(
             primary = Color(0xFFCFB7FF),
-            secondary = Color(0xFFFFAFD2),
-            tertiary = Color(0xFF7FDDFF),
-            background = Color(0xFF0C0A14)
-        )
+            secondary = Color(0xFF1B1A22),
+            tertiary = Color(0xFF271E33),
+            background = Color(0xFF09080C)
+        ),
+        ThemeCharacter.COLOURFUL
     ),
     Neon(
         "Neon",
         ColorSchemeAppTheme(
             primary = Color(0xFF39FF14),
-            secondary = Color(0xFFFF0090),
-            tertiary = Color(0xFF0000FF),
-            background = Color(0xFF020202)
-        )
+            secondary = Color(0xFF161E14),
+            tertiary = Color(0xFF153010),
+            background = Color(0xFF070A06)
+        ),
+        ThemeCharacter.ENERGETIC
     ),
     Galaxy(
         "Galaxy",
         ColorSchemeAppTheme(
             primary = Color(0xFFD4A8FF),
-            secondary = Color(0xFFF875AA),
-            tertiary = Color(0xFF4D6DFF),
-            background = Color(0xFF050008)
-        )
+            secondary = Color(0xFF1B1822),
+            tertiary = Color(0xFF261A33),
+            background = Color(0xFF09070C)
+        ),
+        ThemeCharacter.MYSTERIOUS
     ),
     Abyss(
         "Abyss",
         ColorSchemeAppTheme(
             primary = Color(0xFF00FFE5),
-            secondary = Color(0xFF00BFFF),
-            tertiary = Color(0xFF00174D),
-            background = Color(0xFF000309)
-        )
+            secondary = Color(0xFF141E1E),
+            tertiary = Color(0xFF0A2E2C),
+            background = Color(0xFF06090A)
+        ),
+        ThemeCharacter.DARK
     ),
     Volcano(
         "Volcano",
         ColorSchemeAppTheme(
             primary = Color(0xFFFF4500),
-            secondary = Color(0xFFFF8C00),
-            tertiary = Color(0xFF660000),
-            background = Color(0xFF080000)
-        )
+            secondary = Color(0xFF1E1612),
+            tertiary = Color(0xFF30160A),
+            background = Color(0xFF0A0503)
+        ),
+        ThemeCharacter.COLOURFUL
     ),
     Aurora(
         "Aurora",
         ColorSchemeAppTheme(
             primary = Color(0xFF00FF88),
-            secondary = Color(0xFF00D4E8),
-            tertiary = Color(0xFF7C00E8),
-            background = Color(0xFF010712)
-        )
+            secondary = Color(0xFF141E1A),
+            tertiary = Color(0xFF0F2E22),
+            background = Color(0xFF06090A)
+        ),
+        ThemeCharacter.COLOURFUL
     ),
     Matrix(
         "Matrix",
         ColorSchemeAppTheme(
             primary = Color(0xFF00FF41),
-            secondary = Color(0xFF00CC33),
-            tertiary = Color(0xFF005500),
-            background = Color(0xFF000200)
-        )
+            secondary = Color(0xFF141E16),
+            tertiary = Color(0xFF0F3018),
+            background = Color(0xFF060A07)
+        ),
+        ThemeCharacter.MYSTERIOUS
     ),
     Lavender(
         "Lavender",
         ColorSchemeAppTheme(
             primary = Color(0xFFE0AAFF),
-            secondary = Color(0xFF9D4EDD),
-            tertiary = Color(0xFF4A0E8F),
-            background = Color(0xFF0A0614)
-        )
+            secondary = Color(0xFF1C1922),
+            tertiary = Color(0xFF281A33),
+            background = Color(0xFF09070C)
+        ),
+        ThemeCharacter.COLOURFUL
     ),
     Gold(
         "Gold",
         ColorSchemeAppTheme(
             primary = Color(0xFFFFD700),
-            secondary = Color(0xFFC9960C),
-            tertiary = Color(0xFF7A5800),
-            background = Color(0xFF0C0900)
-        )
+            secondary = Color(0xFF1E1C14),
+            tertiary = Color(0xFF302810),
+            background = Color(0xFF0A0804)
+        ),
+        ThemeCharacter.COLOURFUL
     ),
     Custom(
         "Custom",
@@ -363,7 +409,8 @@ enum class ColorThemeApp(val themeName: String, val colors: ColorSchemeAppTheme)
             secondary = Color.Gray,
             tertiary = Color.DarkGray,
             background = Color.Black
-        )
+        ),
+        ThemeCharacter.LIGHT
     )
 }
 
@@ -449,6 +496,16 @@ fun AppearanceScreen(
     val opts by vm.options.collectAsState()
     val themeColors = opts.colors
 
+    // null = show all characters
+    var selectedCharacter by remember { mutableStateOf<ThemeCharacter?>(null) }
+    val visibleThemes = remember(selectedCharacter) {
+        ColorThemeApp.entries.filter { theme ->
+            selectedCharacter == null ||
+                theme == ColorThemeApp.Custom ||
+                theme.character == selectedCharacter
+        }
+    }
+
     val dynamicGradientBrush = remember(themeColors) {
         Brush.radialGradient(
             colors = listOf(
@@ -500,11 +557,19 @@ fun AppearanceScreen(
                 verticalArrangement = Arrangement.spacedBy(24.dp)
             ) {
                 item {
+                    CharacterFilterChips(
+                        selectedCharacter = selectedCharacter,
+                        onCharacterSelected = { selectedCharacter = it },
+                        accentColor = themeColors.primary
+                    )
+                }
+
+                item {
                     SettingsSectionCardHealth(
                         title = "App Appearance",
                         themeColors = themeColors
                     ) {
-                        ColorThemeApp.values().forEach { theme ->
+                        visibleThemes.forEach { theme ->
                             ColorThemeRow(
                                 theme = theme,
                                 isSelected = opts.selectedTheme == theme,
@@ -531,6 +596,83 @@ fun AppearanceScreen(
             }
         }
     }
+}
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@Composable
+private fun CharacterFilterChips(
+    selectedCharacter: ThemeCharacter?,
+    onCharacterSelected: (ThemeCharacter?) -> Unit,
+    accentColor: Color
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Text(
+            text = "Filter by character",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+            color = Color.White,
+            modifier = Modifier.padding(bottom = 12.dp)
+        )
+        FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            CharacterFilterChip(
+                label = "All",
+                selected = selectedCharacter == null,
+                accentColor = accentColor,
+                onClick = { onCharacterSelected(null) }
+            )
+            ThemeCharacter.entries.forEach { character ->
+                CharacterFilterChip(
+                    label = character.label,
+                    selected = selectedCharacter == character,
+                    accentColor = accentColor,
+                    onClick = {
+                        onCharacterSelected(if (selectedCharacter == character) null else character)
+                    }
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun CharacterFilterChip(
+    label: String,
+    selected: Boolean,
+    accentColor: Color,
+    onClick: () -> Unit
+) {
+    FilterChip(
+        selected = selected,
+        onClick = onClick,
+        label = { Text(label) },
+        leadingIcon = if (selected) {
+            {
+                Icon(
+                    imageVector = Icons.Default.Check,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+        } else null,
+        colors = FilterChipDefaults.filterChipColors(
+            containerColor = Color.White.copy(alpha = 0.05f),
+            labelColor = Color.White.copy(alpha = 0.8f),
+            selectedContainerColor = accentColor.copy(alpha = 0.25f),
+            selectedLabelColor = Color.White,
+            selectedLeadingIconColor = accentColor
+        ),
+        border = FilterChipDefaults.filterChipBorder(
+            enabled = true,
+            selected = selected,
+            borderColor = Color.White.copy(alpha = 0.2f),
+            selectedBorderColor = accentColor.copy(alpha = 0.6f)
+        )
+    )
 }
 
 @Composable

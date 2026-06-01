@@ -1463,6 +1463,7 @@ fun WorkoutListScreen(
         }
     }
 
+
     val isLite = remember(movingEffectsEnabled, stages.after600ms) { !movingEffectsEnabled || !stages.after600ms }
     WorkoutTrackerTheme {
         Scaffold(
@@ -1726,7 +1727,9 @@ fun WorkoutListScreen(
                                                 if (ConnectedWorkout.currentMode.value == ConnectedWorkout.WorkoutMode.INACTIVE && !isLaunching) {
                                                     isLaunching = true
                                                     haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+
                                                     workout.value = workoutName
+                                                    scope.launch { usageTracker.increment(workout.value) }
                                                     scope.launch {
 
                                                         delay(180)
