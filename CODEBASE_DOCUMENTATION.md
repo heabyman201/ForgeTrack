@@ -1112,3 +1112,50 @@ The current package split is a good first pass, but there is still room to impro
 - `MainActivity.kt` still acts as a broad navigation orchestrator and could eventually be decomposed into route modules.
 
 Those are not bugs. They are the natural next steps after the current stabilization pass.
+
+## 20. LLM Coaching System
+
+Package: `com.forgecompose.workouttracker.coaching`
+
+This is a true coaching layer that turns the existing muscle-status signals into a
+custom weekly training plan using an LLM. The user prompts it in natural language
+and the request is sent to whichever model the user selected: the on-device
+MediaPipe model, a local-network OpenAI-compatible server, or the Google AI Studio
+(Gemini) API. If no model is configured/reachable, a deterministic signal-driven
+planner produces a usable week so the feature never fails.
+
+### Files
+
+- `CoachingModels.kt`
+  - Serializable domain models: `WeeklyPlan`, `PlanDay`, `PlanExercise`,
+    `CoachingGoal`, `MuscleSignal`, `RecoverySnapshot`, `PlanRequest`, and the
+    `PlanGenState` UI state.
+- `CoachingStore.kt`
+  - JSON persistence (SharedPreferences) for the current plan, a rolling plan
+    history, and the goal list.
+- `CoachingEngine.kt`
+  - The brain. Builds the system + user prompt from the muscle signals and the
+    user's request, routes to the selected provider (reusing
+    `PersonaPrefs.readModelProvider()`, `SecureGeminiStore`/`BuildConfig` key,
+    `LocalLlmConfig`, and `EdgeModelManager`), parses the JSON response, and
+    provides `buildHeuristicPlan(...)` — a deterministic fallback that prescribes
+    custom exercises, sets/reps/RPE/rest and rest-day placement for every
+    training-day combination based on each muscle's readiness band, injury risk,
+    and weekly volume target.
+- `CoachingViewModel.kt`
+  - Activity-scoped `AndroidViewModel` holding provider selection, computed
+    signals, the current plan, generation lifecycle, and goal CRUD.
+- `CoachingScreen.kt`
+  - The `Coaching` route. Computes live muscle signals (same data sources as the
+    Muscle Status screen via `deriveMuscleLoadsStepwise`), shows the engine
+    selector, a prompt box with quick prompts, the live muscle-status strip, and
+    the generated week as expandable day cards.
+- `CoachingGoalsScreen.kt`
+  - The `CoachingGoals` route. Weekly-volume progress vs targets, plus goal
+    creation, progress tracking, and status management.
+
+### Wiring
+
+- Routes `Coaching` and `CoachingGoals` are registered in `MainActivity`'s NavHost.
+- The Muscle Status screen (`MuscleStatusHost.kt`) has an "AI Coach" entry card
+  that opens the coaching route, since coaching consumes the same signals.

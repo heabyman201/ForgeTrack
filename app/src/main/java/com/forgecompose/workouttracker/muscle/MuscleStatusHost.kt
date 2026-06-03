@@ -27,6 +27,11 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -251,6 +256,16 @@ fun ProfileMuscleStatusRoute(
                             item(key = "summary") {
                                 SummarySection(allWorkouts = state.workouts, visible = cold.after100ms)
                             }
+                            item(key = "ai_coach_cta") {
+                                CoachCtaSection(
+                                    visible = cold.after100ms,
+                                    theme = theme,
+                                    onOpen = {
+                                        haptics.performHapticFeedback(HapticFeedbackType.KeyboardTap)
+                                        navController.navigate("Coaching")
+                                    }
+                                )
+                            }
                             item(key = "muscle_status") {
                                 MuscleStatusSectionWrapper(
                                     recent = recent,
@@ -324,6 +339,49 @@ private fun SummarySection(allWorkouts: List<Workout>, visible: Boolean) {
                     LabeledStat("Streak", "${stats.second}d")
                     LabeledStat("Total", stats.third.toString())
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CoachCtaSection(
+    visible: Boolean,
+    theme: ColorSchemeAppTheme,
+    onOpen: () -> Unit
+) {
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn(tween(500, 50)) + slideInVertically(tween(500, 50)) { it / 2 }
+    ) {
+        GlowingCard(
+            modifier = Modifier.clip(RoundedCornerShape(24.dp)).clickable { onOpen() }
+        ) {
+            Row(
+                Modifier.fillMaxWidth().padding(20.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    Modifier.size(46.dp).clip(RoundedCornerShape(12.dp)).background(theme.primary.copy(alpha = 0.18f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(Icons.Filled.AutoAwesome, contentDescription = null, tint = theme.primary)
+                }
+                Spacer(Modifier.width(14.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        "AI Coach",
+                        color = Color.White,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 16.sp
+                    )
+                    Text(
+                        "Turn these signals into a custom weekly plan",
+                        color = Color.White.copy(alpha = 0.65f),
+                        fontSize = 12.sp
+                    )
+                }
+                Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, tint = theme.primary)
             }
         }
     }

@@ -4,6 +4,7 @@ import com.forgecompose.workouttracker.*
 import com.forgecompose.workouttracker.ai.*
 import com.forgecompose.workouttracker.analytics.*
 import com.forgecompose.workouttracker.badges.*
+import com.forgecompose.workouttracker.coaching.*
 import com.forgecompose.workouttracker.health.*
 import com.forgecompose.workouttracker.muscle.*
 import com.forgecompose.workouttracker.profile.*
@@ -747,6 +748,8 @@ fun MainScreen(viewModel: WorkoutListViewModel, viewModel2: MainScreenViewModel,
 
 
                 ) { ProfileMuscleStatusRoute(navController, viewModel2, viewModel) }
+            composable("Coaching") { CoachingRoute(navController, viewModel2, viewModel) }
+            composable("CoachingGoals") { CoachingGoalsScreen(navController) }
             composable("RepMax",
                 enterTransition = {
                     if (initialState.destination.route == "UserProfile") {
