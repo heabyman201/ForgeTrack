@@ -1390,6 +1390,7 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
     val completionState = rememberUpdatedState(showCompletionAnimation)
 
     DisposableEffect(bpVM) {
+
         bpVM.start()
         bpVM.setWorkoutHrRecording(true)
         onDispose {
@@ -1397,7 +1398,7 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
             bpVM.stop()
         }
     }
-
+if (performanceOptions.showHeartbeats) {
     LaunchedEffect(bpVM) {
         bpVM.hr.collect { bpm ->
             if (!pausedState.value && !completionState.value && bpm > 0) {
@@ -1405,6 +1406,7 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
             }
         }
     }
+}
 
     LaunchedEffect(lastStepTimestamp) {
         if (lastStepTimestamp > 0) {
@@ -2594,6 +2596,7 @@ private fun WorkoutLiveHeartRateCard(
     val avgBpm by remember(sum, count) {
         derivedStateOf { if (count > 0) (sum / count).toInt() else 0 }
     }
+    val performanceOptions by PerformanceOptionsManager.current.collectAsState(initial = PerformanceOptions.Defaults)
     LaunchedEffect(bpm) {
         if (bpm > 0) {
             sum += bpm.toLong()
@@ -2601,13 +2604,15 @@ private fun WorkoutLiveHeartRateCard(
             if (bpm > maxBpm) maxBpm = bpm
         }
     }
-    LiveHeartRateCard(
-        bpm = bpm,
-        avgBpm = avgBpm,
-        maxBpm = maxBpm,
-        theme = theme,
-        modifier = modifier
-    )
+    if (performanceOptions.showHeartbeats) {
+        LiveHeartRateCard(
+            bpm = bpm,
+            avgBpm = avgBpm,
+            maxBpm = maxBpm,
+            theme = theme,
+            modifier = modifier
+        )
+    }
 }
 
 private class HrAccumulator {
@@ -2676,7 +2681,9 @@ private fun LiveHeartRateCard(
     theme: ColorSchemeAppTheme,
     modifier: Modifier = Modifier
 ) {
+
     val context = LocalContext.current
+
     val liveBpm = bpm.coerceAtLeast(0)
     val hasAverage = avgBpm > 0
     val hasMax = maxBpm > 0
@@ -2725,155 +2732,173 @@ private fun LiveHeartRateCard(
         ),
         label = "hr_trend_pulse"
     )
-    Surface(
-        modifier = modifier,
-        color = Color.Transparent,
-        shape = RoundedCornerShape(26.dp)
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+        Surface(
+            modifier = modifier,
+            color = Color.Transparent,
+            shape = RoundedCornerShape(26.dp)
         ) {
-            HorizontalPager(
-                state = pagerState,
-                modifier = Modifier.fillMaxWidth()
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                LaunchedEffect(pagerState.currentPage) {
+                HorizontalPager(
+                    state = pagerState,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    LaunchedEffect(pagerState.currentPage) {
 
-                     if (pagerState.currentPage == 0) {
-                         showAIHeart.value = true
-} else {
-    showAIHeart.value = false
-}
-                }
-                if (it == 0) {
-
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(theme.secondary.copy(0.12f), RoundedCornerShape(18.dp))
-                                .padding(horizontal = 14.dp, vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                        Icon(
-                            imageVector = Icons.Default.Favorite,
-                            contentDescription = "Heart rate",
-                            tint = theme.primary,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        if (trendVisible) {
-                            val trendTint = when (trendKind) {
-                                HrTrend.UP -> Color(0xFF8DEFAE)
-                                HrTrend.DOWN -> Color(0xFFFF9A9A)
-                                HrTrend.STEADY -> Color.White.copy(alpha = 0.72f)
-                            }
-                            val trendShiftX = when (trendKind) {
-                                HrTrend.STEADY -> (trendPulse - 0.5f) * 6f
-                                else -> 0f
-                            }
-                            val trendShiftY = when (trendKind) {
-                                HrTrend.UP -> -3f * trendPulse
-                                HrTrend.DOWN -> 3f * trendPulse
-                                HrTrend.STEADY -> 0f
-                            }
-                            Icon(
-                                imageVector = when (trendKind) {
-                                    HrTrend.UP -> Icons.Default.KeyboardArrowUp
-                                    HrTrend.DOWN -> Icons.Default.KeyboardArrowDown
-                                    HrTrend.STEADY -> Icons.Default.KeyboardArrowRight
-                                },
-                                contentDescription = "Heart rate trend",
-                                tint = trendTint,
-                                modifier = Modifier
-                                    .size(14.dp)
-                                    .graphicsLayer {
-                                        alpha = 0.45f + (trendPulse * 0.4f)
-                                        translationX = trendShiftX
-                                        translationY = trendShiftY
-                                    }
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                        }
-                        Text(
-                            text = if (liveBpm > 0) "$liveBpm BPM" else "-- BPM",
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
-                        )
-                        Spacer(modifier = Modifier.weight(1f))
-                        Text(
-                            text = "Swipe for zones",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = Color.White.copy(alpha = 0.72f)
-                        )
+                        if (pagerState.currentPage == 0) {
+                            showAIHeart.value = true
+                        } else {
+                            showAIHeart.value = false
                         }
                     }
-                } else {
+                    if (it == 0) {
 
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(theme.secondary.copy(0.10f), RoundedCornerShape(18.dp))
-                            .padding(horizontal = 14.dp, vertical = 12.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text("Avg ${if (hasAverage) "$avgBpm bpm" else "--"}", color = Color.White)
-                            Text("Peak ${if (hasMax) "$maxBpm bpm" else "--"}", color = Color.White)
-                            Text("Zone Z$zone", color = Color.White)
-                        }
-                        Text(
-                            text = "Adjusted max HR: ${adjustedZones.adjustedMaxHr}",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = Color.White.copy(alpha = 0.74f)
-                        )
-                        adjustedZones.ranges.forEach { range ->
-                            val upperText = if (range.zone == 5) "+" else "${range.max}"
-                            val isActive = liveBpm >= range.min && (range.zone == 5 || liveBpm <= range.max)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clip(RoundedCornerShape(9.dp))
                                     .background(
-                                        if (isActive) theme.primary.copy(alpha = 0.30f)
-                                        else theme.secondary.copy(alpha = 0.15f)
+                                        theme.secondary.copy(0.12f),
+                                        RoundedCornerShape(18.dp)
                                     )
-                                    .padding(horizontal = 10.dp, vertical = 7.dp),
+                                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Favorite,
+                                    contentDescription = "Heart rate",
+                                    tint = theme.primary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                if (trendVisible) {
+                                    val trendTint = when (trendKind) {
+                                        HrTrend.UP -> Color(0xFF8DEFAE)
+                                        HrTrend.DOWN -> Color(0xFFFF9A9A)
+                                        HrTrend.STEADY -> Color.White.copy(alpha = 0.72f)
+                                    }
+                                    val trendShiftX = when (trendKind) {
+                                        HrTrend.STEADY -> (trendPulse - 0.5f) * 6f
+                                        else -> 0f
+                                    }
+                                    val trendShiftY = when (trendKind) {
+                                        HrTrend.UP -> -3f * trendPulse
+                                        HrTrend.DOWN -> 3f * trendPulse
+                                        HrTrend.STEADY -> 0f
+                                    }
+                                    Icon(
+                                        imageVector = when (trendKind) {
+                                            HrTrend.UP -> Icons.Default.KeyboardArrowUp
+                                            HrTrend.DOWN -> Icons.Default.KeyboardArrowDown
+                                            HrTrend.STEADY -> Icons.Default.KeyboardArrowRight
+                                        },
+                                        contentDescription = "Heart rate trend",
+                                        tint = trendTint,
+                                        modifier = Modifier
+                                            .size(14.dp)
+                                            .graphicsLayer {
+                                                alpha = 0.45f + (trendPulse * 0.4f)
+                                                translationX = trendShiftX
+                                                translationY = trendShiftY
+                                            }
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                }
+                                Text(
+                                    text = if (liveBpm > 0) "$liveBpm BPM" else "-- BPM",
+                                    style = MaterialTheme.typography.titleLarge,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White
+                                )
+                                Spacer(modifier = Modifier.weight(1f))
+                                Text(
+                                    text = "Swipe for zones",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = Color.White.copy(alpha = 0.72f)
+                                )
+                            }
+                        }
+                    } else {
+
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(theme.secondary.copy(0.10f), RoundedCornerShape(18.dp))
+                                .padding(horizontal = 14.dp, vertical = 12.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
-                                Text("Z${range.zone}", color = Color.White, fontWeight = FontWeight.SemiBold)
-                                Text("${range.min}-$upperText bpm", color = Color.White.copy(alpha = 0.82f))
+                                Text(
+                                    "Avg ${if (hasAverage) "$avgBpm bpm" else "--"}",
+                                    color = Color.White
+                                )
+                                Text(
+                                    "Peak ${if (hasMax) "$maxBpm bpm" else "--"}",
+                                    color = Color.White
+                                )
+                                Text("Zone Z$zone", color = Color.White)
+                            }
+                            Text(
+                                text = "Adjusted max HR: ${adjustedZones.adjustedMaxHr}",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = Color.White.copy(alpha = 0.74f)
+                            )
+                            adjustedZones.ranges.forEach { range ->
+                                val upperText = if (range.zone == 5) "+" else "${range.max}"
+                                val isActive =
+                                    liveBpm >= range.min && (range.zone == 5 || liveBpm <= range.max)
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(9.dp))
+                                        .background(
+                                            if (isActive) theme.primary.copy(alpha = 0.30f)
+                                            else theme.secondary.copy(alpha = 0.15f)
+                                        )
+                                        .padding(horizontal = 10.dp, vertical = 7.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        "Z${range.zone}",
+                                        color = Color.White,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    Text(
+                                        "${range.min}-$upperText bpm",
+                                        color = Color.White.copy(alpha = 0.82f)
+                                    )
+                                }
                             }
                         }
                     }
                 }
-            }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.Center
-            ) {
-                repeat(2) { idx ->
-                    Box(
-                        modifier = Modifier
-                            .padding(horizontal = 4.dp)
-                            .size(if (pagerState.currentPage == idx) 8.dp else 6.dp)
-                            .clip(CircleShape)
-                            .background(
-                                if (pagerState.currentPage == idx) theme.primary.copy(alpha = 0.95f)
-                                else Color.White.copy(alpha = 0.28f)
-                            )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    repeat(2) { idx ->
+                        Box(
+                            modifier = Modifier
+                                .padding(horizontal = 4.dp)
+                                .size(if (pagerState.currentPage == idx) 8.dp else 6.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    if (pagerState.currentPage == idx) theme.primary.copy(alpha = 0.95f)
+                                    else Color.White.copy(alpha = 0.28f)
+                                )
                         )
                     }
                 }
             }
         }
+
     }
 object AI_HEART_ADAPT{
     var showAIHeart = mutableStateOf(true)

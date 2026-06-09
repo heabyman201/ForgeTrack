@@ -79,6 +79,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import android.os.BatteryManager
+import androidx.compose.material.icons.filled.MonitorHeart
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
@@ -122,7 +123,8 @@ data class PerformanceOptions(
     val showBodyHeatmap: Boolean,
     val maxSuggestions: Int,
     val powerSavingMode: Boolean,
-    val powerSaveThreshold: Float
+    val powerSaveThreshold: Float,
+    val showHeartbeats: Boolean
 ) {
     companion object {
         val Defaults = PerformanceOptions(
@@ -134,7 +136,8 @@ data class PerformanceOptions(
             showBodyHeatmap = true,
             maxSuggestions = 3,
             powerSavingMode = false,
-            powerSaveThreshold = 20f
+            powerSaveThreshold = 20f,
+            showHeartbeats = true
         )
     }
 }
@@ -151,7 +154,7 @@ object PerformanceOptionsManager {
     private val keyShowBodyHeatmap = booleanPreferencesKey("showBodyHeatmap")
     private val keyPowerSavingMode = booleanPreferencesKey("powerSavingMode")
     private val keyPowerSaveThreshold = floatPreferencesKey("powerSaveThreshold")
-
+private val keyShowHeartbeats = booleanPreferencesKey("showHeartbeats")
     private val saved = MutableStateFlow(PerformanceOptions.Defaults)
     val current: StateFlow<PerformanceOptions> = saved
 
@@ -172,7 +175,10 @@ object PerformanceOptionsManager {
                     taskbarAnimations = s.taskbarAnimations && allow,
                     movingGradientAndParticles = s.movingGradientAndParticles && allow,
                     navEffects = s.navEffects && allow,
-                    maxSuggestions = s.maxSuggestions
+                    maxSuggestions = s.maxSuggestions,
+                    powerSavingMode = s.powerSavingMode,
+                    powerSaveThreshold = s.powerSaveThreshold,
+                    showHeartbeats = s.showHeartbeats
                 )
             }.distinctUntilChanged().collect { _effective.value = it }
         }
@@ -191,7 +197,8 @@ object PerformanceOptionsManager {
                         showBodyHeatmap = p[keyShowBodyHeatmap] ?: PerformanceOptions.Defaults.showBodyHeatmap,
                         maxSuggestions = p[keyMaxSuggestions] ?: PerformanceOptions.Defaults.maxSuggestions,
                         powerSavingMode = p[keyPowerSavingMode] ?: PerformanceOptions.Defaults.powerSavingMode,
-                        powerSaveThreshold = p[keyPowerSaveThreshold] ?: PerformanceOptions.Defaults.powerSaveThreshold
+                        powerSaveThreshold = p[keyPowerSaveThreshold] ?: PerformanceOptions.Defaults.powerSaveThreshold,
+                        showHeartbeats = p[keyShowHeartbeats] ?: PerformanceOptions.Defaults.showHeartbeats
                     )
                 }
                 .collectLatest { saved.value = it }
@@ -249,6 +256,7 @@ object PerformanceOptionsManager {
             p[keyMaxSuggestions] = v.maxSuggestions
             p[keyPowerSavingMode] = v.powerSavingMode
             p[keyPowerSaveThreshold] = v.powerSaveThreshold
+            p[keyShowHeartbeats] = v.showHeartbeats
         }
         saved.value = v
     }
@@ -295,7 +303,10 @@ object PerformanceOptionsManager {
         context.perfDataStore.edit { it[keyPowerSaveThreshold] = threshold }
         saved.value = saved.value.copy(powerSaveThreshold = threshold)
     }
-
+suspend fun setShowHeartbeats(context: Context, enabled: Boolean) {
+        context.perfDataStore.edit { it[keyShowHeartbeats] = enabled }
+        saved.value = saved.value.copy(showHeartbeats = enabled)
+}
     fun applyPowerSaveIfNeeded(context: Context) {
         val opts = saved.value
         if (!opts.powerSavingMode) return
@@ -307,7 +318,8 @@ object PerformanceOptionsManager {
                     blurEnabled = false,
                     taskbarAnimations = false,
                     movingGradientAndParticles = false,
-                    navEffects = false
+                    navEffects = false,
+                    showHeartbeats = false
                 ))
             }
         }
@@ -338,6 +350,9 @@ class PerformanceOptionsViewModel(app: Application) : AndroidViewModel(app) {
     }
     fun setTaskbarAnimations(b: Boolean) = viewModelScope.launch(Dispatchers.IO) {
         PerformanceOptionsManager.setTaskbarAnimations(ctx, b)
+    }
+    fun setShowHeartbeats(b: Boolean) = viewModelScope.launch(Dispatchers.IO) {
+        PerformanceOptionsManager.setShowHeartbeats(ctx, b)
     }
     fun setMovingGradientAndParticles(b: Boolean) = viewModelScope.launch(Dispatchers.IO) {
         PerformanceOptionsManager.setMovingGradientAndParticles(ctx, b)
@@ -461,6 +476,9 @@ fun PerformanceOptionsScreen(
                        saved = saved
                    )
 
+                }
+                item {
+                    HeartBeatSection(vm = vm, theme = theme, saved = saved)
                 }
                 item {
                     SettingsSectionCardHealth(title = "Homescreen", theme = theme) {
@@ -665,6 +683,23 @@ private fun SettingsSectionCardHealth(
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             content()
         }
+    }
+}
+@Composable
+private fun HeartBeatSection(
+    vm: PerformanceOptionsViewModel,
+    theme: ColorSchemeAppTheme,
+    saved: PerformanceOptions
+) {
+    SettingsSectionCardHealth(title = "Heart Rate Widget", theme = theme) {
+        PerformanceToggleRow(
+            label = "Heart Rate Widget",
+            checked = saved.showHeartbeats,
+            icon = Icons.Default.MonitorHeart,
+            impacts = listOf(ResourceImpact.BATTERY),
+            enabled = true,
+            theme = theme
+        ) { b -> vm.setShowHeartbeats(b) }
     }
 }
 @Composable
