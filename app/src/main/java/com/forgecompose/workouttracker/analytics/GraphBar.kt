@@ -159,7 +159,7 @@ fun MuscleLoadRow(
     val appearanceOptions by AppearanceOptionsManagerAppTheme
         .flow(context)
         .collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
-    val theme = appearanceOptions.selectedTheme.colors
+    val theme = appearanceOptions.colors
 
     // --- User prefs (all stored as Strings) ---
     val prefsManager = remember { UserPreferencesManager(context) }

@@ -142,7 +142,7 @@ fun GoalCompletionAnimation(
     val appearanceOptions by AppearanceOptionsManagerAppTheme
         .flow(context)
         .collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
-    val theme = appearanceOptions.selectedTheme.colors
+    val theme = appearanceOptions.colors
 
     val density = LocalDensity.current.density
     val haptics = LocalHapticFeedback.current

@@ -189,9 +189,9 @@ fun AdviceSectionUser(
     val appearanceOptions by AppearanceOptionsManagerAppTheme
         .flow(context)
         .collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
-    val accent = appearanceOptions.selectedTheme.colors.primary
-    val secondaryAccent = appearanceOptions.selectedTheme.colors.secondary
-    val surfaceColor = appearanceOptions.selectedTheme.colors.background.copy(alpha = 0.85f)
+    val accent = appearanceOptions.colors.primary
+    val secondaryAccent = appearanceOptions.colors.secondary
+    val surfaceColor = appearanceOptions.colors.background.copy(alpha = 0.85f)
     val linesToShow = remember(extraLines, maxExtraLines) {
         extraLines.filter { it.isNotBlank() }.take(maxExtraLines)
     }

@@ -50,7 +50,7 @@ fun CoachingGoalsScreen(navController: NavController) {
 
     val appearanceOptions by AppearanceOptionsManagerAppTheme.flow(context)
         .collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
-    val theme = appearanceOptions.selectedTheme.colors
+    val theme = appearanceOptions.colors
     val performanceOptions by PerformanceOptionsManager.flow(context).collectAsState(initial = PerformanceOptions.Defaults)
     val movingEffectsEnabled = performanceOptions.movingGradientAndParticles
 

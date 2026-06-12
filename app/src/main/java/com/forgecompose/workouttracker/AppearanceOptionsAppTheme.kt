@@ -15,6 +15,8 @@ import android.content.Context
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
@@ -34,6 +36,8 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.datastore.preferences.core.edit
@@ -807,11 +811,21 @@ private fun ColorPickerDialog(
     onColorSelected: (Color) -> Unit,
     title: String
 ) {
-    var red by remember { mutableFloatStateOf(initialColor.red) }
-    var green by remember { mutableFloatStateOf(initialColor.green) }
-    var blue by remember { mutableFloatStateOf(initialColor.blue) }
+    val startHsv = remember(initialColor) {
+        FloatArray(3).also { android.graphics.Color.colorToHSV(initialColor.toArgb(), it) }
+    }
+    var hue by remember(initialColor) { mutableFloatStateOf(startHsv[0]) }
+    var saturation by remember(initialColor) { mutableFloatStateOf(startHsv[1]) }
+    var brightness by remember(initialColor) { mutableFloatStateOf(startHsv[2]) }
+    var hexText by remember(initialColor) {
+        mutableStateOf("%06X".format(initialColor.toArgb() and 0xFFFFFF))
+    }
 
-    val currentColor = Color(red, green, blue)
+    val currentColor = Color.hsv(hue, saturation, brightness)
+
+    fun syncHexFromHsv() {
+        hexText = "%06X".format(Color.hsv(hue, saturation, brightness).toArgb() and 0xFFFFFF)
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -824,35 +838,61 @@ private fun ColorPickerDialog(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(60.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(currentColor)
-                        .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(12.dp))
+                SaturationBrightnessPanel(
+                    hue = hue,
+                    saturation = saturation,
+                    brightness = brightness,
+                    onChange = { s, v ->
+                        saturation = s
+                        brightness = v
+                        syncHexFromHsv()
+                    }
                 )
 
-                Column {
-                    Text("Red: ${(red * 255).toInt()}", color = Color.White, style = MaterialTheme.typography.bodySmall)
-                    Slider(
-                        value = red,
-                        onValueChange = { red = it },
-                        colors = SliderDefaults.colors(thumbColor = Color.Red, activeTrackColor = Color.Red.copy(alpha = 0.7f))
-                    )
+                HueBar(
+                    hue = hue,
+                    onHueChanged = {
+                        hue = it
+                        syncHexFromHsv()
+                    }
+                )
 
-                    Text("Green: ${(green * 255).toInt()}", color = Color.White, style = MaterialTheme.typography.bodySmall)
-                    Slider(
-                        value = green,
-                        onValueChange = { green = it },
-                        colors = SliderDefaults.colors(thumbColor = Color.Green, activeTrackColor = Color.Green.copy(alpha = 0.7f))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(48.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(currentColor)
+                            .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(12.dp))
                     )
-
-                    Text("Blue: ${(blue * 255).toInt()}", color = Color.White, style = MaterialTheme.typography.bodySmall)
-                    Slider(
-                        value = blue,
-                        onValueChange = { blue = it },
-                        colors = SliderDefaults.colors(thumbColor = Color.Blue, activeTrackColor = Color.Blue.copy(alpha = 0.7f))
+                    OutlinedTextField(
+                        value = hexText,
+                        onValueChange = { input ->
+                            val cleaned = input.removePrefix("#").uppercase()
+                                .filter { it.isDigit() || it in 'A'..'F' }
+                                .take(6)
+                            hexText = cleaned
+                            if (cleaned.length == 6) {
+                                val hsv = FloatArray(3)
+                                android.graphics.Color.colorToHSV(cleaned.toInt(16) or (0xFF shl 24), hsv)
+                                hue = hsv[0]
+                                saturation = hsv[1]
+                                brightness = hsv[2]
+                            }
+                        },
+                        prefix = { Text("#", color = Color.White.copy(alpha = 0.5f)) },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White,
+                            focusedBorderColor = Color.White.copy(alpha = 0.4f),
+                            unfocusedBorderColor = Color.White.copy(alpha = 0.2f),
+                            cursorColor = Color.White
+                        )
                     )
                 }
             }
@@ -870,6 +910,107 @@ private fun ColorPickerDialog(
                 Text("Cancel", color = Color.White.copy(alpha = 0.7f))
             }
         }
+    )
+}
+
+@Composable
+private fun SaturationBrightnessPanel(
+    hue: Float,
+    saturation: Float,
+    brightness: Float,
+    onChange: (saturation: Float, brightness: Float) -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(220.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .pointerInput(Unit) {
+                detectTapGestures { offset ->
+                    onChange(
+                        (offset.x / size.width).coerceIn(0f, 1f),
+                        1f - (offset.y / size.height).coerceIn(0f, 1f)
+                    )
+                }
+            }
+            .pointerInput(Unit) {
+                detectDragGestures { change, _ ->
+                    change.consume()
+                    onChange(
+                        (change.position.x / size.width).coerceIn(0f, 1f),
+                        1f - (change.position.y / size.height).coerceIn(0f, 1f)
+                    )
+                }
+            }
+            .drawWithCache {
+                val saturationBrush = Brush.horizontalGradient(
+                    listOf(Color.White, Color.hsv(hue, 1f, 1f))
+                )
+                val brightnessBrush = Brush.verticalGradient(
+                    listOf(Color.Transparent, Color.Black)
+                )
+                onDrawBehind {
+                    drawRect(saturationBrush)
+                    drawRect(brightnessBrush)
+                    val thumb = Offset(saturation * size.width, (1f - brightness) * size.height)
+                    drawCircle(
+                        color = Color.Black.copy(alpha = 0.6f),
+                        radius = 10.dp.toPx(),
+                        center = thumb,
+                        style = Stroke(width = 1.dp.toPx())
+                    )
+                    drawCircle(
+                        color = Color.White,
+                        radius = 9.dp.toPx(),
+                        center = thumb,
+                        style = Stroke(width = 2.5.dp.toPx())
+                    )
+                }
+            }
+    )
+}
+
+@Composable
+private fun HueBar(
+    hue: Float,
+    onHueChanged: (Float) -> Unit
+) {
+    val hueColors = remember { (0..360 step 60).map { Color.hsv(it.toFloat(), 1f, 1f) } }
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(28.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .pointerInput(Unit) {
+                detectTapGestures { offset ->
+                    onHueChanged((offset.x / size.width).coerceIn(0f, 1f) * 360f)
+                }
+            }
+            .pointerInput(Unit) {
+                detectDragGestures { change, _ ->
+                    change.consume()
+                    onHueChanged((change.position.x / size.width).coerceIn(0f, 1f) * 360f)
+                }
+            }
+            .drawWithCache {
+                val hueBrush = Brush.horizontalGradient(hueColors)
+                onDrawBehind {
+                    drawRect(hueBrush)
+                    val center = Offset((hue / 360f) * size.width, size.height / 2f)
+                    drawCircle(
+                        color = Color.Black.copy(alpha = 0.6f),
+                        radius = size.height / 2f - 1.dp.toPx(),
+                        center = center,
+                        style = Stroke(width = 1.dp.toPx())
+                    )
+                    drawCircle(
+                        color = Color.White,
+                        radius = size.height / 2f - 2.5.dp.toPx(),
+                        center = center,
+                        style = Stroke(width = 3.dp.toPx())
+                    )
+                }
+            }
     )
 }
 

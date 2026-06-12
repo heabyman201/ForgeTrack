@@ -133,7 +133,7 @@ fun WorkoutHistory(
     val appearanceOptions by AppearanceOptionsManagerAppTheme
         .flow(context)
         .collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
-    val theme = appearanceOptions.selectedTheme.colors
+    val theme = appearanceOptions.colors
 
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     var showDeleteConfirmation by remember { mutableStateOf(false) }

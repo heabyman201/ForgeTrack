@@ -278,7 +278,7 @@ fun FloatingTaskbar(
     val appearanceOptions by AppearanceOptionsManagerAppTheme
         .flow(ctx)
         .collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
-    val theme = appearanceOptions.selectedTheme.colors
+    val theme = appearanceOptions.colors
     val primaryColor = theme.primary
     val secondaryColor = theme.secondary
     val backgroundColor = theme.background
@@ -708,7 +708,7 @@ fun FloatingTaskbar(
                                     modifier = Modifier
                                         .matchParentSize()
                                         .clip(containerShape)
-                                        .border(width = 1.dp, color = Color(0xFF3D1E00).copy(alpha = 0.7f), shape = RoundedCornerShape(999.dp))
+                                        .border(width = 1.dp, color =theme.primary.copy(alpha = 0.30f), shape = RoundedCornerShape(999.dp))
                                         .padding(horizontal = 6.dp, vertical = 6.dp),
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
@@ -821,8 +821,7 @@ fun FloatingTaskbar(
                                                         .clip(RoundedCornerShape(pillRadius))
                                                         .background(
                                                             if (selected)
-                                                                Color(0xFF1E0C00)
-                                                            else Color.Transparent
+theme.secondary.copy(alpha = 0.06f)                                                            else Color.Transparent
                                                         )
                                                         .border(
                                                             width = if (selected) 1.5.dp else 0.dp,
@@ -830,7 +829,7 @@ fun FloatingTaskbar(
                                                                 Brush.verticalGradient(
                                                                     listOf(
                                                                         primaryColor.copy(alpha = 0.55f),
-                                                                        Color(0xFF5C2A00).copy(alpha = 0.40f)
+                                                                        theme.primary.copy(alpha = 0.12f)                                                            .copy(alpha = 0.40f)
                                                                     )
                                                                 )
                                                             } else Brush.linearGradient(listOf(Color.Transparent, Color.Transparent)),

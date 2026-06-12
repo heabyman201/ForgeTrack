@@ -63,7 +63,7 @@ fun GlassCard(
 ) {
     val context = LocalContext.current
     val appearanceOptions by AppearanceOptionsManagerAppTheme.flow(context).collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
-    val theme = appearanceOptions.selectedTheme.colors
+    val theme = appearanceOptions.colors
 
     val cornerRadius = 24.dp
     val borderWidth = 1.dp
@@ -210,7 +210,7 @@ fun LabeledStat(
 fun LoadingBlock(padding: PaddingValues) {
     val context = LocalContext.current
     val appearanceOptions by AppearanceOptionsManagerAppTheme.flow(context).collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
-    val theme = appearanceOptions.selectedTheme.colors
+    val theme = appearanceOptions.colors
 
     Box(
         modifier = Modifier
@@ -250,7 +250,7 @@ fun MissingBlock(padding: PaddingValues) {
 fun EmptyState() {
     val context = LocalContext.current
     val appearanceOptions by AppearanceOptionsManagerAppTheme.flow(context).collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
-    val theme = appearanceOptions.selectedTheme.colors
+    val theme = appearanceOptions.colors
 
     Box(
         modifier = Modifier
@@ -290,7 +290,7 @@ fun EmptyState() {
 fun GlowingCard(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
     val context = LocalContext.current
     val appearanceOptions by AppearanceOptionsManagerAppTheme.flow(context).collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
-    val theme = appearanceOptions.selectedTheme.colors
+    val theme = appearanceOptions.colors
 
     val cornerRadius = remember { 22.dp }
     Box(
@@ -332,7 +332,7 @@ fun ThemedConfirmationDialog(
 ) {
     val context = LocalContext.current
     val appearanceOptions by AppearanceOptionsManagerAppTheme.flow(context).collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
-    val theme = appearanceOptions.selectedTheme.colors
+    val theme = appearanceOptions.colors
 
     Dialog(onDismissRequest = onDismiss) {
         val cornerRadius = 28.dp

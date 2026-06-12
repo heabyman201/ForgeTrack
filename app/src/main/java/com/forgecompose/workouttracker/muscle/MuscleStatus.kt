@@ -2414,7 +2414,7 @@ private fun BodyHeatmapCard(
 ) {
     val context = LocalContext.current
     val appearanceOptions by AppearanceOptionsManagerAppTheme.flow(context).collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
-    val theme = appearanceOptions.selectedTheme.colors
+    val theme = appearanceOptions.colors
 
     var side by remember { mutableStateOf(HeatmapSide.Front) }
     var canvasSize by remember { mutableStateOf(IntSize.Zero) }
@@ -2640,7 +2640,7 @@ private fun planDailyMissions(
 private fun CategoryFilterBar(selected: BodyCategory, onSelect: (BodyCategory) -> Unit) {
     val context = LocalContext.current
     val appearanceOptions by AppearanceOptionsManagerAppTheme.flow(context).collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
-    val theme = appearanceOptions.selectedTheme.colors
+    val theme = appearanceOptions.colors
 
     val items = listOf(
         BodyCategory.All to "All", BodyCategory.UpperBody to "Upper", BodyCategory.Arms to "Arms",
@@ -2685,7 +2685,7 @@ fun MuscleStatusSection(
     val context = LocalContext.current
     val performanceOptions by PerformanceOptionsManager.flow(context).collectAsState(initial = PerformanceOptions.Defaults)
     val appearanceOptions by AppearanceOptionsManagerAppTheme.flow(context).collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
-    val theme = appearanceOptions.selectedTheme.colors
+    val theme = appearanceOptions.colors
 
     LaunchedEffect(Unit) { SurveyTape.init(context) }
 
@@ -3016,7 +3016,7 @@ private fun FactorPill(value: Float, label: String, icon: ImageVector) {
 private fun LoadingScreen(progress: Float, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val appearanceOptions by AppearanceOptionsManagerAppTheme.flow(context).collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
-    val theme = appearanceOptions.selectedTheme.colors
+    val theme = appearanceOptions.colors
 
     Box(
         modifier = modifier
@@ -3049,7 +3049,7 @@ private fun LoadingScreen(progress: Float, modifier: Modifier = Modifier) {
 private fun OverviewRow(loads: List<MuscleLoad>) {
     val context = LocalContext.current
     val appearanceOptions by AppearanceOptionsManagerAppTheme.flow(context).collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
-    val theme = appearanceOptions.selectedTheme.colors
+    val theme = appearanceOptions.colors
 
     val counts = remember(loads) {
         mapOf("Building" to (loads.count { it.band == LoadBand.Building } to Color(0xFF42A5F5)), "On Track" to (loads.count { it.band == LoadBand.OnTrack } to Color(0xFF00E676)),
@@ -3079,7 +3079,7 @@ private fun MuscleCircleTile(load: MuscleLoad) {
     val context = LocalContext.current
     val appearanceOptions by AppearanceOptionsManagerAppTheme.flow(context)
         .collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
-    val theme = appearanceOptions.selectedTheme.colors
+    val theme = appearanceOptions.colors
 
 
     val color = remember(load.band) {
@@ -3190,7 +3190,7 @@ private fun MuscleCircleTile(load: MuscleLoad) {
 private fun RecoveryDetailSheet(state: SheetState, onDismiss: () -> Unit, factors: RecoveryFactors) {
     val context = LocalContext.current
     val appearanceOptions by AppearanceOptionsManagerAppTheme.flow(context).collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
-    val theme = appearanceOptions.selectedTheme.colors
+    val theme = appearanceOptions.colors
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -3231,7 +3231,7 @@ private fun GoalConfigurationSheet(
 ) {
     val context = LocalContext.current
     val appearanceOptions by AppearanceOptionsManagerAppTheme.flow(context).collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
-    val theme = appearanceOptions.selectedTheme.colors
+    val theme = appearanceOptions.colors
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     var selectedMuscles by remember { mutableStateOf(current.focusMuscles) }
@@ -3312,7 +3312,7 @@ private fun GoalConfigurationSheet(
 private fun HealthMetricRow(icon: ImageVector, label: String, value: String, subValue: String, pct: Float) {
     val context = LocalContext.current
     val appearanceOptions by AppearanceOptionsManagerAppTheme.flow(context).collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
-    val theme = appearanceOptions.selectedTheme.colors
+    val theme = appearanceOptions.colors
 
     val animatedPct by animateFloatAsState(pct, tween(1000, easing = LinearEasing), label = "bar")
 
@@ -3337,7 +3337,7 @@ private fun HealthMetricRow(icon: ImageVector, label: String, value: String, sub
 private fun MuscleDetailSheet(state: SheetState, onDismiss: () -> Unit, load: MuscleLoad, insight: MuscleInsight, exercises: List<String>) {
     val context = LocalContext.current
     val appearanceOptions by AppearanceOptionsManagerAppTheme.flow(context).collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
-    val theme = appearanceOptions.selectedTheme.colors
+    val theme = appearanceOptions.colors
 
     val color = when (load.band) { LoadBand.Building -> Color(0xFF42A5F5); LoadBand.OnTrack -> Color(0xFF00E676); else -> Color(0xFF9E9E9E) }
     ModalBottomSheet(
@@ -3448,7 +3448,7 @@ fun StimulantTrackerSection(
     val context = LocalContext.current
     val haptics = LocalHapticFeedback.current
     val appearanceOptions by AppearanceOptionsManagerAppTheme.flow(context).collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
-    val theme = appearanceOptions.selectedTheme.colors
+    val theme = appearanceOptions.colors
     val manager = remember { StimulantManager(context) }
 
     var caffeineState by remember { mutableStateOf(manager.get("caffeine")) }

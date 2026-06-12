@@ -144,7 +144,7 @@ fun GoalScreen(navController: NavController, viewModel: WorkoutListViewModel) {
     val appearanceOptions by AppearanceOptionsManagerAppTheme
         .flow(ctx)
         .collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
-    val theme = appearanceOptions.selectedTheme.colors
+    val theme = appearanceOptions.colors
 
     val workoutState by remember { workout }
     var selectedGoalType by remember(workoutState) {
@@ -632,7 +632,7 @@ fun RestTimeSelectorDialog(
     val appearanceOptions by AppearanceOptionsManagerAppTheme
         .flow(context)
         .collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
-    val theme = appearanceOptions.selectedTheme.colors
+    val theme = appearanceOptions.colors
 
     val initialHours = (initialRestTimeInMillis / (1000 * 60 * 60)) % 24
     val initialMinutes = (initialRestTimeInMillis / (1000 * 60)) % 60

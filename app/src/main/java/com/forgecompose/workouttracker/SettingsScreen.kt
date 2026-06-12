@@ -279,7 +279,7 @@ fun MemoryMonitorScreen(
 ) {
     val context = LocalContext.current
     val appearanceOptions by AppearanceOptionsManagerAppTheme.flow(context).collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
-    val theme = appearanceOptions.selectedTheme.colors
+    val theme = appearanceOptions.colors
     val monitorState by AppMemoryMonitorStore.state.collectAsState()
     val latestSnapshot = monitorState.latestSnapshot ?: remember { captureAppMemorySnapshot(context) }
     val history = monitorState.history
@@ -717,7 +717,7 @@ fun SettingsSectionCard(
 ) {
     val context = LocalContext.current
     val appearanceOptions by AppearanceOptionsManagerAppTheme.flow(context).collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
-    val theme = appearanceOptions.selectedTheme.colors
+    val theme = appearanceOptions.colors
 
     val cornerRadius = 24.dp
     Column(
@@ -783,7 +783,7 @@ fun SettingsOptionRow(
 ) {
     val context = LocalContext.current
     val appearanceOptions by AppearanceOptionsManagerAppTheme.flow(context).collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
-    val theme = appearanceOptions.selectedTheme.colors
+    val theme = appearanceOptions.colors
 
     Row(
         modifier = Modifier
@@ -834,7 +834,7 @@ fun SettingsToggleRow(
 ) {
     val context = LocalContext.current
     val appearanceOptions by AppearanceOptionsManagerAppTheme.flow(context).collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
-    val theme = appearanceOptions.selectedTheme.colors
+    val theme = appearanceOptions.colors
 
     Row(
         modifier = Modifier

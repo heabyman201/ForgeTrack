@@ -80,7 +80,7 @@ fun CircularTimerProgressBar(
     appearanceViewModel: AppearanceViewModelAppTheme = viewModel()
 ) {
     val appearanceOptions by appearanceViewModel.options.collectAsState()
-    val colorScheme = appearanceOptions.selectedTheme.colors
+    val colorScheme = appearanceOptions.colors
 
     val STEP = 0.25f
     val lastStepIdx = remember { mutableIntStateOf(-1) }

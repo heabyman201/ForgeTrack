@@ -1372,7 +1372,7 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
     val context = LocalContext.current
     val liveBpm by bpVM.hr.collectAsState()
     val appearanceOptions by AppearanceOptionsManagerAppTheme.flow(context).collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
-    val theme = appearanceOptions.selectedTheme.colors
+    val theme = appearanceOptions.colors
 
     val performanceOptions by PerformanceOptionsManager.current.collectAsState(initial = PerformanceOptions.Defaults)
     val movingGradientAndParticlesEnabled = performanceOptions.movingGradientAndParticles
@@ -3347,7 +3347,7 @@ fun GoalSelector(
 ) {
     val context = LocalContext.current
     val appearanceOptions by AppearanceOptionsManagerAppTheme.flow(context).collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
-    val theme = appearanceOptions.selectedTheme.colors
+    val theme = appearanceOptions.colors
 
     val workoutState by remember { workout }
     val cardioExerciseNames = listOf(
@@ -3554,7 +3554,7 @@ fun NumberStepper(
 ) {
     val context = LocalContext.current
     val appearanceOptions by AppearanceOptionsManagerAppTheme.flow(context).collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
-    val theme = appearanceOptions.selectedTheme.colors
+    val theme = appearanceOptions.colors
 
     val haptics = LocalHapticFeedback.current
     if (ConnectedWorkout.currentMode.value == WorkoutMode.INACTIVE) {
@@ -3673,7 +3673,7 @@ fun NumberStepperWeights(
 ) {
     val context = LocalContext.current
     val appearanceOptions by AppearanceOptionsManagerAppTheme.flow(context).collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
-    val theme = appearanceOptions.selectedTheme.colors
+    val theme = appearanceOptions.colors
 
     // Check if the current workout is in the barbell list
     val useBarbellVisual = remember(workoutName) {

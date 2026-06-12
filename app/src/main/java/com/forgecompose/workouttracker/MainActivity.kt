@@ -521,7 +521,7 @@ fun MainScreen(viewModel: WorkoutListViewModel, viewModel2: MainScreenViewModel,
         badgeViewModel.syncTotalWorkouts(totalWorkouts)
     }
     val appearanceOptions by AppearanceOptionsManagerAppTheme.flow(context).collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
-    val theme = appearanceOptions.selectedTheme.colors
+    val theme = appearanceOptions.colors
     Surface(
         modifier = Modifier.fillMaxSize(),
         color = theme.background
@@ -1230,7 +1230,7 @@ fun WorkoutListScreen(
     val appearanceOptions by AppearanceOptionsManagerAppTheme
         .flow(context)
         .collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
-    val theme = appearanceOptions.selectedTheme.colors
+    val theme = appearanceOptions.colors
 
     val performanceOptions by PerformanceOptionsManager.flow(context).collectAsState(initial = PerformanceOptions.Defaults)
     val movingEffectsEnabled = performanceOptions.movingGradientAndParticles

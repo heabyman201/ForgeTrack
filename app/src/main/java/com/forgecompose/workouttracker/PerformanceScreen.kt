@@ -396,7 +396,7 @@ fun PerformanceOptionsScreen(
 
     val context = LocalContext.current
     val appearanceOptions by AppearanceOptionsManagerAppTheme.flow(context).collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
-    val theme = appearanceOptions.selectedTheme.colors
+    val theme = appearanceOptions.colors
 
     var showIntro by remember { mutableStateOf(true) }
     val introProgress by animateFloatAsState(

@@ -45,7 +45,7 @@ fun AnimatedBackdrop(
         .flow(context)
         .collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
 
-    val theme = appearanceOptions.selectedTheme.colors
+    val theme = appearanceOptions.colors
     val isNight = remember { isNightTime() }
     val nightStars = remember(isNight) {
         if (isNight) generateNightStars(count = 42) else emptyList()
@@ -152,7 +152,7 @@ fun AnimatedBackdropBlue(
     val performanceOptions by PerformanceOptionsManager.flow(context).collectAsState(initial = PerformanceOptions.Defaults)
     val appearanceOptions by AppearanceOptionsManagerAppTheme.flow(context).collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
 
-    val theme = appearanceOptions.selectedTheme.colors
+    val theme = appearanceOptions.colors
     val isNight = remember { isNightTime() }
     val nightStars = remember(isNight) {
         if (isNight) generateNightStars(count = 56) else emptyList()

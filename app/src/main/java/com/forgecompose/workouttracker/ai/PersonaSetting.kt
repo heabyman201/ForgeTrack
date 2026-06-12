@@ -473,7 +473,7 @@ fun PersonaSettingsScreen(
     val appearanceOptions by AppearanceOptionsManagerAppTheme
         .flow(context)
         .collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
-    val theme = appearanceOptions.selectedTheme.colors
+    val theme = appearanceOptions.colors
 
     val staticGradientBrush = remember(theme) {
         Brush.radialGradient(

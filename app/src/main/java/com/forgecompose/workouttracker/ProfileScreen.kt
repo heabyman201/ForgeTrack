@@ -135,7 +135,7 @@ fun UserProfileScreen(
     val appearanceOptions by AppearanceOptionsManagerAppTheme
         .flow(context)
         .collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
-    val theme = appearanceOptions.selectedTheme.colors
+    val theme = appearanceOptions.colors
 
     val userAge = remember { prefsManager.getAge() }
     val userHeight = remember { prefsManager.getHeight() }
@@ -621,7 +621,7 @@ fun SurveyPromptCard(onClick: () -> Unit) {
     val haptics = LocalHapticFeedback.current
     val context = LocalContext.current
     val appearanceOptions by AppearanceOptionsManagerAppTheme.flow(context).collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
-    val theme = appearanceOptions.selectedTheme.colors
+    val theme = appearanceOptions.colors
 
     Box(
         modifier = Modifier
