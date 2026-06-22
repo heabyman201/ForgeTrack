@@ -117,10 +117,10 @@ fun CoachingRoute(
     val currentPlan by coachVm.currentPlan.collectAsStateWithLifecycle()
     val provider by coachVm.provider.collectAsStateWithLifecycle()
     val signals by coachVm.signals.collectAsStateWithLifecycle()
+    val recovery by coachVm.recovery.collectAsStateWithLifecycle()
+    val computingSignals by coachVm.computingSignals.collectAsStateWithLifecycle()
+    val planRequestBase by coachVm.planRequestBase.collectAsStateWithLifecycle()
 
-    var recovery by remember { mutableStateOf(RecoverySnapshot()) }
-    var computingSignals by remember { mutableStateOf(true) }
-    var planRequestBase by remember { mutableStateOf<PlanRequest?>(null) }
     var promptText by remember { mutableStateOf("") }
 
     val introColors = remember(theme) {
@@ -128,103 +128,16 @@ fun CoachingRoute(
     }
     val introBrush = remember(introColors) { Brush.horizontalGradient(introColors) }
 
-    // Compute the live muscle signals once history is available (reuses the same
-    // engine + data sources as the Muscle Status screen).
+    // Compute the live muscle signals once history is available. The derivation
+    // lives in the shared CoachingViewModel so the Goals screen and the home advice
+    // card reuse the very same computation, plan request, and recovery snapshot.
     LaunchedEffect(uiState) {
         val success = uiState as? WorkoutListUiState.Success ?: return@LaunchedEffect
-        computingSignals = true
-        val now = Instant.now()
-        val start = now.minus(30, ChronoUnit.DAYS)
-
-        val recent = success.workouts.sortedByDescending { it.date }.take(40).map { w ->
-            val token = buildString {
-                append(w.name.lowercase())
-                w.sets?.takeIf { it > 0 }?.let { append(" $it sets") }
-                w.reps?.takeIf { it > 0 }?.let { append(" $it reps") }
-                (w.sessionRpe ?: w.rpe)?.takeIf { it > 0 }?.let { append(" rpe $it") }
-                if ((w.weight ?: 0.0) > 0.0) append(" heavy")
-            }
-            WorkoutSummary(
-                date = Instant.ofEpochMilli(w.date),
-                name = w.name,
-                exercises = listOf(token),
-                environment = w.trainingEnvironment,
-                sessionRpe = w.sessionRpe ?: w.rpe,
-                fatigueLevel = w.fatigueLevel,
-                restPeriodSeconds = w.restPeriodSeconds,
-                durationMinutes = w.durationMillis?.takeIf { it > 0 }?.let { it / 60000f },
-                sets = w.sets, reps = w.reps, weight = w.weight, distance = w.distance,
-                heartRateAvg = w.heartRateAvg, heartRateMax = w.heartRateMax,
-                systemicDrainScore = w.systemicDrainScore
-            )
-        }
-
-        SurveyTape.init(context)
-        val prefsManager = UserPreferencesManager(context)
-        val profile = buildUserProfile(prefsManager)
-        val surveyContent = SurveyTape.readTape()
-        val survey = parseSurveyTape(surveyContent)
-        val sprintGoal = SprintGoalPreferences(context).load()
-        val hc = HealthConnectManager(context)
-
-        val (loads, factors) = runCatching {
-            deriveMuscleLoadsStepwise(
-                now = now,
-                recent = recent,
-                profile = profile,
-                surveyTapeContent = surveyContent,
-                sprintGoal = sprintGoal,
-                onStep = { _, _, _, _ -> },
-                sleepSessions = hc.readSleepSessions(start, now),
-                oxygenSaturations = hc.readOxygenSaturation(start, now),
-                nutrition = hc.readNutrition(now.minus(2, ChronoUnit.DAYS), now),
-                bodyFat = hc.readBodyFat(start, now),
-                caloriesBurned = hc.readTotalCalories(now.minus(7, ChronoUnit.DAYS), now),
-                readHeartRate = { s, e -> hc.readHeartRateRecords(s, e) }
-            )
-        }.getOrNull() ?: (emptyList<MuscleLoad>() to null)
-
-        val mapped = loads.map { l ->
-            MuscleSignal(
-                muscle = l.group.name,
-                band = l.band.name,
-                weeklyProgress = l.weeklyProgress,
-                weeklyTarget = l.weeklyTarget,
-                injuryRiskPct = (l.injuryRisk * 100f).roundToInt().coerceIn(0, 100),
-                adaptationScore = l.adaptationScore,
-                consistencyScore = l.consistencyScore,
-                developmentScore = l.developmentScore,
-                lastTrainedAgo = l.lastTrainedAgo
-            )
-        }
-        coachVm.updateSignals(mapped)
-        factors?.let {
-            recovery = RecoverySnapshot(
-                recoveryEfficacy = it.recoveryEfficacy,
-                sleepHours = it.sleepHours,
-                restingHeartRate = it.restingHeartRate,
-                proteinGrams = it.proteinGrams,
-                environmentStress = it.recentEnvironmentStress
-            )
-        }
-        planRequestBase = PlanRequest(
-            userPrompt = "",
-            goalTitle = coachVm.goals.value.firstOrNull { it.statusEnum == GoalStatus.ACTIVE }?.title.orEmpty(),
-            signals = mapped,
-            recovery = recovery,
-            experience = profile.experience,
-            preferredStyle = profile.preferredStyle,
-            importantMuscles = profile.importantMuscles.map { it.name },
-            daysAvailable = parseDays(survey.daysAvailable),
-            sessionMinutes = parseMinutes(survey.sessionLength),
-            equipment = survey.equipmentAccess
-        )
-        computingSignals = false
+        coachVm.computeSignals(context, success.workouts)
     }
 
     fun launchGeneration() {
-        val base = planRequestBase ?: return
-        coachVm.generatePlan(base.copy(userPrompt = promptText.trim(), signals = signals, recovery = recovery))
+        coachVm.generatePlan(promptText)
     }
 
     Scaffold(

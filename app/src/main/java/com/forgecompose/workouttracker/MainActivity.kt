@@ -1296,6 +1296,29 @@ fun WorkoutListScreen(
     val allWorkouts = remember(uiState) {
         (uiState as? WorkoutListUiState.Success)?.workouts.orEmpty()
     }
+    // Coaching link: share the activity-scoped CoachingViewModel so the home advice
+    // card can surface the plan/goal the user built on the Coaching screen, with live
+    // per-muscle progress derived from the same engine.
+    val coachVm = rememberCoachingViewModel()
+    val coachingInsights by coachVm.insights.collectAsState()
+    LaunchedEffect(allWorkouts.size) {
+        if (allWorkouts.isNotEmpty()) coachVm.computeSignals(context, allWorkouts)
+    }
+    val coachingPromptContext = remember(coachingInsights) {
+        if (coachingInsights.isEmpty) ""
+        else buildString {
+            append(" The athlete is actively following an AI coaching plan — base your advice on it. ")
+            coachingInsights.scheduleLines.firstOrNull()?.let { append("$it. ") }
+            coachingInsights.goalLines.firstOrNull()?.let { append("$it. ") }
+            if (coachingInsights.progressLines.isNotEmpty()) {
+                append("Muscle progress vs targets: ${coachingInsights.progressLines.joinToString("; ")}. ")
+            }
+            if (coachingInsights.exerciseLines.isNotEmpty()) {
+                append("Today's planned exercises: ${coachingInsights.exerciseLines.joinToString("; ")}. ")
+            }
+            append("Speak to their schedule, their muscle goal, their per-muscle progress, or today's exercises directly.")
+        }
+    }
     val latestWorkout = latestName ?: recentWorkouts.firstOrNull()
     val previousSameWorkout = remember(latestWorkout, allWorkouts) {
         latestWorkout?.let { workout ->
@@ -1400,7 +1423,7 @@ fun WorkoutListScreen(
             else -> "Use your last workout to guide your next move."
         }
     }
-    LaunchedEffect(aiEnabled, latestWorkout?.id, latestWorkout?.date, previousSameWorkout?.id) {
+    LaunchedEffect(aiEnabled, latestWorkout?.id, latestWorkout?.date, previousSameWorkout?.id, coachingPromptContext) {
         val workout = latestWorkout ?: return@LaunchedEffect
         if (!aiEnabled) return@LaunchedEffect
 
@@ -1426,7 +1449,7 @@ fun WorkoutListScreen(
         homeAdviceState.generateBatch(
             "Workout: ${workout.name}. Speak naturally and mention the workout name once. Do not sound robotic. $angleInstruction",
             "Latest performance: ${workout.weight ?: 0.0} kg, ${workout.sets ?: 0} sets, ${workout.reps ?: 0} reps, ${workout.distance ?: 0.0} km, ${durationMinutes} min, RPE ${workout.sessionRpe ?: workout.rpe ?: 0}, fatigue ${workout.fatigueLevel ?: 0}.",
-            "Profile: ${userExperience.ifBlank { "unknown experience" }}, prefers $preferredStyleLabel, bodyweight ${userWeight.ifBlank { "-" }} kg. $comparisonLine $directionLine. ${patternSuggestion?.promptSummary ?: "No clear pattern recommendation yet."} Do not reverse the advice direction unless the data clearly changes."
+            "Profile: ${userExperience.ifBlank { "unknown experience" }}, prefers $preferredStyleLabel, bodyweight ${userWeight.ifBlank { "-" }} kg. $comparisonLine $directionLine. ${patternSuggestion?.promptSummary ?: "No clear pattern recommendation yet."} Do not reverse the advice direction unless the data clearly changes.$coachingPromptContext"
         )
     }
     val scope = rememberCoroutineScope()
