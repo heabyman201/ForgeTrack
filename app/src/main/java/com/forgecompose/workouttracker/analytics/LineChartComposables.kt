@@ -11,6 +11,7 @@ import com.forgecompose.workouttracker.ui.components.*
 import com.forgecompose.workouttracker.workout.*
 
 import android.graphics.Paint
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -29,6 +30,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -46,10 +48,19 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import com.forgecompose.workouttracker.ui.theme.ForgeAttention
+import com.forgecompose.workouttracker.ui.theme.ForgeMotion
+import com.forgecompose.workouttracker.ui.theme.ForgeSpacing
+import com.forgecompose.workouttracker.ui.theme.darkenedBy
+import com.forgecompose.workouttracker.ui.theme.isLightSurface
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -429,8 +440,13 @@ fun CombinedWorkoutChart(
 ) {
     if (data.isEmpty()) return
 
-    var selectedIndex by remember { mutableStateOf<Int?>(null) }
+    val context = LocalContext.current
+    val appearance by AppearanceOptionsManagerAppTheme.flow(context)
+        .collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
+    val theme = appearance.colors
+    val lightSurface = theme.background.isLightSurface()
 
+    var selectedIndex by remember { mutableStateOf<Int?>(null) }
 
     LaunchedEffect(data) {
         selectedIndex = null
@@ -450,20 +466,37 @@ fun CombinedWorkoutChart(
     val sMin = remember(sVals) { sVals.minOrNull() ?: 0.0 }
     val rMin = remember(rVals) { rVals.minOrNull() ?: 0.0 }
 
-    val wColor = Color(0xFFEF5350)
-    val sColor = Color(0xFF66BB6A)
-    val rColor = Color(0xFFFFCA28)
+    // ForgeTrack colour rule: crimson brand = the hero metric (weight); orange attention =
+    // reps; a calm neutral for sets. Three series that stay distinct across all 34 themes.
+    val wColor = theme.primary
+    val sColor = if (lightSurface) Color.Black.copy(alpha = 0.55f) else Color.White.copy(alpha = 0.82f)
+    val rColor = ForgeAttention
 
-    val wBrush = remember { Brush.verticalGradient(listOf(wColor, wColor.copy(alpha = 0.1f))) }
-    val sBrush = remember { Brush.verticalGradient(listOf(sColor, sColor.copy(alpha = 0.1f))) }
-    val rBrush = remember { Brush.verticalGradient(listOf(rColor, rColor.copy(alpha = 0.1f))) }
+    // Only the hero metric carries a filled area — the others stay clean strokes so the plot
+    // never muddies (the old build filled all three translucent and turned to soup).
+    val wBrush = remember(wColor) {
+        Brush.verticalGradient(listOf(wColor.copy(alpha = 0.26f), Color.Transparent))
+    }
 
-    val textPaint = remember {
+    // Trend lines sweep in left→right on first paint and whenever the data changes.
+    val reveal by animateFloatAsState(
+        targetValue = if (data.size >= 2) 1f else 0f,
+        animationSpec = ForgeMotion.smooth(),
+        label = "combinedChartReveal"
+    )
+
+    val gridColor = if (lightSurface) Color.Black.copy(alpha = 0.06f) else Color.White.copy(alpha = 0.07f)
+    val guideColor = if (lightSurface) Color.Black.copy(alpha = 0.30f) else Color.White.copy(alpha = 0.45f)
+    val markerHalo = if (lightSurface) Color.Black.copy(alpha = 0.55f) else Color.White
+
+    val axisLabelArgb = if (lightSurface) android.graphics.Color.argb(140, 0, 0, 0) else android.graphics.Color.argb(150, 255, 255, 255)
+    val textPaint = remember(axisLabelArgb) {
         android.graphics.Paint().apply {
-            color = android.graphics.Color.LTGRAY
+            color = axisLabelArgb
             textSize = with(density) { 10.sp.toPx() }
             textAlign = android.graphics.Paint.Align.CENTER
             isAntiAlias = true
+            fontFeatureSettings = "tnum"
         }
     }
 
@@ -473,6 +506,7 @@ fun CombinedWorkoutChart(
             textSize = with(density) { 13.sp.toPx() }
             typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
             isAntiAlias = true
+            fontFeatureSettings = "tnum"
         }
     }
 
@@ -481,18 +515,19 @@ fun CombinedWorkoutChart(
             textSize = with(density) { 12.sp.toPx() }
             typeface = android.graphics.Typeface.DEFAULT
             isAntiAlias = true
+            fontFeatureSettings = "tnum"
         }
     }
 
     val dateFormat = remember { SimpleDateFormat("MMM dd", Locale.getDefault()) }
 
     Column(
-        modifier = modifier
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f), RoundedCornerShape(16.dp))
-            .padding(16.dp)
+        modifier = modifier.padding(ForgeSpacing.md)
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = ForgeSpacing.md),
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -531,24 +566,15 @@ fun CombinedWorkoutChart(
             val stepX = width / (data.size - 1)
             val bottomY = height - 24.dp.toPx()
 
-            drawLine(
-                color = Color.Gray.copy(alpha = 0.2f),
-                start = Offset(0f, 0f),
-                end = Offset(width, 0f),
-                strokeWidth = 1f
-            )
-            drawLine(
-                color = Color.Gray.copy(alpha = 0.2f),
-                start = Offset(0f, bottomY / 2),
-                end = Offset(width, bottomY / 2),
-                strokeWidth = 1f
-            )
-            drawLine(
-                color = Color.Gray.copy(alpha = 0.2f),
-                start = Offset(0f, bottomY),
-                end = Offset(width, bottomY),
-                strokeWidth = 1f
-            )
+            for (i in 0..2) {
+                val gy = bottomY * (i / 2f)
+                drawLine(
+                    color = gridColor,
+                    start = Offset(0f, gy),
+                    end = Offset(width, gy),
+                    strokeWidth = 1f
+                )
+            }
 
             fun getPoint(index: Int, value: Double, min: Double, max: Double): Offset {
                 val norm = ((value - min) / (max - min).coerceAtLeast(1e-6)).toFloat().coerceIn(0f, 1f)
@@ -557,12 +583,14 @@ fun CombinedWorkoutChart(
                 return Offset(x, y)
             }
 
-            fun drawChartLine(
+            // Extension on DrawScope so it honours whatever scope it's called in (e.g. the
+            // clipped reveal scope below) rather than always drawing to the outer canvas.
+            fun DrawScope.drawChartLine(
                 values: List<Double>,
                 min: Double,
                 max: Double,
                 color: Color,
-                fillBrush: Brush
+                fillBrush: Brush?
             ) {
                 val points = values.mapIndexed { i, v -> getPoint(i, v, min, max) }
                 val strokePath = Path().apply {
@@ -570,18 +598,15 @@ fun CombinedWorkoutChart(
                     points.drop(1).forEach { lineTo(it.x, it.y) }
                 }
 
-                val fillPath = Path().apply {
-                    addPath(strokePath)
-                    lineTo(points.last().x, bottomY)
-                    lineTo(points.first().x, bottomY)
-                    close()
+                if (fillBrush != null) {
+                    val fillPath = Path().apply {
+                        addPath(strokePath)
+                        lineTo(points.last().x, bottomY)
+                        lineTo(points.first().x, bottomY)
+                        close()
+                    }
+                    drawPath(path = fillPath, brush = fillBrush)
                 }
-
-                drawPath(
-                    path = fillPath,
-                    brush = fillBrush,
-                    alpha = 0.2f
-                )
 
                 drawPath(
                     path = strokePath,
@@ -595,9 +620,11 @@ fun CombinedWorkoutChart(
                 )
             }
 
-            drawChartLine(wVals, wMin, wMax, wColor, wBrush)
-            drawChartLine(sVals, sMin, sMax, sColor, sBrush)
-            drawChartLine(rVals, rMin, rMax, rColor, rBrush)
+            clipRect(right = width * reveal.coerceIn(0f, 1f)) {
+                drawChartLine(wVals, wMin, wMax, wColor, wBrush)
+                drawChartLine(sVals, sMin, sMax, sColor, null)
+                drawChartLine(rVals, rMin, rMax, rColor, null)
+            }
 
             val labelCount = (width / 60.dp.toPx()).toInt().coerceIn(2, data.size)
             val labelStep = (data.size - 1) / (labelCount - 1).coerceAtLeast(1)
@@ -620,7 +647,7 @@ fun CombinedWorkoutChart(
 
                 val x = index * stepX
                 drawLine(
-                    color = Color.White.copy(alpha = 0.5f),
+                    color = guideColor,
                     start = Offset(x, 0f),
                     end = Offset(x, bottomY),
                     strokeWidth = 1.5f,
@@ -631,13 +658,13 @@ fun CombinedWorkoutChart(
                 val sPos = getPoint(index, sVals[index], sMin, sMax)
                 val rPos = getPoint(index, rVals[index], rMin, rMax)
 
-                drawCircle(Color.White, radius = 6.dp.toPx(), center = wPos)
+                drawCircle(markerHalo, radius = 6.dp.toPx(), center = wPos)
                 drawCircle(wColor, radius = 4.dp.toPx(), center = wPos)
 
-                drawCircle(Color.White, radius = 6.dp.toPx(), center = sPos)
+                drawCircle(markerHalo, radius = 6.dp.toPx(), center = sPos)
                 drawCircle(sColor, radius = 4.dp.toPx(), center = sPos)
 
-                drawCircle(Color.White, radius = 6.dp.toPx(), center = rPos)
+                drawCircle(markerHalo, radius = 6.dp.toPx(), center = rPos)
                 drawCircle(rColor, radius = 4.dp.toPx(), center = rPos)
 
                 val dateText = dateFormat.format(Date(data[index].date))
@@ -666,12 +693,12 @@ fun CombinedWorkoutChart(
 
                 drawPath(
                     path = Path().apply { addRoundRect(rect) },
-                    color = Color(0xFF1E1E1E),
-                    alpha = 0.95f
+                    color = theme.background.darkenedBy(0.35f),
+                    alpha = 0.94f
                 )
                 drawPath(
                     path = Path().apply { addRoundRect(rect) },
-                    color = Color.Gray.copy(alpha = 0.3f),
+                    color = Color.White.copy(alpha = 0.12f),
                     style = Stroke(width = 1.dp.toPx())
                 )
 
@@ -681,15 +708,17 @@ fun CombinedWorkoutChart(
                 drawContext.canvas.nativeCanvas.drawText(dateText, textX, currentY, tooltipTitlePaint)
 
                 currentY += lineHeight + 4.dp.toPx()
-                tooltipValuePaint.color = android.graphics.Color.parseColor("#EF5350")
+                tooltipValuePaint.color = wColor.toArgb()
                 drawContext.canvas.nativeCanvas.drawText(wText, textX, currentY, tooltipValuePaint)
 
                 currentY += lineHeight
-                tooltipValuePaint.color = android.graphics.Color.parseColor("#66BB6A")
+                // Sets uses a neutral swatch on the plot; keep its tooltip text legible on the
+                // always-dark tooltip card by drawing it white.
+                tooltipValuePaint.color = android.graphics.Color.WHITE
                 drawContext.canvas.nativeCanvas.drawText(sText, textX, currentY, tooltipValuePaint)
 
                 currentY += lineHeight
-                tooltipValuePaint.color = android.graphics.Color.parseColor("#FFCA28")
+                tooltipValuePaint.color = rColor.toArgb()
                 drawContext.canvas.nativeCanvas.drawText(rText, textX, currentY, tooltipValuePaint)
             }
         }
@@ -707,7 +736,7 @@ private fun ChartLegendItem(text: String, color: Color) {
         Text(
             text = text,
             style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = Color.White.copy(alpha = 0.78f),
             fontWeight = FontWeight.Medium
         )
     }

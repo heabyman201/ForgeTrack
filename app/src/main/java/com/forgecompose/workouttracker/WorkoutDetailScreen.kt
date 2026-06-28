@@ -59,6 +59,7 @@ import androidx.compose.material3.TextField
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
@@ -357,6 +358,7 @@ fun WorkoutDetailScreen(
     )
 
     Scaffold(
+        modifier = Modifier.forgeSharedBounds("workout-card-$selectedId"),
         topBar = {
             TopAppBar(
                 title = {
@@ -396,10 +398,14 @@ fun WorkoutDetailScreen(
         },
         containerColor = Color.Transparent
     ) { padding ->
+        // Backdrop the frosted ForgeCards/GlassCards sample + blur (the animated waves/orbs).
+        val forgeBackdrop = rememberForgeBackdrop()
+        CompositionLocalProvider(LocalForgeBackdrop provides forgeBackdrop) {
         AnimatedBackdrop(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding),
+                .padding(padding)
+                .forgeBackdropSource(forgeBackdrop),
             introBrush = introBrush,
             introAlpha = 1f - introProgress,
             enableWaves = movingEffectsEnabled,
@@ -745,6 +751,7 @@ fun WorkoutDetailScreen(
                     }
                 }
             }
+        }
         }
     }
 }

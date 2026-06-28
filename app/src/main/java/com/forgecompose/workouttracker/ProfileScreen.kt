@@ -233,6 +233,8 @@ fun UserProfileScreen(
     )
     val dateFormatter = remember { SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()) }
 
+    val forgeBackdrop = rememberForgeBackdrop()
+    CompositionLocalProvider(LocalForgeBackdrop provides forgeBackdrop) {
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -243,7 +245,9 @@ fun UserProfileScreen(
             )
     ) {
         AnimatedBackdrop(
-            modifier = Modifier.matchParentSize(),
+            modifier = Modifier
+                .matchParentSize()
+                .forgeBackdropSource(forgeBackdrop),
             introBrush = introBrush,
             introAlpha = 1f - introProgress,
             enableWaves = movingEffectsEnabled,
@@ -592,6 +596,7 @@ fun UserProfileScreen(
                 uiState = uiState
             )
 
+    }
     }
 }
 

@@ -162,6 +162,11 @@ import com.forgecompose.workouttracker.ai.PersonaPrefs.readPersona
 import com.forgecompose.workouttracker.ui.components.blurAnim.intensity
 import com.forgecompose.workouttracker.ui.components.blurAnim.length
 import com.forgecompose.workouttracker.ui.theme.WorkoutTrackerTheme
+import com.forgecompose.workouttracker.ui.theme.ForgeSpacing
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.animation.SharedTransitionLayout
+import androidx.compose.animation.ExperimentalSharedTransitionApi
 import com.google.common.math.IntMath.pow
 import com.google.firebase.analytics.ktx.analytics
 import com.google.firebase.analytics.ktx.logEvent
@@ -450,6 +455,7 @@ class MainActivity : ComponentActivity() {
     const val ArgId = "workoutId"
     val DetailedWorkoutRoute = "$DetailedWorkout/{$ArgId}"
 }
+@OptIn(ExperimentalSharedTransitionApi::class)
 @RequiresApi(Build.VERSION_CODES.TIRAMISU)
 @Composable
 fun MainScreen(viewModel: WorkoutListViewModel, viewModel2: MainScreenViewModel,badgeViewModel: BadgeViewModel, initialRoute: String? = null) {
@@ -526,6 +532,8 @@ fun MainScreen(viewModel: WorkoutListViewModel, viewModel2: MainScreenViewModel,
         modifier = Modifier.fillMaxSize(),
         color = theme.background
     ) {
+      SharedTransitionLayout {
+        CompositionLocalProvider(LocalSharedTransitionScope provides this@SharedTransitionLayout) {
         NavHost(
             navController = navController,
             startDestination = startDestination,
@@ -671,11 +679,19 @@ fun MainScreen(viewModel: WorkoutListViewModel, viewModel2: MainScreenViewModel,
                                 )
                     }
                 },
-            ) { WorkoutHistory(viewModel, navController) }
+            ) {
+                CompositionLocalProvider(LocalNavAnimatedScope provides this@composable) {
+                    WorkoutHistory(viewModel, navController)
+                }
+            }
             composable(
                 Routes.DetailedWorkoutRoute,
                 arguments = listOf(navArgument(Routes.ArgId) { type = NavType.LongType })
-            ) { WorkoutDetailScreen(navController, viewModel2, viewModel) }
+            ) {
+                CompositionLocalProvider(LocalNavAnimatedScope provides this@composable) {
+                    WorkoutDetailScreen(navController, viewModel2, viewModel)
+                }
+            }
             composable("UserProfile") { UserProfileScreen(navController, viewModel,badgeViewModel) }
             composable("PersonaSettings",
                 enterTransition = {
@@ -985,6 +1001,8 @@ fun MainScreen(viewModel: WorkoutListViewModel, viewModel2: MainScreenViewModel,
 
 
         }
+        } // CompositionLocalProvider
+      } // SharedTransitionLayout
 
         if (unlockQueue.isNotEmpty()) {
             val firstBadge = unlockQueue.first()
@@ -1504,6 +1522,9 @@ fun WorkoutListScreen(
                 )
             }
         ) { paddingValues ->
+            // Backdrop the frosted ForgeCards sample + blur (the animated waves/orbs).
+            val forgeBackdrop = rememberForgeBackdrop()
+            CompositionLocalProvider(LocalForgeBackdrop provides forgeBackdrop) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -1522,7 +1543,8 @@ fun WorkoutListScreen(
                 AnimatedBackdrop(
                     modifier = Modifier
                         .matchParentSize()
-                        .padding(paddingValues),
+                        .padding(paddingValues)
+                        .forgeBackdropSource(forgeBackdrop),
                     introBrush = introBrush,
                     introAlpha = 1f - introProgress,
                     enableWaves = stages.after600ms && shouldAnimateBackdrop,
@@ -1559,31 +1581,21 @@ fun WorkoutListScreen(
                                 listOf("Running (Treadmill)", "Stair Climber", "Elliptical Trainer", "Rowing Machine", "Stationary Bike", "Swimming")
                             }
                             val haptics = LocalHapticFeedback.current
-                            val interactionSource = remember { MutableInteractionSource() }
-                            val pressed by interactionSource.collectIsPressedAsState()
-                            val pressScale by animateFloatAsState(
-                                targetValue = if (pressed) 0.975f else 1f,
-                                animationSpec = tween(120, easing = FastOutSlowInEasing),
-                                label = "cardPressScale"
-                            )
 
-                            Card(
+                            // AI hero — the highest card in the hierarchy: Hero elevation + crimson glow.
+                            ForgeCard(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .height(140.dp)
-                                    .graphicsLayer {
-                                        scaleX = pressScale
-                                        scaleY = pressScale
-                                    }
-                                    .border(width = 1.dp, brush = borderBrushStatic, shape = cardShape20)
-                                    .clickable(
-                                        interactionSource = interactionSource,
-                                        indication = null
-                                    ) { haptics.performHapticFeedback(HapticFeedbackType.LongPress) },
-                                shape = cardShape20,
-                                colors = CardDefaults.cardColors(containerColor = surface.copy(alpha = 0.3f))
+                                    .height(140.dp),
+                                elevation = ForgeElevation.Hero,
+                                glow = true,
+                                onClick = { haptics.performHapticFeedback(HapticFeedbackType.LongPress) },
+                                contentPadding = PaddingValues(horizontal = ForgeSpacing.md, vertical = ForgeSpacing.sm)
                             ) {
-                                Column(verticalArrangement = Arrangement.Center) {
+                                Column(
+                                    modifier = Modifier.fillMaxSize(),
+                                    verticalArrangement = Arrangement.Center
+                                ) {
                                     val workoutForCard = latestWorkout
                                     val time = formatTime(workoutForCard?.durationMillis ?: 0L)
                                     AdviceSectionUser(
@@ -1610,26 +1622,10 @@ fun WorkoutListScreen(
                                 }
                             }
 
-                            Spacer(modifier = Modifier.height(16.dp))
+                            Spacer(modifier = Modifier.height(ForgeSpacing.md))
                             QuickStartWorkout(navController = navController)
-
-                            // Dynamic Divider Brush
-                            val dividerBrush = remember(theme) {
-                                Brush.horizontalGradient(
-                                    colors = listOf(
-                                        theme.primary,
-                                        Color.White.copy(alpha = 0.4f)
-                                    )
-                                )
-                            }
-
-                            Box(
-                                modifier = Modifier
-                                    .padding(vertical = 8.dp)
-                                    .fillMaxWidth()
-                                    .height(1.dp)
-                                    .background(brush = dividerBrush)
-                            )
+                            // Consistent divider policy: cards carry separation, so no dividers anywhere.
+                            Spacer(modifier = Modifier.height(ForgeSpacing.lg))
                             val favoritePresets by FavoritePresetStore.flow(context).collectAsState(initial = emptySet())
                             val topPresets: List<Pair<String, UsageStat>> by remember(usageMap, workoutPremadeRandom, favoritePresets) {
                                 derivedStateOf {
@@ -1694,92 +1690,45 @@ fun WorkoutListScreen(
                                         launch { entranceSlide.animateTo(0f, spring(0.75f, 200f)) }
                                     }
 
-                                    val interactionSource = remember { MutableInteractionSource() }
-                                    val pressed by interactionSource.collectIsPressedAsState()
-                                    val rowGradient = remember(theme, isLaunching) {
-                                        Brush.horizontalGradient(
-                                            colors = listOf(
-                                                theme.primary.copy(alpha = if (isLaunching) 0.18f else 0.12f),
-                                                theme.secondary.copy(alpha = if (isLaunching) 0.14f else 0.08f),
-                                                surface.copy(alpha = 0.10f)
-                                            )
-                                        )
-                                    }
-
-                                    val pressScale by animateFloatAsState(
-                                        targetValue = if (pressed) 0.96f else 1f,
-                                        animationSpec = tween(100),
-                                        label = "pressScale"
-                                    )
-
-                                    Card(
+                                    // Workout row — the standard list card, one elevation tier below the AI hero.
+                                    ForgeCard(
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .height(82.dp)
                                             .graphicsLayer {
-
                                                 alpha = entranceAlpha.value
                                                 translationY = entranceSlide.value
-
-
-                                                val finalScale = pressScale + (launchProgress.value * 0.08f)
+                                                val finalScale = 1f + (launchProgress.value * 0.06f)
                                                 scaleX = finalScale
                                                 scaleY = finalScale
-                                            }
-                                            .drawBehind {
-
-                                                if (launchProgress.value > 0.01f) {
-                                                    val glowAlpha = (launchProgress.value * 0.4f)
-                                                    drawRoundRect(
-                                                        brush = Brush.radialGradient(
-                                                            colors = listOf(theme.primary.copy(alpha = glowAlpha), Color.Transparent),
-                                                            center = center,
-                                                            radius = size.width * 1.2f
-                                                        ),
-                                                        size = size,
-                                                        cornerRadius = CornerRadius(16.dp.toPx(), 16.dp.toPx())
-                                                    )
-                                                }
-                                            }
-                                            .border(
-                                                width = 1.dp + (launchProgress.value.dp * 1.5f),
-                                                brush = if (isLaunching) borderBrushStatic else borderBrushStatic,
-                                                shape = cardShape16
-                                            )
-                                            .clickable(
-                                                interactionSource = interactionSource,
-                                                indication = null
-                                            ) {
-                                                if (ConnectedWorkout.currentMode.value == ConnectedWorkout.WorkoutMode.INACTIVE && !isLaunching) {
-                                                    isLaunching = true
-                                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-
-                                                    workout.value = workoutName
-                                                    scope.launch { usageTracker.increment(workout.value) }
-                                                    scope.launch {
-
-                                                        delay(180)
-                                                        val intent = Intent(context, WorkoutActivity::class.java).apply {
-                                                            putExtra("WORKOUT_NAME", workoutName)
-                                                        }
-                                                        startActivity(context, intent, null)
-
-
-                                                        delay(300)
-                                                        isLaunching = false
-                                                    }
-                                                }
                                             },
-                                        shape = cardShape16,
-                                        colors = CardDefaults.cardColors(
-                                            containerColor = Color.Transparent
-                                        )
+                                        elevation = ForgeElevation.Standard,
+                                        glow = isLaunching,
+                                        contentPadding = PaddingValues(horizontal = 20.dp),
+                                        onClick = {
+                                            if (ConnectedWorkout.currentMode.value == ConnectedWorkout.WorkoutMode.INACTIVE && !isLaunching) {
+                                                isLaunching = true
+                                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+
+                                                workout.value = workoutName
+                                                scope.launch { usageTracker.increment(workout.value) }
+                                                scope.launch {
+
+                                                    delay(180)
+                                                    val intent = Intent(context, WorkoutActivity::class.java).apply {
+                                                        putExtra("WORKOUT_NAME", workoutName)
+                                                    }
+                                                    startActivity(context, intent, null)
+
+
+                                                    delay(300)
+                                                    isLaunching = false
+                                                }
+                                            }
+                                        }
                                     ) {
                                         Box(
-                                            modifier = Modifier
-                                                .fillMaxSize()
-                                                .background(rowGradient)
-                                                .padding(horizontal = 20.dp),
+                                            modifier = Modifier.fillMaxSize(),
                                             contentAlignment = Alignment.CenterStart
                                         ) {
                                             Row(
@@ -1929,13 +1878,7 @@ fun WorkoutListScreen(
                                     }
                                 }
                             }
-                            Box(
-                                modifier = Modifier
-                                    .padding(vertical = 8.dp)
-                                    .fillMaxWidth()
-                                    .height(1.dp)
-                                    .background(brush = dividerBrush)
-                            )
+                            Spacer(modifier = Modifier.height(ForgeSpacing.lg))
                             if (stages.after600ms && currentState.workouts.isNotEmpty()) {
                                 val WRs = if (
                                     maxSuggestions <= 3
@@ -1962,8 +1905,8 @@ fun WorkoutListScreen(
                         iconAlpha = iconAlpha,
                         uiState = uiState
                     )
-
             }
+            } // CompositionLocalProvider(LocalForgeBackdrop)
         }
     }
 }

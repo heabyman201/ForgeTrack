@@ -56,6 +56,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
@@ -252,6 +253,8 @@ fun ExerciseAnalyticsScreen(
             .sortedBy { it.date }
     }
 
+    val forgeBackdrop = rememberForgeBackdrop()
+    CompositionLocalProvider(LocalForgeBackdrop provides forgeBackdrop) {
     Scaffold(
         topBar = {
             TopAppBar(
@@ -273,7 +276,9 @@ fun ExerciseAnalyticsScreen(
 
     ) { paddingValues ->
         AnimatedBackdrop(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .forgeBackdropSource(forgeBackdrop),
             introBrush = introBrush,
             introAlpha = 1f - introProgress,
             enableWaves = movingEnabled,
@@ -329,6 +334,7 @@ fun ExerciseAnalyticsScreen(
                 }
             }
         }
+    }
     }
 
     if (showStartDatePicker) {

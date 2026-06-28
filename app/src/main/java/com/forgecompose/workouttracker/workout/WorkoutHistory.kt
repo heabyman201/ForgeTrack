@@ -66,6 +66,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
@@ -170,6 +171,8 @@ fun WorkoutHistory(
         viewModel.syncHealthConnectWorkouts(context)
     }
 
+    val forgeBackdrop = rememberForgeBackdrop()
+    CompositionLocalProvider(LocalForgeBackdrop provides forgeBackdrop) {
     Scaffold(
         topBar = {
             TopAppBar(
@@ -237,7 +240,8 @@ fun WorkoutHistory(
             AnimatedBackdrop(
                 modifier = Modifier
                     .matchParentSize()
-                    .padding(paddingValues),
+                    .padding(paddingValues)
+                    .forgeBackdropSource(forgeBackdrop),
                 introBrush = introBrush,
                 introAlpha = 1f - introProgress,
                 enableWaves = stages.after600ms && enableAnim,
@@ -309,6 +313,7 @@ fun WorkoutHistory(
 
 
         }
+    }
     }
 
     val haptics = LocalHapticFeedback.current
@@ -458,6 +463,7 @@ private fun WorkoutHistoryItem(
     Box(
         modifier = Modifier
             .fillMaxWidth()
+            .forgeSharedBounds("workout-card-${workout.id}")
             .graphicsLayer { scaleX = scale; scaleY = scale }
             .clip(RoundedCornerShape(cornerRadius))
             .drawWithCache {

@@ -56,42 +56,19 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 
+/**
+ * Legacy entry point — now delegates to the single [ForgeCard] so every screen that
+ * already uses GlassCard inherits the unified card language (24dp, top-left→bottom-right
+ * light-source gradient, hairline border, top catch-light, spring press feedback).
+ */
 @Composable
 fun GlassCard(
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit
 ) {
-    val context = LocalContext.current
-    val appearanceOptions by AppearanceOptionsManagerAppTheme.flow(context).collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
-    val theme = appearanceOptions.colors
-
-    val cornerRadius = 24.dp
-    val borderWidth = 1.dp
-    Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .drawWithCache {
-                val r = cornerRadius.toPx()
-                val bw = borderWidth.toPx()
-                val fill = Brush.linearGradient(
-                    listOf(
-                        theme.background.copy(alpha = 0.65f),
-                        theme.background.copy(alpha = 0.65f)
-                    )
-                )
-                val stroke = Brush.linearGradient(
-                    listOf(
-                        theme.background.copy(alpha = 0.2f),
-                        theme.secondary.copy(alpha = 0.1f)
-                    )
-                )
-                onDrawWithContent {
-                    drawRoundRect(brush = fill, cornerRadius = CornerRadius(r))
-                    drawContent()
-                    drawRoundRect(brush = stroke, style = Stroke(width = bw), cornerRadius = CornerRadius(r))
-                }
-            }
-            .padding(16.dp)
+    ForgeCard(
+        modifier = modifier.fillMaxWidth(),
+        elevation = ForgeElevation.Standard
     ) {
         content()
     }
@@ -286,34 +263,18 @@ fun EmptyState() {
     }
 }
 
+/**
+ * Legacy entry point — now delegates to [ForgeCard] with the crimson glow on, keeping
+ * its "emits light" character while joining the one card language. Callers pad their
+ * own content, so contentPadding is zero here.
+ */
 @Composable
 fun GlowingCard(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
-    val context = LocalContext.current
-    val appearanceOptions by AppearanceOptionsManagerAppTheme.flow(context).collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
-    val theme = appearanceOptions.colors
-
-    val cornerRadius = remember { 22.dp }
-    Box(
-        modifier = modifier
-            .clip(RoundedCornerShape(cornerRadius))
-            .drawWithCache {
-                val r = cornerRadius.toPx()
-                val bg = Brush.radialGradient(
-                    colors = listOf(theme.background, theme.background),
-                    center = Offset(size.width / 2f, size.height * 0.1f),
-                    radius = size.width * 1.5f
-                )
-                val stroke = Brush.linearGradient(
-                    colors = listOf(
-                        theme.primary.copy(alpha = 0.2f),
-                        theme.secondary.copy(alpha = 0.1f)
-                    )
-                )
-                onDrawBehind {
-                    drawRoundRect(brush = bg, cornerRadius = CornerRadius(r))
-                    drawRoundRect(brush = stroke, style = Stroke(width = 1.dp.toPx()), cornerRadius = CornerRadius(r))
-                }
-            }
+    ForgeCard(
+        modifier = modifier,
+        elevation = ForgeElevation.Standard,
+        glow = true,
+        contentPadding = PaddingValues(0.dp)
     ) {
         content()
     }

@@ -193,6 +193,8 @@ fun ProfileMuscleStatusRoute(
         label = "blur"
     )
 
+    val forgeBackdrop = rememberForgeBackdrop()
+    CompositionLocalProvider(LocalForgeBackdrop provides forgeBackdrop) {
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -232,7 +234,7 @@ fun ProfileMuscleStatusRoute(
             // CALCULATE DERIVED VALUES HERE ONLY IF NEEDED BY CHILD
             // Ideally, pass animationClock to AnimatedBackdrop and let IT handle the sin() math
             AnimatedBackdrop(
-                modifier = Modifier,
+                modifier = Modifier.forgeBackdropSource(forgeBackdrop),
                 introBrush = introBrush,
                 introAlpha = 1f - introProgress,
                 enableWaves = movingEffectsEnabled,
@@ -304,6 +306,7 @@ fun ProfileMuscleStatusRoute(
 
             }
         }
+    }
     }
 }
 

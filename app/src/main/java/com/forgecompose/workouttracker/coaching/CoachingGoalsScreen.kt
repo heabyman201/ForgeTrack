@@ -71,6 +71,7 @@ fun CoachingGoalsScreen(navController: NavController) {
                 title = {
                     Text(
                         "Goals & Progress",
+
                         style = TextStyle(
                             brush = Brush.linearGradient(listOf(theme.primary, theme.primary, Color.White)),
                             fontSize = 24.sp, fontWeight = FontWeight.SemiBold

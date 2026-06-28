@@ -94,6 +94,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -332,15 +333,7 @@ fun FloatingTaskbar(
                         Box(
                             modifier = Modifier
                                 .matchParentSize()
-                                .clip(containerShape)
-                                .background(
-                                    colorLerp(
-                                        backgroundColor,
-                                        Color.Black,
-                                        0.28f
-                                    )
-                                )
-                                .then(if (taskbarBlurRadius > 0.dp) Modifier.blur(taskbarBlurRadius) else Modifier)
+                                .forgeFrostedSurface(theme = theme, shape = containerShape)
                         )
                         Box(
                             modifier = Modifier
@@ -348,10 +341,11 @@ fun FloatingTaskbar(
                                 .clip(containerShape)
                                 .graphicsLayer {}
                                 .drawWithCache {
+                                    // Translucent so the frosted backdrop behind shows through.
                                     val surface = Brush.verticalGradient(
                                         listOf(
-                                            colorLerp(backgroundColor, Color.Black, 0.18f),
-                                            colorLerp(backgroundColor, Color.Black, 0.34f)
+                                            colorLerp(backgroundColor, Color.Black, 0.18f).copy(alpha = 0.50f),
+                                            colorLerp(backgroundColor, Color.Black, 0.22f).copy(alpha = 0.60f)
                                         )
                                     )
                                     val accentWash = Brush.horizontalGradient(
@@ -646,15 +640,7 @@ fun FloatingTaskbar(
                             Box(
                             modifier = Modifier
                                 .matchParentSize()
-                                .clip(containerShape)
-                                .background(
-                                    colorLerp(
-                                        backgroundColor,
-                                        Color.Black,
-                                        0.32f
-                                    )
-                                )
-                                .then(if (taskbarBlurRadius > 0.dp) Modifier.blur(taskbarBlurRadius) else Modifier)
+                                .forgeFrostedSurface(theme = theme, shape = containerShape)
                             )
                             Box(
                                 modifier = Modifier
@@ -677,10 +663,11 @@ fun FloatingTaskbar(
                                         shadowElevation = 0f
                                     }
                                     .drawWithCache {
+                                        // Translucent so the frosted backdrop behind shows through.
                                         val bg = Brush.verticalGradient(
                                             listOf(
-                                                colorLerp(backgroundColor, Color.Black, 0.18f),
-                                                colorLerp(backgroundColor, Color.Black, 0.38f)
+                                                colorLerp(backgroundColor, Color.Black, 0.18f).copy(alpha = 0.48f),
+                                                colorLerp(backgroundColor, Color.Black, 0.38f).copy(alpha = 0.58f)
                                             )
                                         )
                                         val accentWash = Brush.horizontalGradient(
@@ -721,7 +708,18 @@ fun FloatingTaskbar(
                                             val glowTarget by animateFloatAsState(targetValue = if (selected) 1f else 0f, animationSpec = if (animationsEnabled) tween(260, easing = CubicBezierEasing(0.2f, 0.8f, 0.2f, 1f)) else tween(0), label = "")
                                             val baseScale by animateFloatAsState(targetValue = if (selected) 1.025f else 1f, animationSpec = if (animationsEnabled) spring(0.88f, Spring.StiffnessLow) else tween(0), label = "")
                                             val pressSquish by animateFloatAsState(targetValue = if (selected && isPressed) 0.985f else 1f, animationSpec = if (animationsEnabled) spring(0.85f, Spring.StiffnessMedium) else tween(0), label = "")
+                                            // Drives the "scale + glow up" pulse. Fired below whenever this
+                                            // item becomes the selected destination, from a tap or any nav change.
                                             val burst = remember(route) { Animatable(0f) }
+                                            LaunchedEffect(selected) {
+                                                if (selected && animationsEnabled) {
+                                                    burst.snapTo(1f)
+                                                    burst.animateTo(
+                                                        targetValue = 0f,
+                                                        animationSpec = spring(dampingRatio = 0.55f, stiffness = Spring.StiffnessMedium)
+                                                    )
+                                                }
+                                            }
 
                                             val isTargetPreview = dragPreviewIndex == index
                                             val isCurrentSelectedPreviewing = selected && dragPreviewIndex != null
@@ -741,7 +739,7 @@ fun FloatingTaskbar(
                                                     .zIndex(if (isBeingDragged) 10f else 0f)
                                                     .offset { IntOffset(reorderOffset.roundToInt(), 0) }
                                                     .graphicsLayer {
-                                                        val burstScale = 1f + 0.07f * burst.value
+                                                        val burstScale = 1f + 0.13f * burst.value
                                                         val s = (baseScale * pressSquish) * burstScale * extraScaleTarget * extraScaleSelected * reorderScale
                                                         scaleX = s
                                                         scaleY = (baseScale / pressSquish) * burstScale * extraScaleTarget * extraScaleSelected * reorderScale
@@ -797,10 +795,8 @@ fun FloatingTaskbar(
                                                         }
                                                         taskbarHaptics.navTap(route)
                                                         if (animationsEnabled) {
-                                                            scope.launch {
-                                                                burst.snapTo(1f)
-                                                                burst.animateTo(0f, spring(0.88f, Spring.StiffnessMedium))
-                                                            }
+                                                            // The scale + glow up pulse is driven by LaunchedEffect(selected)
+                                                            // once navigation flips this item to selected.
                                                             scope.launch {
                                                                 val tapNudge = if (route.hashCode() % 2 == 0) 3f else -3f
                                                                 pos.snapTo(Offset(tapNudge, 0f))
@@ -818,6 +814,29 @@ fun FloatingTaskbar(
                                                 Box(
                                                     modifier = Modifier
                                                         .size(buttonSize)
+                                                        // Soft radial glow that bleeds around the selected pill.
+                                                        // Steady when selected, pulsing brighter on the select burst.
+                                                        // Drawn before .clip so it spills past the pill edge.
+                                                        .drawBehind {
+                                                            val glow = (glowTarget * 0.7f + burst.value).coerceIn(0f, 1.4f)
+                                                            if (glow > 0.01f) {
+                                                                val center = Offset(size.width / 2f, size.height / 2f)
+                                                                val radius = size.maxDimension * (0.62f + 0.18f * glow)
+                                                                drawCircle(
+                                                                    brush = Brush.radialGradient(
+                                                                        colors = listOf(
+                                                                            primaryColor.copy(alpha = 0.42f * glow),
+                                                                            primaryColor.copy(alpha = 0.16f * glow),
+                                                                            Color.Transparent
+                                                                        ),
+                                                                        center = center,
+                                                                        radius = radius
+                                                                    ),
+                                                                    radius = radius,
+                                                                    center = center
+                                                                )
+                                                            }
+                                                        }
                                                         .clip(RoundedCornerShape(pillRadius))
                                                         .background(
                                                             if (selected)

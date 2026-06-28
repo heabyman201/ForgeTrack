@@ -84,6 +84,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
@@ -578,13 +579,17 @@ fun WorkoutSelector(
             }
         }
 
+        val forgeBackdrop = rememberForgeBackdrop()
+        CompositionLocalProvider(LocalForgeBackdrop provides forgeBackdrop) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .blur(blurAnim)
         ) {
             AnimatedBackdrop(
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .forgeBackdropSource(forgeBackdrop),
                 introBrush = introBrush,
                 introAlpha = 1f - introProgress,
                 enableAnimation = movingEffectsEnabled,
@@ -1021,6 +1026,7 @@ fun WorkoutSelector(
                 iconAlpha = 1f,
                 uiState = uiState
             )
+        }
         }
     }
 }
