@@ -217,24 +217,112 @@ public class PresetUsageTracker(private val context: Context) {
 private val Context.favoritePresetsDataStore by preferencesDataStore("favorite_presets")
 
 object FavoritePresetStore {
+    const val MAX_FAVORITES = 4
+    private const val MAX_RANK = MAX_FAVORITES - 1
     private val KEY = stringSetPreferencesKey("favorite_names")
+    private val RANKING_KEY = stringSetPreferencesKey("ranking")
+
+    data class RankedFavorite(val name: String, val ranking: Int)
+
+    private fun decodeRankings(raw: Set<String>): Map<String, Int> = buildMap {
+        raw.forEach { entry ->
+            val separator = entry.lastIndexOf("::")
+            if (separator > 0) {
+                val name = entry.substring(0, separator)
+                val ranking = entry.substring(separator + 2).toIntOrNull()
+                if (name.isNotBlank() && ranking != null && ranking in 0..MAX_RANK) {
+                    put(name, ranking)
+                }
+            }
+        }
+    }
+
+    private fun rankedFavorites(
+        favorites: Set<String>,
+        storedRankings: Set<String>
+    ): List<RankedFavorite> {
+        val rankings = decodeRankings(storedRankings)
+        return favorites
+            .filter { it.isNotBlank() }
+            .sortedWith(
+                compareBy<String> { rankings[it] ?: Int.MAX_VALUE }
+                    .thenBy { it.lowercase() }
+            )
+            .take(MAX_FAVORITES)
+            .mapIndexed { ranking, name -> RankedFavorite(name, ranking) }
+    }
+
+    private fun encodeRankings(favorites: List<RankedFavorite>): Set<String> =
+        favorites.map { "${it.name}::${it.ranking.coerceIn(0, MAX_RANK)}" }.toSet()
+
+    private fun androidx.datastore.preferences.core.MutablePreferences.save(
+        favorites: List<RankedFavorite>
+    ) {
+        this[KEY] = favorites.map { it.name }.toSet()
+        this[RANKING_KEY] = encodeRankings(favorites)
+    }
+
+    fun rankedFlow(context: Context): Flow<List<RankedFavorite>> =
+        context.favoritePresetsDataStore.data.map { prefs ->
+            rankedFavorites(
+                favorites = prefs[KEY] ?: emptySet(),
+                storedRankings = prefs[RANKING_KEY] ?: emptySet()
+            )
+        }
 
     fun flow(context: Context): Flow<Set<String>> =
-        context.favoritePresetsDataStore.data.map { prefs ->
-            prefs[KEY] ?: emptySet()
-        }
+        rankedFlow(context).map { favorites -> favorites.map { it.name }.toSet() }
 
     suspend fun toggle(context: Context, name: String) {
         if (name.isBlank()) return
         context.favoritePresetsDataStore.edit { prefs ->
-            val currentFavorites = prefs[KEY] ?: emptySet()
-            val newFavorites = currentFavorites.toMutableSet()
-            if (name in newFavorites) {
-                newFavorites.remove(name)
-            } else {
-                newFavorites.add(name)
+            val favorites = rankedFavorites(
+                favorites = prefs[KEY] ?: emptySet(),
+                storedRankings = prefs[RANKING_KEY] ?: emptySet()
+            ).toMutableList()
+            val existingIndex = favorites.indexOfFirst { it.name == name }
+
+            if (existingIndex >= 0) {
+                favorites.removeAt(existingIndex)
+            } else if (favorites.size < MAX_FAVORITES) {
+                favorites.add(RankedFavorite(name, favorites.size))
             }
-            prefs[KEY] = newFavorites
+
+            prefs.save(favorites.mapIndexed { ranking, favorite ->
+                favorite.copy(ranking = ranking)
+            })
+        }
+    }
+
+    suspend fun setRanking(context: Context, name: String, ranking: Int) {
+        if (name.isBlank()) return
+        context.favoritePresetsDataStore.edit { prefs ->
+            val favorites = rankedFavorites(
+                favorites = prefs[KEY] ?: emptySet(),
+                storedRankings = prefs[RANKING_KEY] ?: emptySet()
+            ).toMutableList()
+            val existingIndex = favorites.indexOfFirst { it.name == name }
+            if (existingIndex < 0) return@edit
+
+            val favorite = favorites.removeAt(existingIndex)
+            val targetRanking = ranking.coerceIn(0, favorites.size).coerceAtMost(MAX_RANK)
+            favorites.add(targetRanking, favorite)
+            prefs.save(favorites.mapIndexed { newRanking, rankedFavorite ->
+                rankedFavorite.copy(ranking = newRanking)
+            })
+        }
+    }
+
+    suspend fun setOrder(context: Context, orderedNames: List<String>) {
+        val favorites = orderedNames
+            .filter { it.isNotBlank() }
+            .distinct()
+            .take(MAX_FAVORITES)
+            .mapIndexed { ranking, name -> RankedFavorite(name, ranking) }
+        if (favorites.isEmpty()) return
+
+        context.favoritePresetsDataStore.edit { prefs ->
+            prefs.save(favorites)
         }
     }
 }
@@ -359,7 +447,7 @@ private fun CustomPill(color: Color, modifier: Modifier = Modifier) {
     }
 }
 @Composable
-private fun FavouritePill(color: Color, modifier: Modifier = Modifier) {
+private fun FavouritePill(ranking: Int, color: Color, modifier: Modifier = Modifier) {
     val pillShape = remember { RoundedCornerShape(12.dp) }
 
     Surface(
@@ -386,7 +474,7 @@ private fun FavouritePill(color: Color, modifier: Modifier = Modifier) {
             Spacer(Modifier.width(4.dp))
 
             Text(
-                text = "Favorite",
+                text = "Favorite #${ranking + 1}",
                 color = Color.White.copy(alpha = 0.9f),
                 style = MaterialTheme.typography.labelSmall,
                 fontWeight = FontWeight.Bold
@@ -424,7 +512,13 @@ fun WorkoutSelector(
     val usageTracker = remember { PresetUsageTracker(context) }
     val usageMap by usageTracker.usageFlow.collectAsState(initial = emptyMap())
     val customPresets by CustomPresetStore.flow(context).collectAsState(initial = emptyList())
-    val favoritePresets by FavoritePresetStore.flow(context).collectAsState(initial = emptySet())
+    val rankedFavoritePresets by FavoritePresetStore.rankedFlow(context).collectAsState(initial = emptyList())
+    val favoriteRankings = remember(rankedFavoritePresets) {
+        rankedFavoritePresets.associate { it.name to it.ranking }
+    }
+    val favoritePresets = remember(rankedFavoritePresets) {
+        rankedFavoritePresets.map { it.name }.toSet()
+    }
 
     val abbreviationMap = remember {
         mapOf(
@@ -518,6 +612,7 @@ fun WorkoutSelector(
         val intent = remember { Intent(context, WorkoutActivity::class.java) }
         var searchText by remember { mutableStateOf("") }
         var selectedCategory by remember { mutableStateOf("All") }
+        var rankingPresetName by rememberSaveable { mutableStateOf<String?>(null) }
         val baseCategories = remember { listOf("All", "Bodyweight", "Dumbbell/Kettlebell", "Barbell", "Machines/Cables") }
         val workoutCategories = remember(customPresets) {
             if (customPresets.isEmpty()) baseCategories else baseCategories + "Custom"
@@ -670,6 +765,13 @@ fun WorkoutSelector(
                         )
                     )
 
+                    Text(
+                        text = "Choose up to ${FavoritePresetStore.MAX_FAVORITES} favorites. Long-press a favorite to change its Home order.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.White.copy(alpha = 0.72f),
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)
+                    )
+
                     if (stages.afterFirstFrame) {
                         LazyRow(
                             contentPadding = PaddingValues(horizontal = 16.dp),
@@ -726,7 +828,9 @@ fun WorkoutSelector(
                                     val interactionSource = remember { MutableInteractionSource() }
                                     val isPressed by interactionSource.collectIsPressedAsState()
                                     val scale by animateFloatAsState(targetValue = if (isPressed) 0.98f else 1f, animationSpec = tween(100), label = "cardScale")
-                                    val isFavorite = remember(preset.name, favoritePresets) { preset.name in favoritePresets }
+                                    val favoriteRanking = favoriteRankings[preset.name]
+                                    val isFavorite = favoriteRanking != null
+                                    val canToggleFavorite = isFavorite || favoritePresets.size < FavoritePresetStore.MAX_FAVORITES
                                     val stat = remember(preset.name, usageMap) { usageMap[preset.name] }
 
                                     Card(
@@ -745,7 +849,10 @@ fun WorkoutSelector(
                                                     context.startActivity(intent)
                                                 },
                                                 onLongClick = {
-                                                    if (preset.category == "Custom") {
+                                                    if (isFavorite) {
+                                                        rankingPresetName = if (rankingPresetName == preset.name) null else preset.name
+                                                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                    } else if (preset.category == "Custom") {
                                                         customDeletion.showDeleteDialog.value = true
                                                     }
                                                 }
@@ -775,11 +882,45 @@ fun WorkoutSelector(
                                                     CustomPill(color = pillColor, modifier = Modifier.padding(top = 6.dp))
                                                 }
                                                 if (isFavorite){
-                                                    FavouritePill(color = pillColor, modifier = Modifier.padding(top = 6.dp))
+                                                    FavouritePill(
+                                                        ranking = favoriteRanking ?: 0,
+                                                        color = pillColor,
+                                                        modifier = Modifier.padding(top = 6.dp)
+                                                    )
+                                                    if (rankingPresetName == preset.name) Row(
+                                                        modifier = Modifier.padding(top = 6.dp),
+                                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                                        verticalAlignment = Alignment.CenterVertically
+                                                    ) {
+                                                        Text(
+                                                            text = "Home order",
+                                                            color = Color.White.copy(alpha = 0.72f),
+                                                            style = MaterialTheme.typography.labelSmall
+                                                        )
+                                                        repeat(rankedFavoritePresets.size) { ranking ->
+                                                            val selected = favoriteRanking == ranking
+                                                            AssistChip(
+                                                                onClick = {
+                                                                    scope.launch {
+                                                                        FavoritePresetStore.setRanking(context, preset.name, ranking)
+                                                                        haptics.performHapticFeedback(HapticFeedbackType.KeyboardTap)
+                                                                        rankingPresetName = null
+                                                                    }
+                                                                },
+                                                                label = { Text(text = "${ranking + 1}") },
+                                                                colors = AssistChipDefaults.assistChipColors(
+                                                                    containerColor = if (selected) theme.primary else Color.White.copy(alpha = 0.08f),
+                                                                    labelColor = if (selected) theme.background else Color.White.copy(alpha = 0.85f)
+                                                                )
+                                                            )
+                                                        }
+                                                    }
                                                 }
                                             }
-                                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                                IconButton(onClick = {
+                                            Row(verticalAlignment = Alignment.Top) {
+                                                IconButton(
+                                                    enabled = canToggleFavorite,
+                                                    onClick = {
                                                     scope.launch {
                                                         FavoritePresetStore.toggle(context, preset.name)
                                                         haptics.performHapticFeedback(HapticFeedbackType.KeyboardTap)
@@ -787,8 +928,12 @@ fun WorkoutSelector(
                                                 }) {
                                                     Icon(
                                                         imageVector = if (isFavorite) Icons.Filled.Star else Icons.Outlined.Star,
-                                                        contentDescription = "Favorite",
-                                                        tint = if (isFavorite) theme.primary else Color.White.copy(alpha = 0.7f)
+                                                        contentDescription = if (isFavorite) "Remove favorite" else "Add favorite",
+                                                        tint = when {
+                                                            isFavorite -> theme.primary
+                                                            canToggleFavorite -> Color.White.copy(alpha = 0.7f)
+                                                            else -> Color.White.copy(alpha = 0.28f)
+                                                        }
                                                     )
                                                 }
                                                 Icon(imageVector = Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, tint = Color.White.copy(alpha = 0.7f))

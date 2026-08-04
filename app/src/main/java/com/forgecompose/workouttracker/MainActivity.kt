@@ -55,6 +55,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -133,6 +134,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
@@ -1626,13 +1628,20 @@ fun WorkoutListScreen(
                             QuickStartWorkout(navController = navController)
                             // Consistent divider policy: cards carry separation, so no dividers anywhere.
                             Spacer(modifier = Modifier.height(ForgeSpacing.lg))
-                            val favoritePresets by FavoritePresetStore.flow(context).collectAsState(initial = emptySet())
-                            val topPresets: List<Pair<String, UsageStat>> by remember(usageMap, workoutPremadeRandom, favoritePresets) {
+                            val rankedFavoritePresets by FavoritePresetStore.rankedFlow(context).collectAsState(initial = emptyList())
+                            val favoritePresets = remember(rankedFavoritePresets) {
+                                rankedFavoritePresets.map { it.name }.toSet()
+                            }
+                            var showChooseFavorites by remember { mutableStateOf(false) }
+                            val topPresets: List<Pair<String, UsageStat>> by remember(usageMap, workoutPremadeRandom, rankedFavoritePresets) {
                                 derivedStateOf {
-                                    val favoritesList = favoritePresets.map { it to (usageMap[it] ?: UsageStat(0, 0L)) }
-                                    val remainingSlots = maxSuggestions - favoritesList.size
+                                    val favoritesList = rankedFavoritePresets
+                                        .sortedBy { it.ranking }
+                                        .map { it.name to (usageMap[it.name] ?: UsageStat(0, 0L)) }
+                                    val homeWorkoutLimit = maxOf(maxSuggestions, favoritesList.size)
+                                    val remainingSlots = homeWorkoutLimit - favoritesList.size
                                     if (remainingSlots <= 0) {
-                                        favoritesList.take(maxSuggestions)
+                                        favoritesList
                                     } else {
                                         val now = System.currentTimeMillis()
                                         val maxCount = (usageMap.values.maxOfOrNull { it.count } ?: 1).coerceAtLeast(1)
@@ -1656,11 +1665,32 @@ fun WorkoutListScreen(
                                             .map { it.key to it.value }
                                         val combined = favoritesList + suggested
                                         if (combined.isEmpty()) {
-                                            workoutPremadeRandom.take(maxSuggestions).map { it to UsageStat(0, 0L) }
+                                            workoutPremadeRandom.take(homeWorkoutLimit).map { it to UsageStat(0, 0L) }
                                         } else {
                                             combined
                                         }
                                     }
+                                }
+                            }
+                            var visiblePresets by remember { mutableStateOf(topPresets) }
+                            var draggedWorkoutName by remember { mutableStateOf<String?>(null) }
+                            var draggedOffset by remember { mutableFloatStateOf(0f) }
+                            var dragOrderChanged by remember { mutableStateOf(false) }
+                            val reorderStepPx = with(LocalDensity.current) { 94.dp.toPx() }
+
+                            LaunchedEffect(topPresets, draggedWorkoutName) {
+                                if (draggedWorkoutName == null) visiblePresets = topPresets
+                            }
+
+                            AnimatedVisibility(visible = showChooseFavorites) {
+                                TextButton(
+                                    onClick = {
+                                        haptics.performHapticFeedback(HapticFeedbackType.KeyboardTap)
+                                        navController.navigate("WorkoutSelector") { launchSingleTop = true }
+                                    },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text("Choose favorites", color = theme.primary)
                                 }
                             }
                             val cardShape16 = remember { RoundedCornerShape(16.dp) }
@@ -1668,10 +1698,11 @@ fun WorkoutListScreen(
                                 modifier = Modifier.fillMaxWidth(),
                                 verticalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
-                                itemsIndexed(topPresets, key = { _, it -> it.first }, contentType = { _, _ -> "preset" }) { index, (workoutName, useCount) ->
+                                itemsIndexed(visiblePresets, key = { _, it -> it.first }, contentType = { _, _ -> "preset" }) { index, (workoutName, useCount) ->
                                     val haptics = LocalHapticFeedback.current
                                     val scope = rememberCoroutineScope()
                                     var isLaunching by remember { mutableStateOf(false) }
+                                    val isDragging = draggedWorkoutName == workoutName
 
 
                                     val entranceAlpha = remember { Animatable(0f) }
@@ -1697,29 +1728,81 @@ fun WorkoutListScreen(
                                             .height(82.dp)
                                             .graphicsLayer {
                                                 alpha = entranceAlpha.value
-                                                translationY = entranceSlide.value
-                                                val finalScale = 1f + (launchProgress.value * 0.06f)
+                                                translationY = entranceSlide.value + if (isDragging) draggedOffset else 0f
+                                                val finalScale = 1f + (launchProgress.value * 0.06f) + if (isDragging) 0.03f else 0f
                                                 scaleX = finalScale
                                                 scaleY = finalScale
+                                            }
+                                            .zIndex(if (isDragging) 1f else 0f)
+                                            .pointerInput(workoutName) {
+                                                detectDragGesturesAfterLongPress(
+                                                    onDragStart = {
+                                                        draggedWorkoutName = workoutName
+                                                        draggedOffset = 0f
+                                                        dragOrderChanged = false
+                                                        showChooseFavorites = true
+                                                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                    },
+                                                    onDrag = { change, dragAmount ->
+                                                        change.consume()
+                                                        draggedOffset += dragAmount.y
+                                                        val currentIndex = visiblePresets.indexOfFirst { it.first == workoutName }
+                                                        val targetIndex = when {
+                                                            draggedOffset > reorderStepPx / 2f && currentIndex < visiblePresets.lastIndex -> currentIndex + 1
+                                                            draggedOffset < -reorderStepPx / 2f && currentIndex > 0 -> currentIndex - 1
+                                                            else -> currentIndex
+                                                        }
+                                                        if (currentIndex >= 0 && targetIndex != currentIndex) {
+                                                            visiblePresets = visiblePresets.toMutableList().apply {
+                                                                val moved = removeAt(currentIndex)
+                                                                add(targetIndex, moved)
+                                                            }
+                                                            draggedOffset += if (targetIndex > currentIndex) -reorderStepPx else reorderStepPx
+                                                            dragOrderChanged = true
+                                                            haptics.performHapticFeedback(HapticFeedbackType.KeyboardTap)
+                                                        }
+                                                    },
+                                                    onDragEnd = {
+                                                        if (dragOrderChanged) {
+                                                            val orderedNames = visiblePresets.map { it.first }
+                                                            draggedOffset = 0f
+                                                            dragOrderChanged = false
+                                                            scope.launch {
+                                                                try {
+                                                                    FavoritePresetStore.setOrder(context, orderedNames)
+                                                                } finally {
+                                                                    draggedWorkoutName = null
+                                                                }
+                                                            }
+                                                        } else {
+                                                            draggedWorkoutName = null
+                                                            draggedOffset = 0f
+                                                            dragOrderChanged = false
+                                                        }
+                                                    },
+                                                    onDragCancel = {
+                                                        draggedWorkoutName = null
+                                                        draggedOffset = 0f
+                                                        dragOrderChanged = false
+                                                    }
+                                                )
                                             },
                                         elevation = ForgeElevation.Standard,
                                         glow = isLaunching,
                                         contentPadding = PaddingValues(horizontal = 20.dp),
                                         onClick = {
-                                            if (ConnectedWorkout.currentMode.value == ConnectedWorkout.WorkoutMode.INACTIVE && !isLaunching) {
+                                            if (ConnectedWorkout.currentMode.value == ConnectedWorkout.WorkoutMode.INACTIVE && !isLaunching && draggedWorkoutName == null) {
                                                 isLaunching = true
                                                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)
 
                                                 workout.value = workoutName
                                                 scope.launch { usageTracker.increment(workout.value) }
                                                 scope.launch {
-
                                                     delay(180)
                                                     val intent = Intent(context, WorkoutActivity::class.java).apply {
                                                         putExtra("WORKOUT_NAME", workoutName)
                                                     }
                                                     startActivity(context, intent, null)
-
 
                                                     delay(300)
                                                     isLaunching = false
