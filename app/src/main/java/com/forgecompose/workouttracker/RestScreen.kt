@@ -62,6 +62,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -71,6 +72,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
@@ -96,7 +98,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.util.lerp
-import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.forgecompose.workouttracker.ConnectedWorkout.CurrentReps
 import com.forgecompose.workouttracker.ConnectedWorkout.CurrentSets
@@ -253,7 +254,7 @@ fun RestAdviceSection(
 @Composable
 fun RestScreen(
     navController: NavController,
-    bpVM: HrViewModel = viewModel(),
+    bpVM: HrViewModel,
 
 ) {
     val context = LocalContext.current
@@ -283,6 +284,7 @@ val scope = rememberCoroutineScope()
 
     val initialTotal = rememberSaveable { ConnectedWorkout.restTime.longValue }
     val autoRestTimeEnabled = remember { isAutoRestTimeEnabled(context) }
+    val liveHeartRate by bpVM.hr.collectAsState()
     var restOutcomeHandled by rememberSaveable { mutableStateOf(false) }
     PreventBackGesture()
 
@@ -295,11 +297,6 @@ val scope = rememberCoroutineScope()
             autoAdjustEnabled = autoRestTimeEnabled
         )
         ConnectedWorkout.saveSnapshot(context)
-    }
-
-    LaunchedEffect(bpVM) {
-        bpVM.start()
-        bpVM.setWorkoutHrRecording(true)
     }
 
     val hour = remember { LocalTime.now().hour }
@@ -377,6 +374,8 @@ val scope = rememberCoroutineScope()
                 RestCountdownSection(
                     modifier = Modifier.size(ringSize),
                     initialTotal = initialTotal,
+                    heartRateBpm = liveHeartRate,
+                    useHeartRateRecovery = autoRestTimeEnabled,
                     onFinished = {
                         applyAutoRestAdjustment(skipped = false)
                         ConnectedWorkout.currentMode.value = WorkoutMode.ACTIVE
@@ -570,16 +569,27 @@ val scope = rememberCoroutineScope()
 @Composable
 private fun RestCountdownSection(
     initialTotal: Long,
+    heartRateBpm: Int,
+    useHeartRateRecovery: Boolean,
     onFinished: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     var remaining by restTimeRemaining
+    val latestHeartRate by rememberUpdatedState(heartRateBpm)
+    val heartRateRecoveryEnabled by rememberUpdatedState(useHeartRateRecovery)
 
     LaunchedEffect(initialTotal) {
         remaining = initialTotal
         while (remaining > 0) {
             delay(1000)
-            remaining -= 1000
+            remaining = if (heartRateRecoveryEnabled) {
+                AutoRestTimer.nextRestCountdownMillis(
+                    remainingMillis = remaining,
+                    heartRateBpm = latestHeartRate
+                )
+            } else {
+                (remaining - 1000L).coerceAtLeast(0L)
+            }
         }
         onFinished()
     }

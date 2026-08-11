@@ -15,26 +15,21 @@ import androidx.core.content.ContextCompat
 
 private const val READ_HEART_RATE_PERMISSION = "android.permission.health.READ_HEART_RATE"
 
-fun requiredSensorPermissions(): List<String> = buildList {
-    add(Manifest.permission.BODY_SENSORS)
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-        add(READ_HEART_RATE_PERMISSION)
+fun requiredSensorPermissions(): List<String> = listOf(
+    if (Build.VERSION.SDK_INT >= ANDROID_16_API_LEVEL) {
+        READ_HEART_RATE_PERMISSION
+    } else {
+        Manifest.permission.BODY_SENSORS
     }
-}
+)
 
 fun hasHeartRatePermission(context: Context): Boolean {
-    val bodySensorsGranted =
-        ContextCompat.checkSelfPermission(context, Manifest.permission.BODY_SENSORS) == PackageManager.PERMISSION_GRANTED
-    val readHeartRateGranted =
-        Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE &&
-            ContextCompat.checkSelfPermission(context, READ_HEART_RATE_PERMISSION) == PackageManager.PERMISSION_GRANTED
-    return bodySensorsGranted || readHeartRateGranted
+    val permission = requiredSensorPermissions().single()
+    return ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
 }
 
 fun hasHeartRatePermission(grants: Map<String, Boolean>): Boolean {
-    val bodySensorsGranted = grants[Manifest.permission.BODY_SENSORS] == true
-    val readHeartRateGranted = grants[READ_HEART_RATE_PERMISSION] == true
-    return bodySensorsGranted || readHeartRateGranted
+    return grants[requiredSensorPermissions().single()] == true
 }
 
 @SuppressLint("ContextCastToActivity")
@@ -54,3 +49,5 @@ fun rememberPermissionLauncher(onResult: (Boolean) -> Unit): () -> Unit {
     }
     return { launcher.launch(requiredPerms.toTypedArray()) }
 }
+
+private const val ANDROID_16_API_LEVEL = 36

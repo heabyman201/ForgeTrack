@@ -10,8 +10,6 @@ import android.content.Intent
 import android.os.Build
 import android.os.PowerManager
 import androidx.core.app.NotificationCompat
-import com.forgecompose.app_wear.passive.registerPassiveHr
-import com.forgecompose.app_wear.passive.unregisterPassiveHr
 import com.forgecompose.app_wear.presentation.theme.hasHeartRatePermission
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -33,6 +31,7 @@ object HrMonitorRuntime {
 class HrMonitorService : Service() {
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var collectJob: Job? = null
+    private var activeRepository: HrRepository? = null
     private var explicitStopRequested: Boolean = false
     private var lastUiBpm: Int? = null
     private var lastUiPushMs: Long = 0L
@@ -131,8 +130,8 @@ class HrMonitorService : Service() {
         if (!wakeLock.isHeld) wakeLock.acquire()
         collectJob = serviceScope.launch {
             val repo = HrRepository(appContext)
+            activeRepository = repo
             val sync = WearHrSync(appContext)
-            runCatching { registerPassiveHr(appContext) }
 
             while (kotlinx.coroutines.currentCoroutineContext().isActive && !explicitStopRequested) {
                 val started = runCatching { repo.ensureHrExerciseStarted() }
@@ -200,10 +199,8 @@ class HrMonitorService : Service() {
         if (wakeLock.isHeld) wakeLock.release()
         serviceScope.launch {
             if (endExercise) {
-                runCatching { HrRepository(applicationContext).endExercise() }
-            }
-            if (clearRuntime) {
-                runCatching { unregisterPassiveHr(applicationContext) }
+                runCatching { activeRepository?.endExercise() }
+                activeRepository = null
             }
             if (clearRuntime) {
                 HrMonitorRuntime.running.value = false

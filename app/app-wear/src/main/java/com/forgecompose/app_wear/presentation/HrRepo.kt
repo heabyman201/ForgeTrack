@@ -1,113 +1,192 @@
 package com.forgecompose.app_wear.presentation
 
 import android.content.Context
-import androidx.health.services.client.ExerciseUpdateCallback
-import androidx.health.services.client.HealthServices
-import androidx.health.services.client.data.Availability
-import androidx.health.services.client.data.DataType
-import androidx.health.services.client.data.ExerciseConfig
-import androidx.health.services.client.data.ExerciseTrackedStatus
-import androidx.health.services.client.data.ExerciseLapSummary
-import androidx.health.services.client.data.ExerciseType
-import androidx.health.services.client.data.ExerciseUpdate
+import com.samsung.android.service.health.tracking.ConnectionListener
+import com.samsung.android.service.health.tracking.HealthTracker
+import com.samsung.android.service.health.tracking.HealthTrackerException
+import com.samsung.android.service.health.tracking.HealthTrackingService
+import com.samsung.android.service.health.tracking.data.HealthTrackerType
+import com.samsung.android.service.health.tracking.data.ValueKey
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.guava.await
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-// <-- for ListenableFuture.await()
-import kotlin.math.roundToInt
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeout
 
-class HrRepository(private val context: Context) {
+/**
+ * Heart-rate source backed by Samsung Health Sensor SDK.
+ *
+ * The tracker is intentionally owned by the foreground HR service rather than an Activity so it
+ * keeps producing workout samples while the watch display is off. Samsung batches continuous
+ * samples in that state, so [heartRateStream] periodically flushes the tracker to keep phone and
+ * watch workout statistics current.
+ */
+class HrRepository(context: Context) {
+    private val appContext = context.applicationContext
+    private val connectionMutex = Mutex()
+    private val trackerMutex = Mutex()
 
-    private val exerciseClient = HealthServices.getClient(context).exerciseClient
+    @Volatile
+    private var trackingService: HealthTrackingService? = null
 
-    /** True if the current device supports emitting HEART_RATE_BPM for a generic workout. */
-    fun supportsHr(): Flow<Boolean> = flow {
-        val caps = exerciseClient.getCapabilitiesAsync().await()
-        val generic = caps.getExerciseTypeCapabilities(ExerciseType.WORKOUT)
-        emit(DataType.HEART_RATE_BPM in generic.supportedDataTypes)
+    @Volatile
+    private var heartRateTracker: HealthTracker? = null
+
+    @Volatile
+    private var connected = false
+
+    @Volatile
+    private var connectionAttempt: CompletableDeferred<Unit>? = null
+
+    private val connectionListener = object : ConnectionListener {
+        override fun onConnectionSuccess() {
+            connected = true
+            connectionAttempt?.complete(Unit)
+        }
+
+        override fun onConnectionEnded() {
+            connected = false
+        }
+
+        override fun onConnectionFailed(exception: HealthTrackerException) {
+            connected = false
+            connectionAttempt?.completeExceptionally(exception)
+        }
     }
 
-    /** Starts a minimal exercise requesting heart-rate updates. */
-    suspend fun startHrExercise(): Boolean {
-        val config = ExerciseConfig.Builder(ExerciseType.WORKOUT)
-            .setDataTypes(setOf(DataType.HEART_RATE_BPM))
-            .build()
+    /** True when this Galaxy Watch exposes Samsung's continuous heart-rate tracker. */
+    fun supportsHr(): Flow<Boolean> = flow {
+        connectToHealthPlatform()
+        emit(supportsContinuousHeartRate())
+    }
 
-        exerciseClient.startExerciseAsync(config).await()
-        return true
+    /** Connects to Health Platform and prepares Samsung's continuous HR tracker. */
+    suspend fun startHrExercise(): Boolean = trackerMutex.withLock {
+        if (heartRateTracker != null && connected) return@withLock true
+
+        connectToHealthPlatform()
+        val service = checkNotNull(trackingService) {
+            "Samsung Health Platform connection was not created"
+        }
+        check(supportsContinuousHeartRate()) {
+            "Samsung continuous heart-rate tracking is not supported on this watch"
+        }
+
+        heartRateTracker = service.getHealthTracker(HealthTrackerType.HEART_RATE_CONTINUOUS)
+        true
     }
 
     suspend fun ensureHrExerciseStarted(): Boolean {
-        val info = exerciseClient.getCurrentExerciseInfoAsync().await()
-        return when (info.exerciseTrackedStatus) {
-            ExerciseTrackedStatus.OWNED_EXERCISE_IN_PROGRESS -> true
-            ExerciseTrackedStatus.NO_EXERCISE_IN_PROGRESS -> startHrExercise()
-            ExerciseTrackedStatus.OTHER_APP_IN_PROGRESS ->
-                throw IllegalStateException("Another app owns the current exercise session")
-            else -> startHrExercise()
-        }
+        return if (heartRateTracker != null && connected) true else startHrExercise()
     }
 
-    /** Ends the current exercise (if any) without throwing. */
-    suspend fun endExercise() {
-        runCatching { exerciseClient.endExerciseAsync().await() }
+    /** Stops Samsung tracking and releases the Health Platform service connection. */
+    suspend fun endExercise() = trackerMutex.withLock {
+        runCatching { heartRateTracker?.unsetEventListener() }
+        heartRateTracker = null
+        runCatching { trackingService?.disconnectService() }
+        trackingService = null
+        connected = false
+        connectionAttempt = null
     }
 
-    /** Stream the latest BPM as an Int (null when temporarily unavailable). */
+    /** Streams valid Samsung BioActive Sensor heart-rate readings as BPM. */
     fun heartRateStream(): Flow<Int?> = callbackFlow {
-        val exec = androidx.core.content.ContextCompat.getMainExecutor(context)
+        val tracker = heartRateTracker
+        if (tracker == null) {
+            close(IllegalStateException("Samsung heart-rate tracker has not been started"))
+            return@callbackFlow
+        }
 
-        val callback = object : ExerciseUpdateCallback {
-            override fun onRegistered() = Unit
-            override fun onRegistrationFailed(throwable: Throwable) {
-                trySend(null)
-                close(throwable)
+        val listener = object : HealthTracker.TrackerEventListener {
+            override fun onDataReceived(dataPoints: List<com.samsung.android.service.health.tracking.data.DataPoint>) {
+                dataPoints.forEach { point ->
+                    val status = point.getValue(ValueKey.HeartRateSet.HEART_RATE_STATUS)
+                    val bpm = point.getValue(ValueKey.HeartRateSet.HEART_RATE)
+                    if (status == STATUS_SUCCESS && bpm in MIN_VALID_BPM..MAX_VALID_BPM) {
+                        trySend(bpm)
+                    }
+                }
             }
 
-            override fun onExerciseUpdateReceived(update: ExerciseUpdate) {
-                val state = update.exerciseStateInfo.state
-                if (state.isEnded || state.isEnding) {
-                    close(
-                        ExerciseSessionEndedException(
-                            "Exercise session ended: ${update.exerciseStateInfo.endReason}"
-                        )
-                    )
-                    return
-                }
-                val bpm = update.latestMetrics
-                    .getData(DataType.HEART_RATE_BPM)
-                    .lastOrNull()
-                    ?.value
-                    ?.roundToInt()
-                trySend(bpm)
-            }
+            override fun onFlushCompleted() = Unit
 
-            override fun onLapSummaryReceived(lapSummary: ExerciseLapSummary) = Unit
-            override fun onAvailabilityChanged(
-                dataType: DataType<*, *>,
-                availability: Availability
-            ) {
-                if (dataType == DataType.HEART_RATE_BPM) {
-                    trySend(null)
-                }
+            override fun onError(error: HealthTracker.TrackerError) {
+                close(IllegalStateException("Samsung heart-rate tracker error: $error"))
             }
         }
 
-        exerciseClient.setUpdateCallback(exec, callback)
+        runCatching { tracker.setEventListener(listener) }
+            .onFailure {
+                close(it)
+                return@callbackFlow
+            }
+
+        // HEART_RATE_CONTINUOUS batches while the screen is off. A regular flush provides fresh
+        // workout stats without falling back to AndroidX Health Services or SensorManager.
+        val flushJob = launch(Dispatchers.Default) {
+            while (isActive) {
+                delay(FLUSH_INTERVAL_MS)
+                runCatching { tracker.flush() }
+            }
+        }
 
         awaitClose {
-            // launch a coroutine in the channel's scope to safely call suspend function
-            launch {
-                runCatching { exerciseClient.clearUpdateCallbackAsync(callback).await() }
-            }
+            flushJob.cancel()
+            runCatching { tracker.unsetEventListener() }
         }
     }.distinctUntilChanged()
 
+    private suspend fun connectToHealthPlatform() {
+        val attempt = connectionMutex.withLock {
+            if (connected && trackingService != null) return
 
+            connectionAttempt
+                ?.takeUnless { it.isCompleted }
+                ?: CompletableDeferred<Unit>().also { deferred ->
+                    connectionAttempt = deferred
+                    val service = HealthTrackingService(connectionListener, appContext)
+                    trackingService = service
+                    runCatching { service.connectService() }
+                        .onFailure { deferred.completeExceptionally(it) }
+                }
+        }
+
+        try {
+            withTimeout(CONNECTION_TIMEOUT_MS) { attempt.await() }
+        } catch (error: Throwable) {
+            connectionMutex.withLock {
+                if (connectionAttempt === attempt) {
+                    runCatching { trackingService?.disconnectService() }
+                    trackingService = null
+                    connectionAttempt = null
+                    connected = false
+                }
+            }
+            throw error
+        }
+    }
+
+    private fun supportsContinuousHeartRate(): Boolean {
+        val supported = checkNotNull(trackingService)
+            .getTrackingCapability()
+            .supportHealthTrackerTypes
+        return HealthTrackerType.HEART_RATE_CONTINUOUS in supported
+    }
+
+    private companion object {
+        private const val STATUS_SUCCESS = 1
+        private const val MIN_VALID_BPM = 25
+        private const val MAX_VALID_BPM = 250
+        private const val FLUSH_INTERVAL_MS = 3_000L
+        private const val CONNECTION_TIMEOUT_MS = 15_000L
+    }
 }
-
-private class ExerciseSessionEndedException(message: String) : IllegalStateException(message)

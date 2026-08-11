@@ -351,12 +351,23 @@ fun MainScreen(viewModel: WorkoutListViewModel,badgeViewModel: BadgeViewModel) {
     val navController = rememberNavController()
     val context = LocalContext.current
     val currentMode by ConnectedWorkout.currentMode
+    val heartRateViewModel: HrViewModel = viewModel()
 
+    DisposableEffect(heartRateViewModel) {
+        heartRateViewModel.start()
+        onDispose { heartRateViewModel.stop() }
+    }
 
     LaunchedEffect(currentMode) {
         when (currentMode) {
-            WorkoutMode.ACTIVE, WorkoutMode.RESTING -> WorkoutForegroundService.start(context)
-            WorkoutMode.INACTIVE -> WorkoutForegroundService.stop(context)
+            WorkoutMode.ACTIVE, WorkoutMode.RESTING -> {
+                WorkoutForegroundService.start(context)
+                heartRateViewModel.setWorkoutHrRecording(true)
+            }
+            WorkoutMode.INACTIVE -> {
+                heartRateViewModel.setWorkoutHrRecording(false)
+                WorkoutForegroundService.stop(context)
+            }
         }
     }
 
@@ -459,7 +470,8 @@ fun MainScreen(viewModel: WorkoutListViewModel,badgeViewModel: BadgeViewModel) {
             WorkoutScreen(
                 navController = navController,
                 viewModel = viewModel,
-               vm = badgeViewModel
+                vm = badgeViewModel,
+                bpVM = heartRateViewModel
             )
         }
         composable(
@@ -507,6 +519,7 @@ fun MainScreen(viewModel: WorkoutListViewModel,badgeViewModel: BadgeViewModel) {
         ) {
             RestScreen(
                 navController = navController,
+                bpVM = heartRateViewModel
             )
         }
     }
@@ -1368,7 +1381,7 @@ private fun formatElapsedHms(elapsedMillis: Long): String {
 @RequiresApi(Build.VERSION_CODES.TIRAMISU)
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalTime::class)
 @Composable
-fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController, vm: BadgeViewModel, bpVM: HrViewModel = viewModel()) {
+fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController, vm: BadgeViewModel, bpVM: HrViewModel) {
     val context = LocalContext.current
     val liveBpm by bpVM.hr.collectAsState()
     val appearanceOptions by AppearanceOptionsManagerAppTheme.flow(context).collectAsState(initial = AppearanceOptionsAppTheme.Defaults)
@@ -1389,15 +1402,6 @@ fun WorkoutScreen(viewModel: WorkoutListViewModel, navController: NavController,
     val pausedState = rememberUpdatedState(isPaused)
     val completionState = rememberUpdatedState(showCompletionAnimation)
 
-    DisposableEffect(bpVM) {
-
-        bpVM.start()
-        bpVM.setWorkoutHrRecording(true)
-        onDispose {
-            bpVM.setWorkoutHrRecording(false)
-            bpVM.stop()
-        }
-    }
 if (performanceOptions.showHeartbeats) {
     LaunchedEffect(bpVM) {
         bpVM.hr.collect { bpm ->
@@ -1500,7 +1504,8 @@ if (performanceOptions.showHeartbeats) {
         if (CurrentReps.intValue >= GoalReps.intValue && CurrentSets.intValue >= GoalSets.intValue) {
             triggerSetGoal()
         } else {
-            AutoRestTimer.startRest()
+            // Capture the post-set HR as the rest timer's recovery baseline.
+            AutoRestTimer.startRest(heartRateBpm = liveBpm)
             ConnectedWorkout.currentMode.value = WorkoutMode.RESTING
             navController.navigate("RestScreen") { popUpTo("RestScreen") { inclusive = true } }
         }

@@ -735,19 +735,23 @@ fun WearActiveWorkoutScreen(
     val context = LocalContext.current
     val activity = context as? Activity
     val scope = rememberCoroutineScope()
-    val hrViewModel = remember(context.applicationContext) {
-        HrViewModel(
-            repo = HrRepository(context.applicationContext),
-            appContext = context.applicationContext
-        )
-    }
-    val bpm by hrViewModel.bpm.collectAsState()
+    val bpm by HrMonitorRuntime.bpm.collectAsState()
     val requiredPermissions = remember { requiredSensorPermissions() }
     var hasBodySensorsPermission by remember {
         mutableStateOf(hasHeartRatePermission(context))
     }
     var permissionRequestAttempted by rememberSaveable { mutableStateOf(false) }
     var permanentlyDenied by rememberSaveable { mutableStateOf(false) }
+    fun startHeartRateMonitor() {
+        val serviceIntent = Intent(context, HrMonitorService::class.java).apply {
+            action = HrMonitorService.ACTION_START
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            context.startForegroundService(serviceIntent)
+        } else {
+            context.startService(serviceIntent)
+        }
+    }
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
     ) { result ->
@@ -756,7 +760,7 @@ fun WearActiveWorkoutScreen(
         permissionRequestAttempted = true
         if (granted) {
             permanentlyDenied = false
-            hrViewModel.start()
+            startHeartRateMonitor()
         } else {
             permanentlyDenied = requiredPermissions.any { permission ->
                 activity?.let {
@@ -767,13 +771,10 @@ fun WearActiveWorkoutScreen(
     }
     LaunchedEffect(Unit) {
         if (hasBodySensorsPermission) {
-            hrViewModel.start()
+            startHeartRateMonitor()
         } else if (!permissionRequestAttempted) {
             permissionLauncher.launch(requiredPermissions.toTypedArray())
         }
-    }
-    DisposableEffect(Unit) {
-        onDispose { hrViewModel.stop() }
     }
 
     // Timer Logic - Using primitives
@@ -1040,7 +1041,6 @@ fun WearActiveWorkoutScreen(
                                     goalReps = GoalReps.intValue,
                                     goalSets = GoalSets.intValue
                                 )
-                                hrViewModel.stop()
                                 showExitDialog = false
                                 (context as? android.app.Activity)?.finish()
                             }

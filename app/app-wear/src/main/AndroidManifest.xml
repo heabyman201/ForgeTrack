@@ -47,14 +47,6 @@
         </activity>
         <activity android:name="com.forgecompose.app_wear.presentation.WearWorkoutActivity"
             android:taskAffinity="" />
-        <!-- AndroidManifest.xml (Wear) -->
-        <service
-            android:name="com.forgecompose.app_wear.presentation.PassiveDataReceiver"
-            android:exported="false">
-            <intent-filter>
-                <action android:name="androidx.health.services.client.action.PASSIVE_DATA" />
-            </intent-filter>
-        </service>
         <service
             android:name="com.forgecompose.app_wear.presentation.WearHrControlListenerService"
             android:exported="false">

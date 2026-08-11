@@ -44,6 +44,7 @@ android {
 val roomVersion = "2.7.1"
 dependencies {
 
+    implementation(files("libs/samsung-health-sensor-api-1.4.1.aar"))
     implementation(libs.play.services.wearable)
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.ui)
@@ -53,6 +54,7 @@ dependencies {
 
     // Room KTX (Required for Coroutines, Flow, and suspend functions)
     implementation("androidx.room:room-ktx:$roomVersion")
+    implementation(libs.androidx.wear)
 
 
     // Room Compiler (Generates the code)
@@ -71,9 +73,6 @@ dependencies {
 
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.9.3")
     implementation("androidx.fragment:fragment-ktx:1.8.9")
-    // Health Services (Wear sensor API) // 1.1.0-alpha01 or higher
-    implementation("androidx.health:health-services-client:1.1.0-alpha05")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-guava:1.8.1")
     // Data Layer sync to phone
     implementation("com.google.android.gms:play-services-wearable:19.0.0")
     implementation("com.google.android.gms:play-services-auth:21.4.0")

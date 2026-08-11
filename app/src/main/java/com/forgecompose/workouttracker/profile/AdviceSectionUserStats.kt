@@ -257,7 +257,12 @@ fun AdviceSectionUser(
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(16.dp))
                 .background(introBrush)
-                .padding(horizontal = 16.dp, vertical = 14.dp),
+                // The latest-workout view lives in a fixed-height home card. Tighten
+                // its vertical padding so the complete stat grid stays inside it.
+                .padding(
+                    horizontal = 16.dp,
+                    vertical = if (showWorkoutStats) 10.dp else 14.dp
+                ),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             AnimatedContent(
@@ -333,46 +338,62 @@ fun AdviceSectionUser(
                             )
                             Text(
                                 text = lastWorkoutName,
-                                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-                                color = accent
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                color = accent,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                             if (linesToShow.isNotEmpty()) {
-                                Spacer(modifier = Modifier.height(8.dp))
-                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    linesToShow.forEach { line ->
-                                        val separatorIndex = line.indexOf(':')
-                                        val statText = buildAnnotatedString {
-                                            if (separatorIndex in 1 until line.lastIndex) {
-                                                append(line.substring(0, separatorIndex + 1))
-                                                withStyle(
-                                                    SpanStyle(
-                                                        color = Color.White.copy(alpha = 0.96f),
-                                                        fontWeight = FontWeight.Bold
-                                                    )
-                                                ) {
-                                                    append(" ")
-                                                    append(line.substring(separatorIndex + 1).trim())
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    // Two compact columns keep every workout detail in the
+                                    // card, while allowing Sets/Reps to wrap rather than get
+                                    // truncated with an ellipsis.
+                                    linesToShow.chunked(2).forEach { statRow ->
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            statRow.forEach { line ->
+                                                val separatorIndex = line.indexOf(':')
+                                                val statText = buildAnnotatedString {
+                                                    if (separatorIndex in 1 until line.lastIndex) {
+                                                        append(line.substring(0, separatorIndex + 1))
+                                                        withStyle(
+                                                            SpanStyle(
+                                                                color = Color.White.copy(alpha = 0.96f),
+                                                                fontWeight = FontWeight.Bold
+                                                            )
+                                                        ) {
+                                                            append(" ")
+                                                            append(line.substring(separatorIndex + 1).trim())
+                                                        }
+                                                    } else {
+                                                        withStyle(
+                                                            SpanStyle(
+                                                                color = Color.White.copy(alpha = 0.96f),
+                                                                fontWeight = FontWeight.Bold
+                                                            )
+                                                        ) {
+                                                            append(line)
+                                                        }
+                                                    }
                                                 }
-                                            } else {
-                                                withStyle(
-                                                    SpanStyle(
-                                                        color = Color.White.copy(alpha = 0.96f),
-                                                        fontWeight = FontWeight.Bold
-                                                    )
-                                                ) {
-                                                    append(line)
-                                                }
+                                                Text(
+                                                    text = statText,
+                                                    modifier = Modifier.weight(1f),
+                                                    style = MaterialTheme.typography.labelMedium.copy(
+                                                        fontWeight = FontWeight.Medium
+                                                    ),
+                                                    color = Color.White.copy(alpha = 0.74f),
+                                                    maxLines = 2,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            }
+                                            if (statRow.size == 1) {
+                                                Spacer(modifier = Modifier.weight(1f))
                                             }
                                         }
-                                        Text(
-                                            text = statText,
-                                            style = MaterialTheme.typography.bodyMedium.copy(
-                                                fontWeight = FontWeight.Medium
-                                            ),
-                                            color = Color.White.copy(alpha = 0.74f),
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
                                     }
                                 }
                             }

@@ -507,7 +507,9 @@ fun FloatingTaskbar(
                             }
                         }
 
-                        val effectiveCornerRadius = maxOf(cornerRadius, 32.dp)
+                        // Keep the frosted outer shell and the tinted taskbar edge on one
+                        // capsule shape. A 40dp minimum gives the 80dp-high bar fully rounded ends.
+                        val effectiveCornerRadius = maxOf(cornerRadius, 40.dp)
                         val containerShape = remember(effectiveCornerRadius) { RoundedCornerShape(effectiveCornerRadius) }
                         val accent = primaryColor
                         val pos = remember { Animatable(Offset.Zero, Offset.VectorConverter) }
@@ -695,7 +697,11 @@ fun FloatingTaskbar(
                                     modifier = Modifier
                                         .matchParentSize()
                                         .clip(containerShape)
-                                        .border(width = 1.dp, color =theme.primary.copy(alpha = 0.30f), shape = RoundedCornerShape(999.dp))
+                                        .border(
+                                            width = 1.dp,
+                                            color = theme.primary.copy(alpha = 0.30f),
+                                            shape = containerShape
+                                        )
                                         .padding(horizontal = 6.dp, vertical = 6.dp),
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
